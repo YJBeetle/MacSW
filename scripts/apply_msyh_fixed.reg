@@ -1,0 +1,58 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Fonts]
+"Microsoft YaHei & Microsoft YaHei UI (TrueType)"="msyh.ttc"
+"Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)"="msyhbd.ttc"
+"Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)"="msyhl.ttc"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"MS Shell Dlg"="Microsoft YaHei UI"
+"MS Shell Dlg 2"="Microsoft YaHei UI"
+"SimSun"="Microsoft YaHei UI"
+"NSimSun"="Microsoft YaHei UI"
+"宋体"="Microsoft YaHei UI"
+"新宋体"="Microsoft YaHei UI"
+"Tahoma"="Microsoft YaHei UI"
+"Segoe UI"="Microsoft YaHei UI"
+"Microsoft Sans Serif"="Microsoft YaHei UI"
+"Microsoft YaHei"="Microsoft YaHei UI"
+"微软雅黑"="Microsoft YaHei UI"
+"Tms Rmn"="Microsoft YaHei UI"
+"Helv"="Microsoft YaHei UI"
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"SimSun"="Microsoft YaHei UI"
+"NSimSun"="Microsoft YaHei UI"
+"@SimSun"="@Microsoft YaHei UI"
+"@NSimSun"="@Microsoft YaHei UI"
+"STSong"="Microsoft YaHei UI"
+"@STSong"="@Microsoft YaHei UI"
+"MS Shell Dlg"="Microsoft YaHei UI"
+"MS Shell Dlg 2"="Microsoft YaHei UI"
+"Tahoma"="Microsoft YaHei UI"
+"Segoe UI"="Microsoft YaHei UI"
+"Microsoft YaHei"="Microsoft YaHei UI"
+"宋体"="Microsoft YaHei UI"
+"新宋体"="Microsoft YaHei UI"
+"@宋体"="@Microsoft YaHei UI"
+"@新宋体"="@Microsoft YaHei UI"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink]
+"Microsoft Sans Serif"=hex(7):6d,00,73,00,79,00,68,00,2e,00,74,00,74,00,63,00,\
+  2c,00,4d,00,69,00,63,00,72,00,6f,00,73,00,6f,00,66,00,74,00,20,00,59,00,61,\
+  00,48,00,65,00,69,00,20,00,55,00,49,00,00,00,73,00,69,00,6d,00,73,00,75,00,\
+  6e,00,2e,00,74,00,74,00,63,00,2c,00,53,00,69,00,6d,00,53,00,75,00,6e,00,00,\
+  00,00,00
+"Tahoma"=hex(7):6d,00,73,00,79,00,68,00,2e,00,74,00,74,00,63,00,2c,00,4d,00,\
+  69,00,63,00,72,00,6f,00,73,00,6f,00,66,00,74,00,20,00,59,00,61,00,48,00,65,\
+  00,69,00,20,00,55,00,49,00,00,00,73,00,69,00,6d,00,73,00,75,00,6e,00,2e,00,\
+  74,00,74,00,63,00,2c,00,53,00,69,00,6d,00,53,00,75,00,6e,00,00,00,00,00
+"Segoe UI"=hex(7):6d,00,73,00,79,00,68,00,2e,00,74,00,74,00,63,00,2c,00,4d,00,\
+  69,00,63,00,72,00,6f,00,73,00,6f,00,66,00,74,00,20,00,59,00,61,00,48,00,65,\
+  00,69,00,20,00,55,00,49,00,00,00,73,00,69,00,6d,00,73,00,75,00,6e,00,2e,00,\
+  74,00,74,00,63,00,2c,00,53,00,69,00,6d,00,53,00,75,00,6e,00,00,00,00,00
+"Lucida Sans Unicode"=hex(7):6d,00,73,00,79,00,68,00,2e,00,74,00,74,00,63,00,\
+  2c,00,4d,00,69,00,63,00,72,00,6f,00,73,00,6f,00,66,00,74,00,20,00,59,00,61,\
+  00,48,00,65,00,69,00,20,00,55,00,49,00,00,00,73,00,69,00,6d,00,73,00,75,00,\
+  6e,00,2e,00,74,00,74,00,63,00,2c,00,53,00,69,00,6d,00,53,00,75,00,6e,00,00,\
+  00,00,00

@@ -1,0 +1,26 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"MS Shell Dlg"="SimSun"
+"MS Shell Dlg 2"="Tahoma"
+"SimSun"="STSong"
+"NSimSun"="STSong"
+"宋体"="STSong"
+"新宋体"="STSong"
+"Tms Rmn"="NSimSun"
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts\Replacements]
+"SimSun"="STSong"
+"NSimSun"="STSong"
+"@SimSun"="@STSong"
+"@NSimSun"="@STSong"
+"STSong"=-
+"@STSong"=-
+"MS Shell Dlg"=-
+"MS Shell Dlg 2"=-
+"Tahoma"=-
+"Segoe UI"=-
+"Microsoft YaHei"=-
+"Microsoft YaHei UI"=-
+"宋体"=-
+"新宋体"=-
