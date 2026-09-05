@@ -110,22 +110,43 @@ class SwUiDaemon {
 
                     EnumChildWindows(mdiDoc, delegate(IntPtr sibling, IntPtr l2) {
                         if (GetParent(sibling) == mdiDoc && sibling != child) {
+                            StringBuilder sibCls = new StringBuilder(256);
+                            GetClassName(sibling, sibCls, 256);
+                            StringBuilder sibTitle = new StringBuilder(256);
+                            GetWindowText(sibling, sibTitle, 256);
+                            string sc = sibCls.ToString();
+                            string st = sibTitle.ToString();
+
                             RECT rSib;
                             GetWindowRect(sibling, out rSib);
                             int sibW = rSib.Right - rSib.Left;
                             int sibH = rSib.Bottom - rSib.Top;
-                            
-                            // Check if sibling is the viewport container overlapping the tree
-                            if (sibW > 300 && sibH > 300 && (rSib.Left < treeRight - 5 || rSib.Left > treeRight + 10)) {
-                                POINT ptSibTopLeft = new POINT { X = rSib.Left, Y = rSib.Top };
-                                ScreenToClient(mdiDoc, ref ptSibTopLeft);
 
+                            POINT ptSibTopLeft = new POINT { X = rSib.Left, Y = rSib.Top };
+                            ScreenToClient(mdiDoc, ref ptSibTopLeft);
+
+                            // 3a. Docked Panels (e.g. DVEDockedContainer / PropertyManager):
+                            // These belong on the left docking site [0, DESIRED_PANEL_WIDTH].
+                            // They MUST NOT be stretched across the 3D viewport.
+                            if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
+                                if (ptSibTopLeft.X != 0 || sibW > DESIRED_PANEL_WIDTH + 10) {
+                                    SetWindowPos(sibling, IntPtr.Zero, 0, 0, DESIRED_PANEL_WIDTH, rDocClient.Bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+                                    RedrawWindow(sibling, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                                }
+                                return true;
+                            }
+
+                            // 3b. 3D Viewport MDI Frame (AfxMDIFrame140u):
+                            // This holds the CAMetalLayer CAD rendering canvas.
+                            // It MUST start to the right of the left panel (X = DESIRED_PANEL_WIDTH)
+                            // so CAMetalLayer does not overlap the GDI tree / PropertyManager.
+                            if (sc == "AfxMDIFrame140u" && sibW > 100 && sibH > 100) {
                                 int newX = Math.Max(ptTreeRight.X, DESIRED_PANEL_WIDTH);
                                 int newY = Math.Max(ptSibTopLeft.Y, 0);
                                 int newW = rDocClient.Right - newX;
                                 int newH = rDocClient.Bottom - newY;
 
-                                if (newW > 100 && newH > 100) {
+                                if (newW > 100 && newH > 100 && (Math.Abs(ptSibTopLeft.X - newX) > 2 || Math.Abs(sibW - newW) > 5)) {
                                     // Ensure WS_CLIPSIBLINGS
                                     int sibStyle = GetWindowLong(sibling, GWL_STYLE);
                                     if ((sibStyle & WS_CLIPSIBLINGS) == 0) {
