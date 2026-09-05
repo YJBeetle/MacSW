@@ -126,13 +126,8 @@ class SwUiDaemon {
                             ScreenToClient(mdiDoc, ref ptSibTopLeft);
 
                             // 3a. Docked Panels (e.g. DVEDockedContainer / PropertyManager):
-                            // These belong on the left docking site [0, DESIRED_PANEL_WIDTH].
-                            // They MUST NOT be stretched across the 3D viewport.
+                            // Leave them completely to SolidWorks' MFC docking manager so user can tab, drag, or dock them freely.
                             if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
-                                if (ptSibTopLeft.X != 0 || sibW > DESIRED_PANEL_WIDTH + 10) {
-                                    SetWindowPos(sibling, IntPtr.Zero, 0, 0, DESIRED_PANEL_WIDTH, rDocClient.Bottom, SWP_NOZORDER | SWP_NOACTIVATE);
-                                    RedrawWindow(sibling, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-                                }
                                 return true;
                             }
 

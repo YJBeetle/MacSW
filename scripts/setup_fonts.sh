@@ -33,6 +33,11 @@ if [ -d "${FONTS_DIR}" ]; then
             ln -sf msyh.ttc "${SW_DIR}/segoeui.ttf"
         fi
 
+        # 确保注册表 FontLink 与 FontSubstitutes 永久指向 Microsoft YaHei UI
+        if [ -f "${WORKSPACE_ROOT}/scripts/diagnostics/fix_fontlink.exe" ]; then
+            "${WINE:-wine}" "${WORKSPACE_ROOT}/scripts/diagnostics/fix_fontlink.exe" >/dev/null 2>&1 || true
+        fi
+
         echo "[SUCCESS] 字体配置就绪！"
     fi
 fi
