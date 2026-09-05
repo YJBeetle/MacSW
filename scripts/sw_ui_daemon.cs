@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Collections.Generic;
 
 class SwUiDaemon {
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -19,7 +20,16 @@ class SwUiDaemon {
     static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
     static extern IntPtr GetParent(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetDesktopWindow();
 
     [DllImport("user32.dll")]
     static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -66,12 +76,21 @@ class SwUiDaemon {
 
     const int GWL_STYLE = -16;
     const int GWL_EXSTYLE = -20;
+    const uint WS_POPUP = 0x80000000;
+    const uint WS_CHILD = 0x40000000;
     const int WS_EX_COMPOSITED = 0x02000000;
     const int WS_CLIPSIBLINGS = 0x04000000;
     const int WS_EX_TOOLWINDOW = 0x00000080;
     const int WS_EX_TOPMOST = 0x00000008;
+
+    static readonly IntPtr HWND_TOPMOST = (IntPtr)(-1);
+    const uint SWP_NOSIZE = 0x0001;
+    const uint SWP_NOMOVE = 0x0002;
     const uint SWP_NOZORDER = 0x0004;
     const uint SWP_NOACTIVATE = 0x0010;
+    const uint SWP_FRAMECHANGED = 0x0020;
+    const uint SWP_SHOWWINDOW = 0x0040;
+
     const uint RDW_INVALIDATE = 0x0001;
     const uint RDW_ERASE = 0x0004;
     const uint RDW_ALLCHILDREN = 0x0080;
@@ -105,6 +124,68 @@ class SwUiDaemon {
         }, IntPtr.Zero);
     }
 
+    // Path 1: Elevate floating panels & popups to independent Cocoa floating windows (NSFloatingWindowLevel)
+    static void ElevateFloatingAndPopups(uint swPid, IntPtr swMainHwnd) {
+        IntPtr desk = GetDesktopWindow();
+        List<IntPtr> wins = new List<IntPtr>();
+
+        EnumWindows(delegate(IntPtr hWnd, IntPtr l) {
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            if (pid == swPid) {
+                wins.Add(hWnd);
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        foreach (IntPtr h in wins) {
+            if (h == swMainHwnd) continue;
+
+            StringBuilder clsSb = new StringBuilder(256);
+            GetClassName(h, clsSb, 256);
+            string cls = clsSb.ToString();
+
+            StringBuilder titleSb = new StringBuilder(256);
+            GetWindowText(h, titleSb, 256);
+            string title = titleSb.ToString();
+
+            int style = GetWindowLong(h, GWL_STYLE);
+            int exstyle = GetWindowLong(h, GWL_EXSTYLE);
+            RECT r;
+            GetWindowRect(h, out r);
+            int w = r.Right - r.Left;
+            int hg = r.Bottom - r.Top;
+            bool vis = IsWindowVisible(h);
+
+            bool isPopup = ((uint)style & WS_POPUP) != 0;
+            bool isDialog = (cls == "#32770");
+            bool isMini = cls.Contains("MiniWnd") || cls.Contains("MiniFrame") || cls.Contains("CMiniDock") || title.Contains("Toolbar") || cls.Contains("SysFloatToolBar");
+
+            if (isDialog) {
+                FixDialogsAndButtons(h);
+                if ((exstyle & WS_EX_TOPMOST) == 0) {
+                    SetWindowLong(h, GWL_EXSTYLE, exstyle | WS_EX_TOPMOST);
+                    SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                }
+            } else if (isMini || (isPopup && w > 20 && hg > 20)) {
+                // Elevate floating toolbar / docking pane
+                if ((exstyle & WS_EX_TOPMOST) == 0 || (exstyle & WS_EX_TOOLWINDOW) == 0) {
+                    SetWindowLong(h, GWL_EXSTYLE, exstyle | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+                    IntPtr parent = GetParent(h);
+                    if (parent != desk && parent != IntPtr.Zero) {
+                        SetParent(h, desk);
+                    }
+                    SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                }
+
+                // Rescue lost or out-of-screen floating panels
+                if (vis && (r.Left < 0 || r.Top < 0 || r.Left > 2800 || w < 20 || hg < 20)) {
+                    SetWindowPos(h, HWND_TOPMOST, 700, 200, 360, 480, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+                }
+            }
+        }
+    }
+
     static void FixDocLayoutAndThemes(IntPtr swHwnd) {
         EnumChildWindows(swHwnd, delegate(IntPtr child, IntPtr l) {
             // 1. Strip WS_EX_COMPOSITED and ensure WS_CLIPSIBLINGS
@@ -126,11 +207,11 @@ class SwUiDaemon {
                 SetWindowTheme(child, " ", " ");
             }
 
-            // 3. Elevate Floating Tool Windows / Palettes (Path 1: Native Z-order over Metal)
+            // 3. Elevate Floating Tool Windows / Palettes inside child tree
             if (c.Contains("MiniFrame") || c.Contains("XTPDockingPaneMiniWnd") || t.Contains("Floating")) {
                 if ((exstyle & WS_EX_TOOLWINDOW) == 0 || (exstyle & WS_EX_TOPMOST) == 0) {
                     SetWindowLong(child, GWL_EXSTYLE, exstyle | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
-                    SetWindowPos(child, (IntPtr)(-1) /* HWND_TOPMOST */, 0, 0, 0, 0, 0x0001 | 0x0002 | SWP_NOACTIVATE);
+                    SetWindowPos(child, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE);
                 }
             }
 
@@ -169,14 +250,30 @@ class SwUiDaemon {
                             string st = sibTitle.ToString();
 
                             if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
-                                RECT rSib;
-                                GetWindowRect(sibling, out rSib);
-                                POINT ptSibTopRight = new POINT { X = rSib.Right, Y = rSib.Top };
-                                ScreenToClient(mdiDoc, ref ptSibTopRight);
+                                // Check if it has any visible children (actively displaying PropertyManager / Sketch Editor)
+                                bool hasActiveChildren = false;
+                                EnumChildWindows(sibling, delegate(IntPtr cChild, IntPtr lp3) {
+                                    if (IsWindowVisible(cChild)) {
+                                        RECT rc;
+                                        GetWindowRect(cChild, out rc);
+                                        if ((rc.Right - rc.Left) > 20 && (rc.Bottom - rc.Top) > 20) {
+                                            hasActiveChildren = true;
+                                            return false;
+                                        }
+                                    }
+                                    return true;
+                                }, IntPtr.Zero);
 
-                                // If docked on the left half of the MDI window, expand maxDockRight
-                                if (ptSibTopRight.X > maxDockRight && ptSibTopRight.X < rDocClient.Right - 200) {
-                                    maxDockRight = ptSibTopRight.X;
+                                if (hasActiveChildren) {
+                                    RECT rSib;
+                                    GetWindowRect(sibling, out rSib);
+                                    POINT ptSibTopRight = new POINT { X = rSib.Right, Y = rSib.Top };
+                                    ScreenToClient(mdiDoc, ref ptSibTopRight);
+
+                                    // If docked on the left half of the MDI window, expand maxDockRight
+                                    if (ptSibTopRight.X > maxDockRight && ptSibTopRight.X < rDocClient.Right - 200) {
+                                        maxDockRight = ptSibTopRight.X;
+                                    }
                                 }
                             }
                         }
@@ -232,20 +329,38 @@ class SwUiDaemon {
         Console.WriteLine(watch ? "[SwUiDaemon] Watch mode active (200ms)..." : "[SwUiDaemon] Single scan...");
 
         do {
+            uint swPid = 0;
+            IntPtr swMainHwnd = IntPtr.Zero;
+
             EnumWindows(delegate(IntPtr top, IntPtr l) {
                 StringBuilder t = new StringBuilder(256);
                 GetWindowText(top, t, 256);
                 string titleStr = t.ToString();
+
+                if (titleStr.Contains("SOLIDWORKS Premium") || titleStr.Contains("SOLIDWORKS Standard") || titleStr.Contains("SOLIDWORKS Professional") || (titleStr.StartsWith("SOLIDWORKS") && !titleStr.Contains("#"))) {
+                    swMainHwnd = top;
+                    GetWindowThreadProcessId(top, out swPid);
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+
+            if (swMainHwnd != IntPtr.Zero && swPid != 0) {
+                FixDocLayoutAndThemes(swMainHwnd);
+                ElevateFloatingAndPopups(swPid, swMainHwnd);
+            }
+
+            // Global safety: catch any unparented #32770 dialogs
+            EnumWindows(delegate(IntPtr top, IntPtr l) {
                 StringBuilder c = new StringBuilder(256);
                 GetClassName(top, c, 256);
-                string clsStr = c.ToString();
-
-                if (titleStr.Contains("SOLIDWORKS")) {
-                    FixDocLayoutAndThemes(top);
+                if (c.ToString() == "#32770") {
                     FixDialogsAndButtons(top);
-                } else if (clsStr == "#32770") {
-                    // Fix standard dialogs
-                    FixDialogsAndButtons(top);
+                    int exstyle = GetWindowLong(top, GWL_EXSTYLE);
+                    if ((exstyle & WS_EX_TOPMOST) == 0) {
+                        SetWindowLong(top, GWL_EXSTYLE, exstyle | WS_EX_TOPMOST);
+                        SetWindowPos(top, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    }
                 }
                 return true;
             }, IntPtr.Zero);
