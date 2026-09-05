@@ -240,7 +240,16 @@ WineSW/
    export CX_ROOT="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
    "${CX_ROOT}/bin/wine" regedit "Z:\\Volumes\\Data\\Workspace\\WineSW\\scripts\\restore_stsong.reg"
    ```
-3. **许可服务状态排查：**
+3. **为什么绝对不能开启“使用软件 OpenGL”？**
+   - SolidWorks 2025 的现代视口重度依赖 OpenGL 4.5 与现代着色器流管线；
+   - macOS 官方自 2018 年已全面弃用 OpenGL，在 Apple Silicon（ARM64 + Rosetta 2）转译环境下，Wine 内置的 CPU 软件渲染器会触发多线程自旋锁（Spinlock）死锁，导致主线程无响应卡死、COM 服务挂起；
+   - 必须保持默认硬件加速（通过 D3DMetal / MoltenVK 转译），切勿在选项中开启软件 OpenGL。
+
+4. **属性管理器（PropertyManager）展开被 3D 视口遮挡与 CommandLink 方块字解决：**
+   - **属性栏避让：** SolidWorks 支持在左侧特征树旁并排展开属性面板（`DVEDockedContainer`）。`sw_ui_daemon` 已升级智能感知，自适应计算所有左侧停靠面板的实际右边界 `maxDockRight`，确保 3D 视口自动避让，永不遮盖属性栏；
+   - **CommandLink 方块字根治：** Windows 任务对话框及 OLE 挂起对话框的 CommandLink 按钮默认调用了旧版主题的 `Tahoma` 字体（缺少 CJK 字形）。`sw_ui_daemon` 自动检测并剥离旧主题、注入 `Segoe UI Semibold` 中文字体，彻底根治方块字现象。
+
+5. **许可服务状态排查：**
    随时使用管理脚本查询许可健康状态：
    ```bash
    ./scripts/manage_license.sh status
