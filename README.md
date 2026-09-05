@@ -116,6 +116,28 @@
 
 ---
 
+### 故障排查：编辑草图时 3D 视口黑屏（Sketch Mode Black Screen）深度剖析与修复
+
+#### 1. 现象描述
+在零部件空闲/正常查看状态下 3D 视口渲染正常，但一旦进入“草图绘制 / 编辑草图”模式，整个 3D 舞台区域瞬间全黑，退出草图后恢复正常。
+
+#### 2. 根因深度剖析
+1. **SolidWorks 动态属性停靠栏机制：**
+   当用户点击“草图绘制”时，SolidWorks 会在文档 MDIFrame（`mdiDoc`）下动态实例化一个属性管理器停靠容器 **`DVEDockedContainer`**（包含 `uiVisualSketchEditorView_c` 与 `Dve sheet`）。
+2. **UI 守护进程（`sw_ui_daemon`）误判：**
+   原守护进程在隔离 3D 视口与特征树时，仅依据尺寸条件（`sibW > 300 && sibH > 300 && overlapping`）遍历兄弟窗口，将刚创建的 `DVEDockedContainer` 误判为 3D 视口；
+3. **视口遮挡全黑：**
+   守护进程将 `DVEDockedContainer` 强制移动并放大到视口区域（`X = 310, W = clientWidth - 310`），而 `DVEDockedContainer` 内部挂载了尺寸高达 `10000x10000` 且背景全黑的不透明 `Dve sheet` 底板，导致其完全覆压在真正的 3D 视口（`AfxMDIFrame140u`）之上，造成草图模式下视口全黑。
+
+#### 3. 彻底修复方案
+在 [`scripts/sw_ui_daemon.cs`](file:///Volumes/Data/Workspace/WineSW/scripts/sw_ui_daemon.cs) 中实现严格的窗口类名与语义类型过滤：
+* **3D 视口主容器（`AfxMDIFrame140u`）：** 保持在右侧舞台区域（`X = DESIRED_PANEL_WIDTH, W = rDocClient.Right - DESIRED_PANEL_WIDTH`），与 CAMetalLayer 硬件加速视口物理隔离；
+* **所有停靠栏与属性页（`DVEDockedContainer` / `AfxFrameOrView140u`）：** 严格限制在左侧停靠区（`X = 0, W = DESIRED_PANEL_WIDTH`），绝不拉伸至 3D 视口区。
+
+修复后，草图几何线条（圆/椭圆/直线等）、坐标轴系、尺寸标注与左侧属性管理器完全同步显示，视口保持流畅的硬件渲染。
+
+---
+
 ### 常见问答：能否直接使用 macOS 苹果原生字体（如苹方 PingFang）？
 
 * **苹方（PingFang SC）无法直接使用：**
