@@ -38,7 +38,8 @@ class TestGdiText {
             "MS Shell Dlg",
             "MS Shell Dlg 2",
             "Tahoma",
-            "Segoe UI"
+            "Segoe UI",
+            "Segoe UI Semibold"
         };
         string text = "文件(F)  新建(N)...  零件  装配体  工程图  确定";
 
