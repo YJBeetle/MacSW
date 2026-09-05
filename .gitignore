@@ -1,0 +1,7 @@
+# Ignore large extracted files, bottles and installation media
+*.iso
+*.zip
+.DS_Store
+C/
+bottle/
+prefixes/
