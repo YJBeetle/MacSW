@@ -42,8 +42,21 @@ class SwUiDaemon {
     [DllImport("user32.dll")]
     static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
 
+    [DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
     [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string pszSubIdList);
+
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateFontW(
+        int nHeight, int nWidth, int nEscapement, int nOrientation, int fnWeight,
+        uint fdwItalic, uint fdwUnderline, uint fdwStrikeOut, uint fdwCharSet,
+        uint fdwOutputPrecision, uint fdwClipPrecision, uint fdwQuality,
+        uint fdwPitchAndFamily, string lpszFace);
 
     [StructLayout(LayoutKind.Sequential)]
     struct RECT { public int Left, Top, Right, Bottom; }
@@ -55,6 +68,8 @@ class SwUiDaemon {
     const int GWL_EXSTYLE = -20;
     const int WS_EX_COMPOSITED = 0x02000000;
     const int WS_CLIPSIBLINGS = 0x04000000;
+    const int WS_EX_TOOLWINDOW = 0x00000080;
+    const int WS_EX_TOPMOST = 0x00000008;
     const uint SWP_NOZORDER = 0x0004;
     const uint SWP_NOACTIVATE = 0x0010;
     const uint RDW_INVALIDATE = 0x0001;
@@ -62,9 +77,33 @@ class SwUiDaemon {
     const uint RDW_ALLCHILDREN = 0x0080;
     const uint RDW_UPDATENOW = 0x0100;
     const uint RDW_FRAME = 0x0400;
+    const uint WM_SETFONT = 0x0030;
 
-    // Desired width of the left FeatureManager docking panel so all 5 tabs fit
+    // Standard width of the left FeatureManager docking panel
     const int DESIRED_PANEL_WIDTH = 310;
+
+    static IntPtr hFontSegoe = IntPtr.Zero;
+
+    // Fix Dialogs & CommandLink Buttons font (root cause: old Tahoma theme font has no CJK)
+    static void FixDialogsAndButtons(IntPtr topHwnd) {
+        EnumChildWindows(topHwnd, delegate(IntPtr child, IntPtr l) {
+            StringBuilder cls = new StringBuilder(256);
+            GetClassName(child, cls, 256);
+            if (cls.ToString() == "Button") {
+                int style = GetWindowLong(child, GWL_STYLE);
+                int btnType = style & 0xF;
+                // BS_COMMANDLINK (0xE) or BS_DEFCOMMANDLINK (0xF)
+                if (btnType == 0x0000000E || btnType == 0x0000000F) {
+                    if (hFontSegoe == IntPtr.Zero) {
+                        hFontSegoe = CreateFontW(-14, 0, 0, 0, 600, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI Semibold");
+                    }
+                    SetWindowTheme(child, " ", " ");
+                    SendMessage(child, WM_SETFONT, hFontSegoe, (IntPtr)1);
+                }
+            }
+            return true;
+        }, IntPtr.Zero);
+    }
 
     static void FixDocLayoutAndThemes(IntPtr swHwnd) {
         EnumChildWindows(swHwnd, delegate(IntPtr child, IntPtr l) {
@@ -87,7 +126,15 @@ class SwUiDaemon {
                 SetWindowTheme(child, " ", " ");
             }
 
-            // 3. Fix Viewport / Tree Container layout and overlap
+            // 3. Elevate Floating Tool Windows / Palettes (Path 1: Native Z-order over Metal)
+            if (c.Contains("MiniFrame") || c.Contains("XTPDockingPaneMiniWnd") || t.Contains("Floating")) {
+                if ((exstyle & WS_EX_TOOLWINDOW) == 0 || (exstyle & WS_EX_TOPMOST) == 0) {
+                    SetWindowLong(child, GWL_EXSTYLE, exstyle | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
+                    SetWindowPos(child, (IntPtr)(-1) /* HWND_TOPMOST */, 0, 0, 0, 0, 0x0001 | 0x0002 | SWP_NOACTIVATE);
+                }
+            }
+
+            // 4. Fix Viewport / Tree Container / Docked PropertyManager layout
             if (t == "Tree Container Wnd") {
                 IntPtr mdiDoc = GetParent(child);
                 if (mdiDoc != IntPtr.Zero) {
@@ -108,14 +155,40 @@ class SwUiDaemon {
                     POINT ptTreeRight = new POINT { X = treeRight, Y = rTree.Top };
                     ScreenToClient(mdiDoc, ref ptTreeRight);
 
+                    // Determine right edge of all docked panels on the left side
+                    int maxDockRight = Math.Max(ptTreeRight.X, DESIRED_PANEL_WIDTH);
+
+                    // Pass A: Find any visible companion docked container (e.g. DVEDockedContainer / PropertyManager)
                     EnumChildWindows(mdiDoc, delegate(IntPtr sibling, IntPtr l2) {
-                        if (GetParent(sibling) == mdiDoc && sibling != child) {
+                        if (GetParent(sibling) == mdiDoc && sibling != child && IsWindowVisible(sibling)) {
                             StringBuilder sibCls = new StringBuilder(256);
                             GetClassName(sibling, sibCls, 256);
                             StringBuilder sibTitle = new StringBuilder(256);
                             GetWindowText(sibling, sibTitle, 256);
                             string sc = sibCls.ToString();
                             string st = sibTitle.ToString();
+
+                            if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
+                                RECT rSib;
+                                GetWindowRect(sibling, out rSib);
+                                POINT ptSibTopRight = new POINT { X = rSib.Right, Y = rSib.Top };
+                                ScreenToClient(mdiDoc, ref ptSibTopRight);
+
+                                // If docked on the left half of the MDI window, expand maxDockRight
+                                if (ptSibTopRight.X > maxDockRight && ptSibTopRight.X < rDocClient.Right - 200) {
+                                    maxDockRight = ptSibTopRight.X;
+                                }
+                            }
+                        }
+                        return true;
+                    }, IntPtr.Zero);
+
+                    // Pass B: Adjust 3D Viewport MDI Frame (AfxMDIFrame140u) to avoid covering any docked panels
+                    EnumChildWindows(mdiDoc, delegate(IntPtr sibling, IntPtr l2) {
+                        if (GetParent(sibling) == mdiDoc && sibling != child) {
+                            StringBuilder sibCls = new StringBuilder(256);
+                            GetClassName(sibling, sibCls, 256);
+                            string sc = sibCls.ToString();
 
                             RECT rSib;
                             GetWindowRect(sibling, out rSib);
@@ -125,24 +198,16 @@ class SwUiDaemon {
                             POINT ptSibTopLeft = new POINT { X = rSib.Left, Y = rSib.Top };
                             ScreenToClient(mdiDoc, ref ptSibTopLeft);
 
-                            // 3a. Docked Panels (e.g. DVEDockedContainer / PropertyManager):
-                            // Leave them completely to SolidWorks' MFC docking manager so user can tab, drag, or dock them freely.
-                            if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
-                                return true;
-                            }
-
-                            // 3b. 3D Viewport MDI Frame (AfxMDIFrame140u):
-                            // This holds the CAMetalLayer CAD rendering canvas.
-                            // It MUST start to the right of the left panel (X = DESIRED_PANEL_WIDTH)
-                            // so CAMetalLayer does not overlap the GDI tree / PropertyManager.
+                            // 3D Viewport MDI Frame (AfxMDIFrame140u) holds the CAMetalLayer CAD rendering canvas.
+                            // It MUST start at or to the right of maxDockRight so CAMetalLayer never overlaps
+                            // either the FeatureTree or the docked PropertyManager.
                             if (sc == "AfxMDIFrame140u" && sibW > 100 && sibH > 100) {
-                                int newX = Math.Max(ptTreeRight.X, DESIRED_PANEL_WIDTH);
+                                int newX = maxDockRight;
                                 int newY = Math.Max(ptSibTopLeft.Y, 0);
                                 int newW = rDocClient.Right - newX;
                                 int newH = rDocClient.Bottom - newY;
 
                                 if (newW > 100 && newH > 100 && (Math.Abs(ptSibTopLeft.X - newX) > 2 || Math.Abs(sibW - newW) > 5)) {
-                                    // Ensure WS_CLIPSIBLINGS
                                     int sibStyle = GetWindowLong(sibling, GWL_STYLE);
                                     if ((sibStyle & WS_CLIPSIBLINGS) == 0) {
                                         SetWindowLong(sibling, GWL_STYLE, sibStyle | WS_CLIPSIBLINGS);
@@ -170,8 +235,17 @@ class SwUiDaemon {
             EnumWindows(delegate(IntPtr top, IntPtr l) {
                 StringBuilder t = new StringBuilder(256);
                 GetWindowText(top, t, 256);
-                if (t.ToString().Contains("SOLIDWORKS")) {
+                string titleStr = t.ToString();
+                StringBuilder c = new StringBuilder(256);
+                GetClassName(top, c, 256);
+                string clsStr = c.ToString();
+
+                if (titleStr.Contains("SOLIDWORKS")) {
                     FixDocLayoutAndThemes(top);
+                    FixDialogsAndButtons(top);
+                } else if (clsStr == "#32770") {
+                    // Fix standard dialogs
+                    FixDialogsAndButtons(top);
                 }
                 return true;
             }, IntPtr.Zero);
