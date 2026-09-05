@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2025\General]
+"Color Theme ID"=dword:00000000
+"Background Appearance"=dword:00000000
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2025\Color Schemes\01 - Scheme Folder]
+"Match Background in FeatureManager"=dword:00000001
