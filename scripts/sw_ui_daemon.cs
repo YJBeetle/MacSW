@@ -58,6 +58,9 @@ class SwUiDaemon {
     [DllImport("user32.dll")]
     static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int nIndex);
+
     [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string pszSubIdList);
 
@@ -178,9 +181,17 @@ class SwUiDaemon {
                     SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 }
 
-                // Rescue lost or out-of-screen floating panels
-                if (vis && (r.Left < 0 || r.Top < 0 || r.Left > 2800 || w < 20 || hg < 20)) {
-                    SetWindowPos(h, HWND_TOPMOST, 700, 200, 360, 480, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+                // Rescue lost or out-of-screen floating panels (multi-monitor aware)
+                int vx = GetSystemMetrics(76); // SM_XVIRTUALSCREEN
+                int vy = GetSystemMetrics(77); // SM_YVIRTUALSCREEN
+                int vcx = GetSystemMetrics(78); // SM_CXVIRTUALSCREEN
+                int vcy = GetSystemMetrics(79); // SM_CYVIRTUALSCREEN
+                if (vcx <= 0) vcx = 3008;
+                if (vcy <= 0) vcy = 2000;
+
+                bool isOutOfBounds = (r.Right < vx + 20 || r.Left > (vx + vcx - 20) || r.Bottom < vy + 20 || r.Top > (vy + vcy - 20));
+                if (vis && (isOutOfBounds || w < 20 || hg < 20)) {
+                    SetWindowPos(h, HWND_TOPMOST, vx + 700, vy + 200, 360, 480, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
                 }
             }
         }
