@@ -80,6 +80,53 @@
 
 ---
 
+### 难题三：保存提示弹窗 CommandLink 按钮方块字（`保存文档(S)` / `不保存(N)`）
+
+#### 1. 现象与排查
+在常规界面汉化完成后，关闭未保存零件时触发的「保存修改过的文档」对话框中：
+- 窗口标题、说明正文、底部「显示详情」与「取消」按钮均能完美显示中文；
+- 唯独中间两个核心命令按钮出现豆腐块：`-> □□□□(S)` 与 `-> □□□(N)`。
+
+#### 2. 根因深度剖析
+1. **TaskDialog CommandLink 专用字重机制：** Windows Vista/7/10/11 的 TaskDialog（任务对话框）中，CommandLink 大按钮的主标题硬编码调用了 **`Segoe UI Semibold`**（半粗体，对应物理字体文件为 `seguisb.ttf` / `seguisbi.ttf`）；
+2. **应用程序私有字体劫持：** SolidWorks 程序安装目录下（`Program Files/SOLIDWORKS Corp/SOLIDWORKS/`）物理打包了纯西文的 `segoeui.ttf`。根据 Win32 动态链接库与资源加载优先级，当前工作目录优先级高于系统 Windows 目录，导致 SolidWorks 进程优先强行加载了其自带的西文字体。
+
+#### 3. 解决方案
+- **扩展 Segoe UI 全套字族软链接：** 在 [`scripts/setup_fonts.sh`](file:///Volumes/Data/Workspace/WineSW/scripts/setup_fonts.sh) 中将 `seguisb.ttf`（半粗体）、`seguisbi.ttf`（粗斜体）、`seguibl.ttf`（特粗体）全套映射至 `msyhbd.ttc`（微软雅黑粗体）；
+- **覆盖 SolidWorks 本地纯西文字体：** 脚本自动检测并用 `msyh.ttc` 替换 SolidWorks 程序目录下的 `segoeui.ttf`，彻底根除私有字体劫持。
+
+---
+
+### 深度剖析：macOS 下 3D 视口（Metal / CAMetalLayer）与 Win32 GDI 跨图层重叠原理
+
+在排查界面渲染遮挡时，我们发现一个底层核心架构问题：**“舞台（3D 视口）遮盖了上层/同层控件”**。
+
+#### 1. 为什么 Win32 原生的窗口裁剪机制失效？
+* 在真实 Windows 上，DirectX 视口与 Win32 GDI 控件（如 Ribbon 标签栏、停靠面板）都在桌面窗口管理器（DWM）的管理下，可以通过 `WS_CLIPSIBLINGS`（兄弟窗口裁剪）在像素着色阶段进行遮挡剔除；
+* 但在 macOS + Wine (CrossOver D3DMetal/DXVK) 环境下，3D 视口被映射为 macOS 原生 GPU 硬件加速的 **`CAMetalLayer`**，而 GDI 控件是由 CPU/2D 渲染的 AppKit 图层；
+* macOS CoreAnimation 合成器中，`CAMetalLayer` 是一个独立的高优先级直接渲染表面，**无法感知 Win32 的 GDI 裁剪矩形（HRGN）**。任何几何重叠，Metal 都会以 60 FPS 强行覆盖底层 GDI 画面。
+
+#### 2. 可选的解决方案对比：
+1. **几何坐标边界硬隔离（本方案采纳，零开销最佳实践）：**
+   通过 `sw_ui_daemon` 限制 3D 视口的几何位置，使其在 X 轴与 Y 轴上永远不与 Ribbon 或左侧面板重叠（`X >= 310, Y >= Ribbon.Bottom`）。既保留 Metal 硬件满血性能，又杜绝遮盖冲突；
+2. **macOS 驱动层 CALayer 层级排序（系统级方案）：**
+   修改 Wine `macdriver`，使所有 GDI 子窗口也生成独立的 `CALayer` 并设置更高的 `zPosition`，但会增加合成器负担并可能引发重绘撕裂；
+3. **软件 OpenGL 模式（回退方案）：**
+   在 SolidWorks 选项中勾选“使用软件 OpenGL”，视口退化为纯 CPU 2D 贴图，虽彻底解决跨图层问题，但会完全损失 Apple Silicon M2 Max GPU 硬件加速。
+
+---
+
+### 常见问答：能否直接使用 macOS 苹果原生字体（如苹方 PingFang）？
+
+* **苹方（PingFang SC）无法直接使用：**
+  macOS 的 `PingFang.ttc` 是 Apple 专有字体，重度依赖 Apple AAT 与特有字符表，**缺少 Windows GDI 必须的 TrueType Windows Unicode cmap 表（Platform ID 3）**。在 Wine/FreeType 下直接加载会导致字符全空或方块甚至 GDI 崩溃；
+* **华文黑体（STHeiti）可用：**
+  `/System/Library/Fonts/STHeiti Light.ttc` 具备标准 Windows cmap，Wine 可以识别，但字形较旧，高清屏美观度不如现代字体；
+* **思源黑体（Source Han Sans）与微软雅黑（当前方案）：**
+  跨平台 OpenType 标准字体，与 Wine FreeType 完全兼容。当前默认选用的 **`Microsoft YaHei UI`** 在字宽与行高上与 SolidWorks 原生 Windows 界面对齐度最高，布局最为协调。
+
+---
+
 ## 目录结构说明
 
 ```
