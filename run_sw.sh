@@ -19,15 +19,25 @@ echo "工作目录: ${SW_DIR}"
 echo "调试日志: ${LOG_FILE}"
 echo "=========================================="
 
+export LANG="zh_CN.UTF-8"
+export LC_ALL="zh_CN.UTF-8"
+
 # 1. 确保 FlexNet 许可服务正常运行
 "${WORKSPACE_ROOT}/scripts/manage_license.sh" start
+"${WORKSPACE_ROOT}/scripts/setup_fonts.sh"
 
-# 2. 图形与转译环境配置 (CrossOver D3DMetal / DXVK)
-export WINEDLLOVERRIDES="d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b;mscoree=d"
+# 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++)
+export WINEDLLOVERRIDES="concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
 export DXVK_LOG_LEVEL="info"
 export MVK_CONFIG_LOG_LEVEL="2"
 
-# 3. 调试输出配置 (默认记录 warn/err/fixme)
+# 3. 启动 UI 守护进程（自动修复 3D 视口重叠、MFC 停靠面板黑屏与通用控件主题）
+echo "[INFO] 启动 SolidWorks UI 守护进程 (sw_ui_daemon)..."
+"${WINE}" "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" --watch >/dev/null 2>&1 &
+DAEMON_PID=$!
+trap 'kill ${DAEMON_PID} 2>/dev/null || true' EXIT
+
+# 4. 调试输出配置 (默认记录 warn/err/fixme)
 export WINEDEBUG="${WINEDEBUG:-+loaddll,-all,fixme-all}"
 
 cd "${SW_DIR}"
