@@ -4,98 +4,38 @@ using System.Runtime.InteropServices;
 
 class InspectDialog {
     [DllImport("user32.dll")]
-    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    public static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc lpEnumFunc, IntPtr lParam);
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern bool EnumChildWindows(IntPtr hWnd, EnumChildWindowsProc lpEnumFunc, IntPtr lParam);
-    public delegate bool EnumChildWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern int GetClassNameW(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
-    [DllImport("user32.dll")]
-    public static extern IntPtr SendMessageW(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern int GetClassNameW(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
-    public static extern IntPtr GetDC(IntPtr hWnd);
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-    [DllImport("user32.dll")]
-    public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
-    [DllImport("gdi32.dll")]
-    public static extern IntPtr GetCurrentObject(IntPtr hdc, uint uObjectType);
-
-    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
-    public static extern int GetTextFaceW(IntPtr hdc, int nCount, StringBuilder lpFaceName);
-
-    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
-    public static extern int GetObjectW(IntPtr hgdiobj, int cbBuffer, ref LOGFONTW lpvObject);
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct LOGFONTW {
-        public int lfHeight;
-        public int lfWidth;
-        public int lfEscapement;
-        public int lfOrientation;
-        public int lfWeight;
-        public byte lfItalic;
-        public byte lfUnderline;
-        public byte lfStrikeOut;
-        public byte lfCharSet;
-        public byte lfOutPrecision;
-        public byte lfClipPrecision;
-        public byte lfQuality;
-        public byte lfPitchAndFamily;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        public string lfFaceName;
-    }
-
-    const uint WM_GETFONT = 0x0031;
-    const uint OBJ_FONT = 6;
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
 
     static void Main() {
-        EnumWindows((hWnd, lParam) => {
-            StringBuilder title = new StringBuilder(256);
-            GetWindowTextW(hWnd, title, 256);
-            string titleStr = title.ToString();
-            if (titleStr.Contains("SOLIDWORKS") || titleStr.Contains("新建") || titleStr.Contains("SLDWORKS")) {
-                Console.WriteLine(string.Format("Window HWND: {0:X8}, Title: '{1}'", hWnd.ToInt64(), titleStr));
-                
-                EnumChildWindows(hWnd, (childHwnd, childParam) => {
-                    StringBuilder cls = new StringBuilder(256);
-                    GetClassNameW(childHwnd, cls, 256);
-                    StringBuilder text = new StringBuilder(256);
-                    GetWindowTextW(childHwnd, text, 256);
+        IntPtr dlg = (IntPtr)0x6039C;
+        StringBuilder title = new StringBuilder(256);
+        GetWindowTextW(dlg, title, 256);
+        RECT r;
+        GetWindowRect(dlg, out r);
+        Console.WriteLine(string.Format("Dialog 0x{0:X} Title='{1}' Rect=({2},{3},{4},{5})", dlg.ToInt64(), title, r.Left, r.Top, r.Right, r.Bottom));
 
-                    IntPtr hFont = SendMessageW(childHwnd, WM_GETFONT, IntPtr.Zero, IntPtr.Zero);
-                    string fontDesc = "No Font (Default)";
-                    if (hFont != IntPtr.Zero) {
-                        LOGFONTW lf = new LOGFONTW();
-                        if (GetObjectW(hFont, Marshal.SizeOf(typeof(LOGFONTW)), ref lf) > 0) {
-                            fontDesc = string.Format("Face='{0}', H={1}, CS={2}", lf.lfFaceName, lf.lfHeight, lf.lfCharSet);
-                        }
-                    }
-
-                    // Check DC font
-                    IntPtr hdc = GetDC(childHwnd);
-                    string dcFace = "N/A";
-                    if (hdc != IntPtr.Zero) {
-                        StringBuilder sbDc = new StringBuilder(128);
-                        GetTextFaceW(hdc, 128, sbDc);
-                        dcFace = sbDc.ToString();
-                        ReleaseDC(childHwnd, hdc);
-                    }
-
-                    Console.WriteLine(string.Format("  Child: {0:X8}, Cls: '{1}', Font: [{2}], DCFace: '{3}', Text: '{4}'",
-                        childHwnd.ToInt64(), cls, fontDesc, dcFace, text));
-
-                    return true;
-                }, IntPtr.Zero);
-            }
+        EnumChildWindows(dlg, (child, lp) => {
+            StringBuilder cls = new StringBuilder(256);
+            GetClassNameW(child, cls, 256);
+            StringBuilder text = new StringBuilder(256);
+            GetWindowTextW(child, text, 256);
+            RECT rc;
+            GetWindowRect(child, out rc);
+            Console.WriteLine(string.Format("  Control 0x{0:X} Cls='{1}' Text='{2}' Rect=({3},{4},{5},{6})",
+                child.ToInt64(), cls, text, rc.Left, rc.Top, rc.Right, rc.Bottom));
             return true;
         }, IntPtr.Zero);
     }
