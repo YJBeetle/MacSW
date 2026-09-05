@@ -125,7 +125,7 @@ class SwUiDaemon {
     }
 
     // Path 1: Elevate floating panels & popups to independent Cocoa floating windows (NSFloatingWindowLevel)
-    static void ElevateFloatingAndPopups(uint swPid, IntPtr swMainHwnd) {
+    static void ElevateFloatingAndPopups(uint swPid, List<IntPtr> swDocWindows) {
         IntPtr desk = GetDesktopWindow();
         List<IntPtr> wins = new List<IntPtr>();
 
@@ -139,7 +139,7 @@ class SwUiDaemon {
         }, IntPtr.Zero);
 
         foreach (IntPtr h in wins) {
-            if (h == swMainHwnd) continue;
+            if (swDocWindows != null && swDocWindows.Contains(h)) continue;
 
             StringBuilder clsSb = new StringBuilder(256);
             GetClassName(h, clsSb, 256);
@@ -330,40 +330,41 @@ class SwUiDaemon {
 
         do {
             uint swPid = 0;
-            IntPtr swMainHwnd = IntPtr.Zero;
+            List<IntPtr> swDocWindows = new List<IntPtr>();
 
             EnumWindows(delegate(IntPtr top, IntPtr l) {
                 StringBuilder t = new StringBuilder(256);
                 GetWindowText(top, t, 256);
                 string titleStr = t.ToString();
 
-                if (titleStr.Contains("SOLIDWORKS Premium") || titleStr.Contains("SOLIDWORKS Standard") || titleStr.Contains("SOLIDWORKS Professional") || (titleStr.StartsWith("SOLIDWORKS") && !titleStr.Contains("#"))) {
-                    swMainHwnd = top;
-                    GetWindowThreadProcessId(top, out swPid);
-                    return false;
-                }
-                return true;
-            }, IntPtr.Zero);
-
-            if (swMainHwnd != IntPtr.Zero && swPid != 0) {
-                FixDocLayoutAndThemes(swMainHwnd);
-                ElevateFloatingAndPopups(swPid, swMainHwnd);
-            }
-
-            // Global safety: catch any unparented #32770 dialogs
-            EnumWindows(delegate(IntPtr top, IntPtr l) {
                 StringBuilder c = new StringBuilder(256);
                 GetClassName(top, c, 256);
-                if (c.ToString() == "#32770") {
+                string clsStr = c.ToString();
+
+                if (clsStr == "#32770") {
+                    // Global safety: catch any dialogs, fix fonts and elevate to topmost
                     FixDialogsAndButtons(top);
                     int exstyle = GetWindowLong(top, GWL_EXSTYLE);
                     if ((exstyle & WS_EX_TOPMOST) == 0) {
                         SetWindowLong(top, GWL_EXSTYLE, exstyle | WS_EX_TOPMOST);
                         SetWindowPos(top, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                     }
+                } else if (titleStr.Contains("SOLIDWORKS")) {
+                    swDocWindows.Add(top);
+                    if (swPid == 0) {
+                        GetWindowThreadProcessId(top, out swPid);
+                    }
                 }
-                return true;
+                return true; // NEVER return false! Process all windows!
             }, IntPtr.Zero);
+
+            foreach (IntPtr w in swDocWindows) {
+                FixDocLayoutAndThemes(w);
+            }
+
+            if (swPid != 0) {
+                ElevateFloatingAndPopups(swPid, swDocWindows);
+            }
 
             if (watch) {
                 Thread.Sleep(200);
