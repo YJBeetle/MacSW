@@ -5,3 +5,8 @@
 C/
 bottle/
 prefixes/
+
+# Temporary logs, captures and artifacts
+scratch/
+*.png
+

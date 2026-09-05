@@ -15,8 +15,11 @@ if [ ! -d "${BOTTLE_REAL_PATH}" ]; then
     "${CX_ROOT}/bin/cxbottle" --bottle "${CX_BOTTLE}" --create --template win10_64
 fi
 
-if [ ! -e "${BOTTLE_LINK}" ]; then
-    echo "[INFO] 创建工作区软链接: ${BOTTLE_LINK} -> ${BOTTLE_REAL_PATH}"
+if [ -L "${BOTTLE_LINK}" ] && [ "$(readlink "${BOTTLE_LINK}")" = "${BOTTLE_REAL_PATH}" ]; then
+    echo "[INFO] 工作区软链接正常: ${BOTTLE_LINK}"
+else
+    echo "[INFO] 创建/更新工作区软链接: ${BOTTLE_LINK} -> ${BOTTLE_REAL_PATH}"
+    rm -rf "${BOTTLE_LINK}"
     ln -s "${BOTTLE_REAL_PATH}" "${BOTTLE_LINK}"
 fi
 
