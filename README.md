@@ -249,8 +249,14 @@ WineSW/
    - **属性栏避让：** SolidWorks 支持在左侧特征树旁并排展开属性面板（`DVEDockedContainer`）。`sw_ui_daemon` 已升级智能感知，自适应计算所有左侧停靠面板的实际右边界 `maxDockRight`，确保 3D 视口自动避让，永不遮盖属性栏；
    - **CommandLink 方块字根治：** Windows 任务对话框及 OLE 挂起对话框的 CommandLink 按钮默认调用了旧版主题的 `Tahoma` 字体（缺少 CJK 字形）。`sw_ui_daemon` 自动检测并剥离旧主题、注入 `Segoe UI Semibold` 中文字体，彻底根治方块字现象。
 
-5. **许可服务状态排查：**
+5. **浮动面板/工具条与弹出对话框原生图层提权（路径 1 核心机制）：**
+   - **架构机理：** 传统 Wine 下子窗口（GDI）无法穿透覆盖 macOS 原生硬件视口（`CAMetalLayer`）。路径 1 方案免改 Wine 源码，通过守护进程将所有浮动工具栏（如“2D 到 3D”）、Docking 面板与弹出对话框（`#32770`）赋予 `WS_EX_TOOLWINDOW | WS_EX_TOPMOST` 样式，并将父窗口指向系统桌面；
+   - **原生图层提升：** Wine `winemac.drv` 驱动在接收到该 Win32 状态后，自动在 macOS 端创建独立的 Cocoa `NSWindow` 并配置为 `NSFloatingWindowLevel`（Layer 21）。在 WindowServer 层面超越 3D 视口（Layer 0），实现任意拖拽浮动均保持在最前；
+   - **失踪面板寻回：** 若用户将面板拖动到屏幕盲区或异常视口死角，`sw_ui_daemon` 会自动检测并安全复位其屏幕坐标至可见安全区（X=700, Y=200）。
+
+6. **许可服务状态排查：**
    随时使用管理脚本查询许可健康状态：
    ```bash
    ./scripts/manage_license.sh status
    ```
+
