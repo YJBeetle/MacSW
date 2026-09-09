@@ -36,9 +36,9 @@ class IsoService {
     func findSetupExe(in directoryPath: String) -> String? {
         let fileManager = FileManager.default
         let candidates = [
-            directoryPath + "/setup.exe",
-            directoryPath + "/sldim/sldim.exe",
-            directoryPath + "/sldim/setup.exe"
+            directoryPath + "/swwi/data/solidworks.msi",
+            directoryPath + "/sldim/sldIM.exe",
+            directoryPath + "/setup.exe"
         ]
         for candidate in candidates {
             if fileManager.fileExists(atPath: candidate) {

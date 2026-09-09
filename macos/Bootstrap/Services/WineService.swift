@@ -33,11 +33,12 @@ class WineService {
             let wine = self.getWineBinary()
             let task = Process()
             task.launchPath = "/bin/bash"
+            let runCmd = setupExe.hasSuffix(".msi") ? "msiexec /i \"\(setupExe)\"" : "\"\(setupExe)\""
             let script = """
             export WINEPREFIX='\(winePrefix)'
             export CX_BOTTLE='SolidWorks2025'
             export LC_ALL='zh_CN.UTF-8'
-            /usr/bin/arch -x86_64 '\(wine)' '\(setupExe)'
+            /usr/bin/arch -x86_64 '\(wine)' \(runCmd)
             """
             task.arguments = ["-c", script]
             task.launch()
