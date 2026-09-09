@@ -10,7 +10,7 @@ SOURCES_DIR="${WORKSPACE_ROOT}/sources/wine-crossover"
 PATCHES_DIR="${WORKSPACE_ROOT}/patches/wine-crossover"
 BUILD_DIR="${WORKSPACE_ROOT}/build/wine-crossover"
 DIST_DIR="${WORKSPACE_ROOT}/dist"
-TARGET_ARCH="$(uname -m)" # arm64 or x86_64
+TARGET_ARCH="x86_64" # Always build x86_64 for Rosetta 2 execution of Windows x86/x64 binaries
 
 DRY_RUN=false
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
@@ -102,9 +102,10 @@ if [ ! -f "Makefile" ]; then
         --with-metal \
         --with-coreaudio \
         --disable-tests \
-        CC="${CLANG_BIN}" \
-        CXX="${CLANGXX_BIN}" \
-        CFLAGS="-O2 -pipe"
+        --host=x86_64-apple-darwin \
+        CC="${CLANG_BIN} -arch x86_64" \
+        CXX="${CLANGXX_BIN} -arch x86_64" \
+        CFLAGS="-O2 -pipe -arch x86_64"
 fi
 
 echo "==> 正在执行并行编译 (make -j${JOBS})..."
