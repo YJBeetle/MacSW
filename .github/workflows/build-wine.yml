@@ -15,6 +15,7 @@ on:
 
 env:
   ACTIONS_RUNNER_FORCE_NODE24: "true"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
 jobs:
   build-macsw-wine:
@@ -30,7 +31,8 @@ jobs:
 
       - name: Setup Homebrew Build Dependencies
         run: |
-          brew install bison flex pkg-config mingw-w64 molten-vk gnutls
+          brew install lld llvm bison flex pkg-config mingw-w64 molten-vk gnutls
+          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/flex/bin" >> $GITHUB_PATH
 

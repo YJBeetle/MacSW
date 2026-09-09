@@ -62,6 +62,11 @@ if [ "${DRY_RUN}" = true ]; then
 fi
 
 # 3. 检查构建依赖
+# 优先使用 Homebrew LLVM 工具链 (支持 PE 交叉构建与 lld)
+if [ -d "/opt/homebrew/opt/llvm/bin" ]; then
+    export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
+fi
+
 echo "==> [3/5] 检查构建工具链..."
 REQUIRED_TOOLS=("clang" "make" "bison" "flex" "pkg-config")
 MISSING_TOOLS=()
@@ -73,8 +78,15 @@ done
 
 if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
     echo "==> [ERROR] 缺少必要工具: ${MISSING_TOOLS[*]}"
-    echo "    请在 macOS 上通过 Homebrew 安装: brew install bison flex pkg-config mingw-w64 molten-vk"
+    echo "    请在 macOS 上通过 Homebrew 安装: brew install lld llvm bison flex pkg-config mingw-w64 molten-vk"
     exit 1
+fi
+
+CLANG_BIN="$(command -v clang)"
+CLANGXX_BIN="$(command -v clang++)"
+if [ -x "/opt/homebrew/opt/llvm/bin/clang" ]; then
+    CLANG_BIN="/opt/homebrew/opt/llvm/bin/clang"
+    CLANGXX_BIN="/opt/homebrew/opt/llvm/bin/clang++"
 fi
 
 # 4. 配置与编译 (Configure & Make)
@@ -90,8 +102,8 @@ if [ ! -f "Makefile" ]; then
         --with-metal \
         --with-coreaudio \
         --disable-tests \
-        CC="clang" \
-        CXX="clang++" \
+        CC="${CLANG_BIN}" \
+        CXX="${CLANGXX_BIN}" \
         CFLAGS="-O2 -pipe"
 fi
 
