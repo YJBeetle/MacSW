@@ -1,0 +1,5 @@
+[submodule "sources/wine-crossover"]
+	path = sources/wine-crossover
+	url = https://github.com/Gcenx/winecx.git
+	shallow = true
+	branch = crossover-wine-23.7.1

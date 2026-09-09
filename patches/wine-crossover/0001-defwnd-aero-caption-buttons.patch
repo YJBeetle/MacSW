@@ -1,0 +1,212 @@
+From 4df24e5a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e Mon Sep 17 00:00:00 2001
+From: Antigravity <macsw@antigravity.internal>
+Date: Wed, 9 Sep 2026 19:00:00 +0800
+Subject: [PATCH 1/2] user32: Implement Windows 7 Aero style caption buttons in DrawFrameControl
+
+Enhance UITOOLS_DrawFrameCaption to render high-fidelity Windows 7 Aero style
+minimize, restore/maximize, and close buttons into a 32-bit ARGB DIB.
+This replaces the legacy Win95-style monochrome buttons across all MDI
+child windows, custom toolbars, and caption bars natively.
+
+---
+ dlls/user32/uitools.c | 215 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 214 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/user32/uitools.c b/dlls/user32/uitools.c
+index a1b2c3d..e5f6a7b 100644
+--- a/dlls/user32/uitools.c
++++ b/dlls/user32/uitools.c
+@@ -35,6 +35,214 @@
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(uitools);
++
++/* ========================================================================= */
++/* Windows 7 Aero Caption Button Renderer (MacSW Native Patch)               */
++/* ========================================================================= */
++
++static inline unsigned int blend_channel(unsigned int b, unsigned int f, unsigned int a) {
++    return ((f * a) + (b * (255 - a))) / 255;
++}
++
++static inline unsigned int blend_rgb(unsigned int bg, unsigned int fg, unsigned int a) {
++    unsigned int br = (bg >> 16) & 0xFF, bg_c = (bg >> 8) & 0xFF, bb = bg & 0xFF;
++    unsigned int fr = (fg >> 16) & 0xFF, fg_c = (fg >> 8) & 0xFF, fb = fg & 0xFF;
++    return (blend_channel(br, fr, a) << 16) |
++           (blend_channel(bg_c, fg_c, a) << 8) |
++           blend_channel(bb, fb, a);
++}
++
++static BOOL draw_aero_caption_button(HDC hdc, const RECT *r, UINT uFlags)
++{
++    int width = r->right - r->left;
++    int height = r->bottom - r->top;
++    if (width <= 0 || height <= 0) return FALSE;
++
++    BOOL isClose = (uFlags & DFCS_CAPTIONCLOSE) != 0;
++    BOOL isRestore = (uFlags & DFCS_CAPTIONRESTORE) != 0;
++    BOOL isMin = (uFlags & DFCS_CAPTIONMIN) != 0;
++    BOOL isMax = (uFlags & DFCS_CAPTIONMAX) != 0;
++    BOOL isPushed = (uFlags & DFCS_PUSHED) != 0;
++    BOOL isHot = (uFlags & DFCS_HOT) != 0;
++
++    BITMAPINFO bmi;
++    memset(&bmi, 0, sizeof(bmi));
++    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
++    bmi.bmiHeader.biWidth = width;
++    bmi.bmiHeader.biHeight = -height; /* top-down DIB */
++    bmi.bmiHeader.biPlanes = 1;
++    bmi.bmiHeader.biBitCount = 32;
++    bmi.bmiHeader.biCompression = BI_RGB;
++
++    unsigned int *pixels = HeapAlloc(GetProcessHeap(), 0, width * height * sizeof(unsigned int));
++    if (!pixels) return FALSE;
++
++    int state = isPushed ? 2 : (isHot ? 1 : 0);
++
++    for (int y = 0; y < height; y++) {
++        float t = (float)y / (float)(height > 1 ? height - 1 : 1);
++        unsigned int col;
++        if (isClose) {
++            if (state == 0) {
++                unsigned int r_c = (unsigned int)(190.0f + 35.0f * (1.0f - t));
++                unsigned int g_c = (unsigned int)(195.0f + 30.0f * (1.0f - t));
++                unsigned int b_c = (unsigned int)(205.0f + 30.0f * (1.0f - t));
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            } else if (state == 1) {
++                unsigned int r_c = (unsigned int)(235.0f + 15.0f * (1.0f - t));
++                unsigned int g_c = (unsigned int)(75.0f + 50.0f * (1.0f - t));
++                unsigned int b_c = (unsigned int)(70.0f + 45.0f * (1.0f - t));
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            } else {
++                unsigned int r_c = (unsigned int)(190.0f + 25.0f * t);
++                unsigned int g_c = (unsigned int)(45.0f + 20.0f * t);
++                unsigned int b_c = (unsigned int)(45.0f + 20.0f * t);
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            }
++        } else {
++            if (state == 0) {
++                unsigned int r_c = (unsigned int)(195.0f + 35.0f * (1.0f - t));
++                unsigned int g_c = (unsigned int)(200.0f + 35.0f * (1.0f - t));
++                unsigned int b_c = (unsigned int)(210.0f + 35.0f * (1.0f - t));
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            } else if (state == 1) {
++                unsigned int r_c = (unsigned int)(210.0f + 40.0f * (1.0f - t));
++                unsigned int g_c = (unsigned int)(230.0f + 25.0f * (1.0f - t));
++                unsigned int b_c = (unsigned int)(250.0f + 5.0f * (1.0f - t));
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            } else {
++                unsigned int r_c = (unsigned int)(160.0f + 30.0f * t);
++                unsigned int g_c = (unsigned int)(185.0f + 30.0f * t);
++                unsigned int b_c = (unsigned int)(215.0f + 30.0f * t);
++                col = (r_c << 16) | (g_c << 8) | b_c;
++            }
++        }
++
++        for (int x = 0; x < width; x++) {
++            unsigned int cur = col;
++            if (x == 0 || x == width - 1 || y == 0 || y == height - 1) {
++                if (isClose && state > 0) cur = 0x9B2323;
++                else if (!isClose && state == 1) cur = 0x5C92BA;
++                else if (!isClose && state == 2) cur = 0x3C6A90;
++                else cur = 0xA2A6AC;
++            } else if (y == 1) {
++                cur = blend_rgb(cur, 0xFFFFFF, (isClose && state > 0) ? 100 : 180);
++            }
++            pixels[y * width + x] = cur;
++        }
++    }
++
++    unsigned int iconCol = (isClose && state > 0) ? 0xFFFFFF : 0x2C353F;
++    unsigned int glowCol = (isClose && state > 0) ? 0x880000 : 0xFFFFFF;
++    int cx = width / 2;
++    int cy = height / 2;
++
++    if (isMin) {
++        int my = cy + 3;
++        for (int dx = -4; dx <= 4; dx++) {
++            int px = cx + dx;
++            if (px >= 1 && px < width - 1 && my >= 1 && my < height - 1) {
++                pixels[(my - 1) * width + px] = blend_rgb(pixels[(my - 1) * width + px], glowCol, 120);
++                pixels[my * width + px] = iconCol;
++                pixels[(my + 1) * width + px] = iconCol;
++            }
++        }
++    } else if (isRestore) {
++        /* Two overlapping Aero cascading windows */
++        for (int k = -1; k <= 3; k++) {
++            int px = cx + k;
++            int py = cy - 4;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            py = cy + 1;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++        for (int k = -4; k <= 1; k++) {
++            int py = cy + k;
++            int px = cx - 1;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            px = cx + 3;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++        for (int k = -3; k <= 1; k++) {
++            int px = cx + k;
++            int py = cy - 2;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            py = cy + 3;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++        for (int k = -2; k <= 3; k++) {
++            int py = cy + k;
++            int px = cx - 3;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            px = cx + 1;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++    } else if (isMax) {
++        for (int k = -4; k <= 4; k++) {
++            int px = cx + k;
++            int py = cy - 3;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            py = cy + 3;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++        for (int k = -3; k <= 3; k++) {
++            int py = cy + k;
++            int px = cx - 4;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++            px = cx + 4;
++            if (px >= 0 && px < width && py >= 0 && py < height) pixels[py * width + px] = iconCol;
++        }
++    } else if (isClose) {
++        for (int d = -4; d <= 4; d++) {
++            for (int t_off = -1; t_off <= 1; t_off++) {
++                int px1 = cx + d + t_off, py1 = cy + d;
++                int px2 = cx + d + t_off, py2 = cy - d;
++                if (px1 >= 1 && px1 < width - 1 && py1 >= 1 && py1 < height - 1) {
++                    pixels[py1 * width + px1] = (t_off == 0) ? iconCol : blend_rgb(pixels[py1 * width + px1], iconCol, 180);
++                }
++                if (px2 >= 1 && px2 < width - 1 && py2 >= 1 && py2 < height - 1) {
++                    pixels[py2 * width + px2] = (t_off == 0) ? iconCol : blend_rgb(pixels[py2 * width + px2], iconCol, 180);
++                }
++            }
++        }
++    }
++
++    SetDIBitsToDevice(hdc, r->left, r->top, width, height, 0, 0, 0, height, pixels, &bmi, DIB_RGB_COLORS);
++    HeapFree(GetProcessHeap(), 0, pixels);
++    return TRUE;
++}
++
+ static BOOL UITOOLS_DrawFrameCaption( HDC hdc, LPRECT rc, UINT uFlags )
+ {
++    /* Route caption buttons to Windows 7 Aero Native Renderer */
++    if (uFlags & (DFCS_CAPTIONMIN | DFCS_CAPTIONMAX | DFCS_CAPTIONRESTORE | DFCS_CAPTIONCLOSE))
++    {
++        return draw_aero_caption_button(hdc, rc, uFlags);
++    }
++
+     LOGPEN pl;
+     HPEN hpen, hpenOld;
+     HBRUSH hbrush, hbrushOld;
+-- 
+2.44.0

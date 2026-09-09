@@ -11,4 +11,6 @@ prefixes/
 scratch/
 *.png
 scripts/diagnostics/*.exe
+build/
+dist/
 

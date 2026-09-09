@@ -1,0 +1,37 @@
+From 5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f Mon Sep 17 00:00:00 2001
+From: Antigravity <macsw@antigravity.internal>
+Date: Wed, 9 Sep 2026 19:10:00 +0800
+Subject: [PATCH 2/2] winemac.drv: Ensure CAMetalLayer depth ordering allows child Win32 controls to render on top
+
+Prevent 3D Metal swapchains from obscuring Win32 overlay controls, docking
+tabs, and MDI frame elements by enforcing layer.zPosition separation.
+
+---
+ dlls/winemac.drv/cocoa_window.m | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+index b2c3d4e..f6a7b8c 100644
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -320,6 +320,18 @@ - (void) setContentView:(NSView*)aView
+         [super setContentView:aView];
+         [self updateLayerHierarchy];
+     }
++
++    /* Ensure CAMetalLayer renders at base zPosition, keeping child GDI views visible */
++    if ([aView.layer isKindOfClass:NSClassFromString(@"CAMetalLayer")])
++    {
++        aView.layer.zPosition = -1.0;
++        for (NSView *subview in aView.subviews)
++        {
++            if (subview.layer && subview.layer.zPosition < 0.0)
++                subview.layer.zPosition = 0.0;
++        }
++    }
++
+     return self;
+ }
+ 
+-- 
+2.44.0
