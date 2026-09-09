@@ -25,6 +25,8 @@ export LC_ALL="zh_CN.UTF-8"
 # 1. 确保 FlexNet 许可服务正常运行
 "${WORKSPACE_ROOT}/scripts/manage_license.sh" start
 "${WORKSPACE_ROOT}/scripts/setup_fonts.sh"
+"${WINE}" regedit "${WORKSPACE_ROOT}/scripts/disable_login_mgr.reg" >/dev/null 2>&1 || true
+
 
 # 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++)
 export WINEDLLOVERRIDES="concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"

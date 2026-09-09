@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2025\General]
+"EnableSldLoginManager"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\SolidWorks\SOLIDWORKS 2025\General]
+"EnableSldLoginManager"=dword:00000000
+

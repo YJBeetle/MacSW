@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Collections.Generic;
+using WineSW.Daemon;
 
 class SwUiDaemon {
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -59,6 +60,9 @@ class SwUiDaemon {
     static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
     static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("uxtheme.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
@@ -93,6 +97,8 @@ class SwUiDaemon {
     const uint SWP_NOACTIVATE = 0x0010;
     const uint SWP_FRAMECHANGED = 0x0020;
     const uint SWP_SHOWWINDOW = 0x0040;
+    const uint SWP_HIDEWINDOW = 0x0080;
+    const int SW_HIDE = 0;
 
     const uint RDW_INVALIDATE = 0x0001;
     const uint RDW_ERASE = 0x0004;
@@ -106,8 +112,13 @@ class SwUiDaemon {
 
     static IntPtr hFontSegoe = IntPtr.Zero;
 
+    static HashSet<IntPtr> _processedDialogs = new HashSet<IntPtr>();
+
     // Fix Dialogs & CommandLink Buttons font (root cause: old Tahoma theme font has no CJK)
     static void FixDialogsAndButtons(IntPtr topHwnd) {
+        if (_processedDialogs.Contains(topHwnd)) return;
+        _processedDialogs.Add(topHwnd);
+
         EnumChildWindows(topHwnd, delegate(IntPtr child, IntPtr l) {
             StringBuilder cls = new StringBuilder(256);
             GetClassName(child, cls, 256);
@@ -125,6 +136,21 @@ class SwUiDaemon {
             }
             return true;
         }, IntPtr.Zero);
+    }
+
+    static bool IsLoginManagerDialog(IntPtr hDlg) {
+        bool isLogin = false;
+        EnumChildWindows(hDlg, delegate(IntPtr child, IntPtr l) {
+            StringBuilder txt = new StringBuilder(512);
+            GetWindowText(child, txt, 512);
+            string s = txt.ToString();
+            if (s.Contains("Login Manager") || s.Contains("SOLIDWORKS Login Manager")) {
+                isLogin = true;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return isLogin;
     }
 
     // Path 1: Elevate floating panels & popups to independent Cocoa floating windows (NSFloatingWindowLevel)
@@ -148,11 +174,16 @@ class SwUiDaemon {
             GetClassName(h, clsSb, 256);
             string cls = clsSb.ToString();
 
+            // CRITICAL: NEVER touch menus, dropdowns, combo popups or tooltips!
+            // Touching these windows causes active dropdown menus to turn blank/white!
+            if (cls == "#32768" || cls.Contains("Menu") || cls.Contains("Popup") || cls.Contains("ComboLBox") || cls.Contains("tooltips_class32")) {
+                continue;
+            }
+
             StringBuilder titleSb = new StringBuilder(256);
             GetWindowText(h, titleSb, 256);
             string title = titleSb.ToString();
 
-            int style = GetWindowLong(h, GWL_STYLE);
             int exstyle = GetWindowLong(h, GWL_EXSTYLE);
             RECT r;
             GetWindowRect(h, out r);
@@ -160,18 +191,35 @@ class SwUiDaemon {
             int hg = r.Bottom - r.Top;
             bool vis = IsWindowVisible(h);
 
-            bool isPopup = ((uint)style & WS_POPUP) != 0;
             bool isDialog = (cls == "#32770");
             bool isMini = cls.Contains("MiniWnd") || cls.Contains("MiniFrame") || cls.Contains("CMiniDock") || title.Contains("Toolbar") || cls.Contains("SysFloatToolBar");
 
             if (isDialog) {
+                // Intercept and suppress Login Manager dialog if it ever appears
+                bool isLoginManager = false;
+                EnumChildWindows(h, delegate(IntPtr child, IntPtr l) {
+                    StringBuilder txt = new StringBuilder(512);
+                    GetWindowText(child, txt, 512);
+                    string s = txt.ToString();
+                    if (s.Contains("Login Manager") || s.Contains("SOLIDWORKS Login Manager")) {
+                        isLoginManager = true;
+                    }
+                    return true;
+                }, IntPtr.Zero);
+
+                if (isLoginManager) {
+                    SetWindowPos(h, IntPtr.Zero, -10000, -10000, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_HIDEWINDOW);
+                    ShowWindow(h, SW_HIDE);
+                    continue;
+                }
+
                 FixDialogsAndButtons(h);
                 if ((exstyle & WS_EX_TOPMOST) == 0) {
                     SetWindowLong(h, GWL_EXSTYLE, exstyle | WS_EX_TOPMOST);
                     SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 }
-            } else if (isMini || (isPopup && w > 20 && hg > 20)) {
-                // Elevate floating toolbar / docking pane
+            } else if (isMini) {
+                // Elevate ONLY recognized floating toolbars / docking panes (NEVER arbitrary popups or menus)
                 if ((exstyle & WS_EX_TOPMOST) == 0 || (exstyle & WS_EX_TOOLWINDOW) == 0) {
                     SetWindowLong(h, GWL_EXSTYLE, exstyle | WS_EX_TOOLWINDOW | WS_EX_TOPMOST);
                     IntPtr parent = GetParent(h);
@@ -353,6 +401,11 @@ class SwUiDaemon {
                 string clsStr = c.ToString();
 
                 if (clsStr == "#32770") {
+                    if (IsLoginManagerDialog(top)) {
+                        SetWindowPos(top, IntPtr.Zero, -10000, -10000, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_HIDEWINDOW);
+                        ShowWindow(top, SW_HIDE);
+                        return true;
+                    }
                     // Global safety: catch any dialogs, fix fonts and elevate to topmost
                     FixDialogsAndButtons(top);
                     int exstyle = GetWindowLong(top, GWL_EXSTYLE);
@@ -375,6 +428,7 @@ class SwUiDaemon {
 
             if (swPid != 0) {
                 ElevateFloatingAndPopups(swPid, swDocWindows);
+                AeroCaptionHookManager.EnsureHooked(swPid);
             }
 
             if (watch) {
