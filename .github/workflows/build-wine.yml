@@ -13,6 +13,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  ACTIONS_RUNNER_FORCE_NODE24: "true"
+
 jobs:
   build-macsw-wine:
     runs-on: macos-14 # Apple Silicon M1 runner

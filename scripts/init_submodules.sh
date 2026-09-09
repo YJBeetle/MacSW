@@ -21,7 +21,7 @@ if [ ! -d "${SUBMODULE_PATH}/.git" ] && [ ! -f "${SUBMODULE_PATH}/.git" ]; then
     echo "==> 正在执行浅克隆 (depth=1) sources/wine-crossover ..."
     git submodule update --init --recursive --depth 1 sources/wine-crossover || {
         echo "==> [WARN] 标准 submodule update 失败，尝试直接 git clone --depth 1 ..."
-        git clone --depth 1 -b crossover-wine-23.7.1 https://github.com/Gcenx/winecx.git "${SUBMODULE_PATH}"
+        git clone --depth 1 -b master https://github.com/Gcenx/wine.git "${SUBMODULE_PATH}"
     }
 else
     echo "==> Submodule sources/wine-crossover 已经就绪。"
