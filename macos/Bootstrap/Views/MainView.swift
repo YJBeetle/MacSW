@@ -1,16 +1,18 @@
 import SwiftUI
 
 struct MainView: View {
-    @StateObject private var appState = AppState()
+    @ObservedObject var state: AppState
 
     var body: some View {
-        Group {
-            if appState.isInstalled {
-                DashboardView(state: appState)
+        VStack(spacing: 0) {
+            if state.isInstalled {
+                DashboardView(state: state)
             } else {
-                WizardView(state: appState)
+                WizardView(state: state)
             }
         }
-        .frame(minWidth: 500, minHeight: 380)
+        .onAppear {
+            state.checkLicenseStatus()
+        }
     }
 }

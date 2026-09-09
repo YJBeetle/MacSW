@@ -3,12 +3,13 @@ import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
+    let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let contentView = MainView()
+        let contentView = MainView(state: appState)
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false

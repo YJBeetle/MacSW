@@ -98,7 +98,7 @@ struct DashboardView: View {
             }
         }
         .padding(24)
-        .frame(width: 500, height: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func launchApp() {

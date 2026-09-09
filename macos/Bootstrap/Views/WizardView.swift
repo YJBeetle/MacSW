@@ -121,11 +121,10 @@ struct WizardView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(state.selectedIsoPath == nil || isProcessing)
             }
         }
         .padding(24)
-        .frame(width: 520, height: 460)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func chooseIso() {

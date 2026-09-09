@@ -20,9 +20,7 @@ class AppState: ObservableObject {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         self.bottlePath = appSupport.appendingPathComponent("MacSW/bottle")
         self.sldworksExePath = self.bottlePath.appendingPathComponent("drive_c/Program Files/SOLIDWORKS Corp/SOLIDWORKS/SLDWORKS.exe")
-        
-        checkInstallation()
-        checkLicenseStatus()
+        self.isInstalled = FileManager.default.fileExists(atPath: self.sldworksExePath.path)
     }
 
     func checkInstallation() {
