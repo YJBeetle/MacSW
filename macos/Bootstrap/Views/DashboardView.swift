@@ -16,7 +16,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("SolidWorks for macOS")
                         .font(.system(size: 17, weight: .bold))
-                    Text("由 MacSW 独立 Wine-crossover 引擎驱动")
+                    Text("由 WineHQ 强力驱动")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
