@@ -1,0 +1,68 @@
+name: Build & Package MacSW.app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'macos/**'
+      - 'scripts/make_app.sh'
+      - 'scripts/sw_ui_daemon.*'
+      - 'resources/**'
+      - '.github/workflows/build-app.yml'
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-package:
+    runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout MacSW Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Cache Mono & Dist Assets
+        uses: actions/cache@v4
+        with:
+          path: |
+            dist/wine-mono-*.tar.xz
+            ~/Library/Caches/wine/
+          key: wine-mono-10.4.1
+
+      - name: Ensure Dist Runtime
+        run: |
+          mkdir -p dist
+          echo "==> 检查 Wine 运行时状态..."
+          ls -lh dist/ || true
+
+      - name: Build and Package MacSW.app
+        run: |
+          chmod +x scripts/make_app.sh macos/Bootstrap/build_bootstrap.sh
+          ./scripts/make_app.sh
+
+      - name: Archive App Bundle
+        run: |
+          cd build/app
+          ditto -c -k --sequesterRsrc --keepParent "MacSW.app" "MacSW-macOS.zip"
+          ls -lh "MacSW-macOS.zip"
+
+      - name: Upload MacSW App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacSW-macOS-App
+          path: build/app/MacSW-macOS.zip
+          retention-days: 14
+
+      - name: Publish Release Assets (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/MacSW-macOS.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
