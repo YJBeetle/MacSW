@@ -40,8 +40,12 @@ if [ -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
 fi
 
 # 4. 集成定制版 Wine Runtime (如果本地有编译产物)
-WINE_TAR="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-arm64.tar.gz"
-if [ -f "${WINE_TAR}" ]; then
+WINE_TAR="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64.tar.gz"
+if [ ! -f "${WINE_TAR}" ]; then
+    WINE_TAR="$(ls -1 "${WORKSPACE_ROOT}/dist"/wine-crossover-macsw-*.tar.gz 2>/dev/null | head -n 1 || true)"
+fi
+
+if [ -n "${WINE_TAR}" ] && [ -f "${WINE_TAR}" ]; then
     echo "==> 正在解压并内置 Wine Runtime: ${WINE_TAR}..."
     mkdir -p "${FRAMEWORKS_DIR}/wine"
     tar -xzf "${WINE_TAR}" -C "${FRAMEWORKS_DIR}/wine"

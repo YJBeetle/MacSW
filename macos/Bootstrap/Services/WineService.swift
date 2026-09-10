@@ -14,23 +14,30 @@ class WineService {
     }
 
     func getWineBinary() -> String {
-        // 1. 优先使用具备 x86_64 转译执行能力的 wineloader（原生支持 Windows x86/x64 PE，且不受外部容器检测限制）
+        // 1. 最高优先级：检查 App Bundle 内置的定制 Wine Runtime (Contents/Frameworks/wine)
+        let bundleFrameworks = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine")
+        let candidates = [
+            bundleFrameworks.appendingPathComponent("bin/wine64").path,
+            bundleFrameworks.appendingPathComponent("bin/wineloader").path,
+            bundleFrameworks.appendingPathComponent("bin/wine").path
+        ]
+        for c in candidates {
+            if FileManager.default.isExecutableFile(atPath: c) {
+                return c
+            }
+        }
+
+        // 2. 次优：CrossOver 官方环境 (系统安装，作为备用)
         let cxLoader = "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader"
         if FileManager.default.isExecutableFile(atPath: cxLoader) {
             return cxLoader
         }
 
-        // 2. 检查系统其他 x86_64/WoW64 Wine
+        // 3. 检查系统其他 x86_64/WoW64 Wine
         for sysWine in ["/opt/homebrew/bin/wine64", "/usr/local/bin/wine", "/opt/homebrew/bin/wine"] {
             if FileManager.default.isExecutableFile(atPath: sysWine) {
                 return sysWine
             }
-        }
-
-        // 3. 检查 Bundle 内置 Wine
-        let bundleWine = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine/bin/wine").path
-        if FileManager.default.isExecutableFile(atPath: bundleWine) {
-            return bundleWine
         }
 
         if FileManager.default.isExecutableFile(atPath: "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine") {
@@ -43,7 +50,8 @@ class WineService {
         let wineBin = self.getWineBinary()
         let wineDir = URL(fileURLWithPath: wineBin).deletingLastPathComponent().deletingLastPathComponent().path
         let wineLib = "\(wineDir)/lib"
-        let cxRoot = "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
+        let isBundleWine = wineBin.contains("Contents/Frameworks/wine")
+        let cxRoot = isBundleWine ? wineDir : "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
         
         return """
         export WINEPREFIX='\(winePrefix)'

@@ -62,12 +62,15 @@ if [ "${DRY_RUN}" = true ]; then
 fi
 
 # 3. 检查构建依赖
-# 优先使用 Homebrew LLVM 工具链 (支持 PE 交叉构建与 lld)
-if [ -d "/opt/homebrew/opt/llvm/bin" ]; then
-    export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
-fi
+BREW_PREFIX="$(brew --prefix 2>/dev/null || echo "/usr/local")"
+export PATH="${BREW_PREFIX}/opt/llvm/bin:${BREW_PREFIX}/opt/bison/bin:${BREW_PREFIX}/opt/flex/bin:$PATH"
 
-echo "==> [3/5] 检查构建工具链..."
+# 导出 Homebrew 关键开发库搜索路径（彻底解决 freetype / gnutls / molten-vk 找不到问题）
+export PKG_CONFIG_PATH="${BREW_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/opt/freetype/lib/pkgconfig:${BREW_PREFIX}/opt/gnutls/lib/pkgconfig:${BREW_PREFIX}/opt/molten-vk/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CPATH="${BREW_PREFIX}/include:${BREW_PREFIX}/opt/freetype/include/freetype2:${CPATH:-}"
+export LIBRARY_PATH="${BREW_PREFIX}/lib:${LIBRARY_PATH:-}"
+
+echo "==> [3/5] 检查构建工具链 (Brew 前缀: ${BREW_PREFIX})..."
 REQUIRED_TOOLS=("clang" "make" "bison" "flex" "pkg-config")
 MISSING_TOOLS=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
@@ -78,15 +81,15 @@ done
 
 if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
     echo "==> [ERROR] 缺少必要工具: ${MISSING_TOOLS[*]}"
-    echo "    请在 macOS 上通过 Homebrew 安装: brew install lld llvm bison flex pkg-config mingw-w64 molten-vk"
+    echo "    请在 macOS 上通过 Homebrew 安装: brew install lld llvm bison flex pkg-config mingw-w64 molten-vk freetype gnutls"
     exit 1
 fi
 
 CLANG_BIN="$(command -v clang)"
 CLANGXX_BIN="$(command -v clang++)"
-if [ -x "/opt/homebrew/opt/llvm/bin/clang" ]; then
-    CLANG_BIN="/opt/homebrew/opt/llvm/bin/clang"
-    CLANGXX_BIN="/opt/homebrew/opt/llvm/bin/clang++"
+if [ -x "${BREW_PREFIX}/opt/llvm/bin/clang" ]; then
+    CLANG_BIN="${BREW_PREFIX}/opt/llvm/bin/clang"
+    CLANGXX_BIN="${BREW_PREFIX}/opt/llvm/bin/clang++"
 fi
 
 # 4. 配置与编译 (Configure & Make)
@@ -95,6 +98,22 @@ mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
 if [ ! -f "Makefile" ]; then
+    EXTRA_CFG=()
+    if [ "$(uname -m)" != "x86_64" ]; then
+        EXTRA_CFG+=(
+            --host=x86_64-apple-darwin
+            CC="${CLANG_BIN} -arch x86_64"
+            CXX="${CLANGXX_BIN} -arch x86_64"
+            CFLAGS="-O2 -pipe -arch x86_64"
+        )
+    else
+        EXTRA_CFG+=(
+            CC="${CLANG_BIN}"
+            CXX="${CLANGXX_BIN}"
+            CFLAGS="-O2 -pipe"
+        )
+    fi
+
     "${SOURCES_DIR}/configure" \
         --enable-win64 \
         --without-x \
@@ -102,10 +121,7 @@ if [ ! -f "Makefile" ]; then
         --with-metal \
         --with-coreaudio \
         --disable-tests \
-        --host=x86_64-apple-darwin \
-        CC="${CLANG_BIN} -arch x86_64" \
-        CXX="${CLANGXX_BIN} -arch x86_64" \
-        CFLAGS="-O2 -pipe -arch x86_64"
+        "${EXTRA_CFG[@]}"
 fi
 
 echo "==> 正在执行并行编译 (make -j${JOBS})..."

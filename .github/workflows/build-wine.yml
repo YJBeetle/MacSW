@@ -1,4 +1,4 @@
-name: Build Wine-crossover (macOS ARM64)
+name: Build Wine-crossover (macOS x86_64)
 
 on:
   workflow_dispatch:
@@ -13,13 +13,9 @@ on:
     tags:
       - 'v*'
 
-env:
-  ACTIONS_RUNNER_FORCE_NODE24: "true"
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
 jobs:
   build-macsw-wine:
-    runs-on: macos-14 # Apple Silicon M1 runner
+    runs-on: macos-13 # 原生 Intel x86_64 runner，完美匹配 Windows x86/x64 转译架构
     timeout-minutes: 180
 
     steps:
@@ -31,10 +27,11 @@ jobs:
 
       - name: Setup Homebrew Build Dependencies
         run: |
-          brew install lld llvm bison flex pkg-config mingw-w64 molten-vk gnutls
-          echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
-          echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
-          echo "/opt/homebrew/opt/flex/bin" >> $GITHUB_PATH
+          brew install lld llvm bison flex pkg-config mingw-w64 molten-vk gnutls freetype libpng libjpeg
+          BREW_PREFIX="$(brew --prefix)"
+          echo "${BREW_PREFIX}/opt/llvm/bin" >> $GITHUB_PATH
+          echo "${BREW_PREFIX}/opt/bison/bin" >> $GITHUB_PATH
+          echo "${BREW_PREFIX}/opt/flex/bin" >> $GITHUB_PATH
 
       - name: Verify Tools & Environment
         run: |
@@ -43,6 +40,7 @@ jobs:
           flex --version
           pkg-config --version
           uname -m
+          brew --prefix
 
       - name: Apply Patches & Compile Wine-crossover
         run: |
@@ -51,7 +49,7 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wine-crossover-macsw-arm64
+          name: wine-crossover-macsw-x86_64
           path: dist/*.tar.gz
           retention-days: 14
 
