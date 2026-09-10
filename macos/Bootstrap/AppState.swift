@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import Darwin
 
 class AppState: ObservableObject {
     @Published var isInstalled: Bool = false
@@ -192,7 +193,7 @@ class AppState: ObservableObject {
         let mfc140u = self.bottlePath.appendingPathComponent("drive_c/windows/system32/mfc140u.dll")
         self.isVcRedistInjected = FileManager.default.fileExists(atPath: mfc140u.path)
 
-        // 自动自愈同步修复版 mscoree.dll（防止 C++/CLI 虚表修复断言崩溃）
+        // 自动自愈同步修复版 mscoree.dll（防止 C++/CLI 虚表修复断言崩溃，采用 APFS 硬链接/写时克隆实现 0 冗余占用）
         let mscoreeDst = self.bottlePath.appendingPathComponent("drive_c/windows/system32/mscoree.dll")
         let appMscoree = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine/lib/wine/x86_64-windows/mscoree.dll")
         let localDistMscoree = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("dist/mscoree_x64.dll")
@@ -201,10 +202,24 @@ class AppState: ObservableObject {
             let srcSize = (try? FileManager.default.attributesOfItem(atPath: mscoreeSrc.path)[.size] as? Int) ?? 0
             let dstSize = (try? FileManager.default.attributesOfItem(atPath: mscoreeDst.path)[.size] as? Int) ?? 0
             if srcSize > 0 && srcSize != dstSize {
-                try? FileManager.default.removeItem(at: mscoreeDst)
-                try? FileManager.default.copyItem(at: mscoreeSrc, to: mscoreeDst)
+                AppState.linkOrCloneFile(from: mscoreeSrc, to: mscoreeDst)
             }
         }
+    }
+
+    /// 单实例单机架构下 DLL 去重神器：优先硬链接（0 磁盘增量），次选 APFS 写时克隆（0 块占用），最后回退拷贝
+    static func linkOrCloneFile(from src: URL, to dst: URL) {
+        try? FileManager.default.removeItem(at: dst)
+        // 1. 优先尝试系统硬链接 (完全共享 inode，0 空间冗余)
+        if (try? FileManager.default.linkItem(at: src, to: dst)) != nil {
+            return
+        }
+        // 2. 次选 APFS Copy-on-Write Clone (0 物理块开销)
+        if clonefile(src.path, dst.path, 0) == 0 {
+            return
+        }
+        // 3. 兜底物理拷贝
+        try? FileManager.default.copyItem(at: src, to: dst)
     }
 
     // 从用户选定的安装介质（ISO 或解压目录）动态抽取微软官方 WPF 主题库，彻底杜绝 .NET 环境闪退
@@ -266,13 +281,16 @@ class AppState: ObservableObject {
                             -o'\(tmpDir)' -y >/dev/null 2>&1 || true
                         
                         mkdir -p '\(targetDir.path)' '\(wpfSysDir.path)'
-                        [ -f '\(tmpDir)/PresentationFramework.Luna_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Luna_amd64.dll' '\(targetDir.path)/PresentationFramework.Luna.dll'
-                        [ -f '\(tmpDir)/PresentationFramework.Aero_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Aero_amd64.dll' '\(targetDir.path)/PresentationFramework.Aero.dll'
-                        [ -f '\(tmpDir)/PresentationFramework.Classic_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Classic_amd64.dll' '\(targetDir.path)/PresentationFramework.Classic.dll'
-                        [ -f '\(tmpDir)/PresentationFramework.Royale_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Royale_amd64.dll' '\(targetDir.path)/PresentationFramework.Royale.dll'
-                        [ -f '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' ] && cp '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' '\(targetDir.path)/PresentationFramework.AeroLite.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Luna_amd64.dll' ] && cp -c '\(tmpDir)/PresentationFramework.Luna_amd64.dll' '\(targetDir.path)/PresentationFramework.Luna.dll' 2>/dev/null || cp '\(tmpDir)/PresentationFramework.Luna_amd64.dll' '\(targetDir.path)/PresentationFramework.Luna.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Aero_amd64.dll' ] && cp -c '\(tmpDir)/PresentationFramework.Aero_amd64.dll' '\(targetDir.path)/PresentationFramework.Aero.dll' 2>/dev/null || cp '\(tmpDir)/PresentationFramework.Aero_amd64.dll' '\(targetDir.path)/PresentationFramework.Aero.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Classic_amd64.dll' ] && cp -c '\(tmpDir)/PresentationFramework.Classic_amd64.dll' '\(targetDir.path)/PresentationFramework.Classic.dll' 2>/dev/null || cp '\(tmpDir)/PresentationFramework.Classic_amd64.dll' '\(targetDir.path)/PresentationFramework.Classic.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Royale_amd64.dll' ] && cp -c '\(tmpDir)/PresentationFramework.Royale_amd64.dll' '\(targetDir.path)/PresentationFramework.Royale.dll' 2>/dev/null || cp '\(tmpDir)/PresentationFramework.Royale_amd64.dll' '\(targetDir.path)/PresentationFramework.Royale.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' ] && cp -c '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' '\(targetDir.path)/PresentationFramework.AeroLite.dll' 2>/dev/null || cp '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' '\(targetDir.path)/PresentationFramework.AeroLite.dll'
 
-                        cp '\(targetDir.path)/PresentationFramework.'*.dll '\(wpfSysDir.path)/' 2>/dev/null || true
+                        # 通过硬链接映射至系统 GAC，实现 0 字节磁盘增量与单实例去重
+                        for dll in '\(targetDir.path)/PresentationFramework.'*.dll; do
+                            [ -f "$dll" ] && (ln -f "$dll" '\(wpfSysDir.path)/' 2>/dev/null || cp -c "$dll" '\(wpfSysDir.path)/' 2>/dev/null || cp "$dll" '\(wpfSysDir.path)/')
+                        done
                     fi
                 fi
                 rm -rf '\(tmpDir)'
