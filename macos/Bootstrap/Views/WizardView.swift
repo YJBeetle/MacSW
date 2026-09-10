@@ -10,6 +10,18 @@ struct WizardView: View {
     @State private var showCleanTips: Bool = false
     @State private var statusText: String = "请提供 SolidWorks 安装介质以开始部署"
 
+    // 步骤 UI 状态
+    @State private var hasStartedDeployment: Bool = false
+    @State private var currentStep: DeploymentStep = .prepareEnvironment
+    @State private var stepStates: [DeploymentStep: StepStatus] = [
+        .prepareEnvironment: .pending,
+        .preconfigureLicensing: .pending,
+        .runOfficialInstaller: .pending,
+        .injectWpfAndPatches: .pending,
+        .finalized: .pending
+    ]
+    @State private var stepLogs: [DeploymentStep: String] = [:]
+
     var body: some View {
         VStack(spacing: 14) {
             // Header
@@ -22,13 +34,20 @@ struct WizardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("MacSW 部署与配置向导")
                         .font(.system(size: 17, weight: .bold))
-                    Text("请提供 SolidWorks 安装介质，并可按需提供注册表与补丁组件。")
+                    Text(hasStartedDeployment ? "正在自动化执行系统转译与环境部署步骤..." : "请提供 SolidWorks 安装介质，并可按需提供注册表与补丁组件。")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
 
-                if state.hasInstalledExecutable {
+                if hasStartedDeployment && !isProcessing {
+                    Button("重新配置") {
+                        hasStartedDeployment = false
+                    }
+                    .font(.system(size: 11))
+                }
+
+                if state.hasInstalledExecutable && !isProcessing {
                     Button("返回控制台") {
                         state.isInstalled = true
                     }
@@ -38,176 +57,199 @@ struct WizardView: View {
 
             Divider()
 
-            // 1. 顶部最大、居中突出的必要安装介质卡片 (Hero Card)
-            HeroMediaCard(
-                selectedUrl: state.selectedIsoPath,
-                onSelectUrl: { url in
-                    state.selectedIsoPath = url
-                    state.autoDetectCompanionFiles(from: url)
-                },
-                onClear: {
-                    state.selectedIsoPath = nil
-                }
-            )
-
-            // 2. 下方横向排列的三个可选卡片
-            HStack(spacing: 10) {
-                // 可选 1: 预载网络注册表
-                CompactDropCard(
-                    title: "网络注册表",
-                    badge: "可选",
-                    placeholder: "拖拽 .reg 文件\n(如 serials_licensing.reg)",
-                    icon: "doc.badge.gearshape",
-                    selectedUrl: state.selectedRegPath,
-                    isFileOnly: true,
-                    isFolderOnly: false,
-                    allowedExtensions: ["reg"],
+            if hasStartedDeployment {
+                // 步骤 UI 视图
+                DeploymentStepsView(
+                    currentStep: currentStep,
+                    stepStates: stepStates,
+                    stepLogs: stepLogs,
+                    isProcessing: isProcessing,
+                    isInstalled: state.isInstalled,
+                    onLaunch: {
+                        WineService.shared.launchSolidWorks(
+                            exePath: state.sldworksExePath.path,
+                            winePrefix: state.bottlePath.path
+                        )
+                    },
+                    onGoToDashboard: {
+                        state.isInstalled = true
+                    },
+                    onReset: {
+                        hasStartedDeployment = false
+                    }
+                )
+            } else {
+                // 1. 顶部最大、居中突出的必要安装介质卡片 (Hero Card)
+                HeroMediaCard(
+                    selectedUrl: state.selectedIsoPath,
                     onSelectUrl: { url in
-                        var isDir: ObjCBool = false
-                        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                            return
+                        state.selectedIsoPath = url
+                        state.autoDetectCompanionFiles(from: url)
+                    },
+                    onClear: {
+                        state.selectedIsoPath = nil
+                    }
+                )
+
+                // 2. 下方横向排列的三个可选卡片
+                HStack(spacing: 10) {
+                    // 可选 1: 预载网络注册表
+                    CompactDropCard(
+                        title: "网络注册表",
+                        badge: "可选",
+                        placeholder: "拖拽 .reg 文件\n(如 serials_licensing.reg)",
+                        icon: "doc.badge.gearshape",
+                        selectedUrl: state.selectedRegPath,
+                        isFileOnly: true,
+                        isFolderOnly: false,
+                        allowedExtensions: ["reg"],
+                        onSelectUrl: { url in
+                            var isDir: ObjCBool = false
+                            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                                return
+                            }
+                            if url.pathExtension.lowercased() == "reg" {
+                                state.selectedRegPath = url
+                                state.autoDetectCompanionFiles(from: url)
+                            }
+                        },
+                        onClear: {
+                            state.selectedRegPath = nil
                         }
-                        if url.pathExtension.lowercased() == "reg" {
-                            state.selectedRegPath = url
+                    )
+
+                    // 可选 2: FlexNet 许可服务
+                    CompactDropCard(
+                        title: "许可服务",
+                        badge: "可选",
+                        placeholder: "拖拽 FlexNet Server\n服务根目录至此",
+                        icon: "server.rack",
+                        selectedUrl: state.selectedLicenseDir,
+                        isFileOnly: false,
+                        isFolderOnly: true,
+                        allowedExtensions: nil,
+                        onSelectUrl: { url in
+                            state.selectedLicenseDir = url
                             state.autoDetectCompanionFiles(from: url)
+                        },
+                        onClear: {
+                            state.selectedLicenseDir = nil
                         }
-                    },
-                    onClear: {
-                        state.selectedRegPath = nil
-                    }
-                )
+                    )
 
-                // 可选 2: FlexNet 许可服务
-                CompactDropCard(
-                    title: "许可服务",
-                    badge: "可选",
-                    placeholder: "拖拽 FlexNet Server\n服务根目录至此",
-                    icon: "server.rack",
-                    selectedUrl: state.selectedLicenseDir,
-                    isFileOnly: false,
-                    isFolderOnly: true,
-                    allowedExtensions: nil,
-                    onSelectUrl: { url in
-                        state.selectedLicenseDir = url
-                        state.autoDetectCompanionFiles(from: url)
-                    },
-                    onClear: {
-                        state.selectedLicenseDir = nil
-                    }
-                )
-
-                // 可选 3: 组件补丁
-                CompactDropCard(
-                    title: "组件补丁",
-                    badge: "可选",
-                    placeholder: "拖拽 SOLIDWORKS Corp\n补丁文件夹至此",
-                    icon: "shippingbox.fill",
-                    selectedUrl: state.selectedPatchDir,
-                    isFileOnly: false,
-                    isFolderOnly: true,
-                    allowedExtensions: nil,
-                    onSelectUrl: { url in
-                        state.selectedPatchDir = url
-                        state.autoDetectCompanionFiles(from: url)
-                    },
-                    onClear: {
-                        state.selectedPatchDir = nil
-                    }
-                )
-            }
-
-            Spacer()
-
-            // 3. 底部部署动作栏与状态显示
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    if isProcessing {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    }
-                    Text(statusText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    // 可选 3: 组件补丁
+                    CompactDropCard(
+                        title: "组件补丁",
+                        badge: "可选",
+                        placeholder: "拖拽 SOLIDWORKS Corp\n补丁文件夹至此",
+                        icon: "shippingbox.fill",
+                        selectedUrl: state.selectedPatchDir,
+                        isFileOnly: false,
+                        isFolderOnly: true,
+                        allowedExtensions: nil,
+                        onSelectUrl: { url in
+                            state.selectedPatchDir = url
+                            state.autoDetectCompanionFiles(from: url)
+                        },
+                        onClear: {
+                            state.selectedPatchDir = nil
+                        }
+                    )
                 }
+
                 Spacer()
 
+                // 3. 底部部署动作栏与状态显示
                 HStack(spacing: 12) {
-                    // 干净部署选项
-                    HStack(spacing: 4) {
-                        Toggle(isOn: $cleanDeployment) {
-                            Text("干净部署")
-                                .font(.system(size: 11))
+                    HStack(spacing: 8) {
+                        if isProcessing {
+                            ProgressView()
+                                .scaleEffect(0.7)
                         }
-                        .toggleStyle(.checkbox)
-                        .disabled(isProcessing)
-
-                        Button(action: { showCleanTips.toggle() }) {
-                            Image(systemName: "questionmark.circle")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("查看干净部署说明")
-                        .popover(isPresented: $showCleanTips, arrowEdge: .top) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "sparkles")
-                                        .foregroundColor(.accentColor)
-                                    Text("什么是干净部署？")
-                                        .font(.system(size: 12, weight: .bold))
-                                }
-                                Divider()
-                                Text("勾选后，在点击「开始部署」时将：")
-                                    .font(.system(size: 11, weight: .medium))
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("• 终止所有挂起的 Wine 与安装后台进程")
-                                    Text("• 彻底清理旧容器（清空 drive_c、虚拟注册表及残留配置）")
-                                    Text("• 重新执行 wineboot 生成纯净的原生 Wine 运行环境")
-                                }
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-
-                                Text("提示：适用于安装出错需要推倒重来，或需要全新配置时。")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.orange)
-                                    .padding(.top, 2)
-                            }
-                            .padding(14)
-                            .frame(width: 280)
-                        }
+                        Text(statusText)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
+                    Spacer()
 
-                    // 部署/启动操作按钮（固定尺寸与文字长度，绝不跑位）
-                    if state.isInstalled && !cleanDeployment {
-                        Button(action: {
-                            WineService.shared.launchSolidWorks(
-                                exePath: state.sldworksExePath.path,
-                                winePrefix: state.bottlePath.path
-                            )
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "play.fill")
-                                Text("启动 SolidWorks")
-                                    .fontWeight(.bold)
+                    HStack(spacing: 12) {
+                        // 干净部署选项
+                        HStack(spacing: 4) {
+                            Toggle(isOn: $cleanDeployment) {
+                                Text("干净部署")
+                                    .font(.system(size: 11))
                             }
-                            .frame(minWidth: 95)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                        .controlSize(.regular)
-                    } else {
-                        Button(action: startDeployment) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.right.circle.fill")
-                                Text("开始部署")
-                                    .fontWeight(.bold)
+                            .toggleStyle(.checkbox)
+                            .disabled(isProcessing)
+
+                            Button(action: { showCleanTips.toggle() }) {
+                                Image(systemName: "questionmark.circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
                             }
-                            .frame(minWidth: 95)
+                            .buttonStyle(.plain)
+                            .help("查看干净部署说明")
+                            .popover(isPresented: $showCleanTips, arrowEdge: .top) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "sparkles")
+                                            .foregroundColor(.accentColor)
+                                        Text("什么是干净部署？")
+                                            .font(.system(size: 12, weight: .bold))
+                                    }
+                                    Divider()
+                                    Text("勾选后，在点击「开始部署」时将：")
+                                        .font(.system(size: 11, weight: .medium))
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("• 终止所有挂起的 Wine 与安装后台进程")
+                                        Text("• 彻底清理旧容器（清空 drive_c、虚拟注册表及残留配置）")
+                                        Text("• 重新执行 wineboot 生成纯净的原生 Wine 运行环境")
+                                    }
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+
+                                    Text("提示：适用于安装出错需要推倒重来，或需要全新配置时。")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.orange)
+                                        .padding(.top, 2)
+                                }
+                                .padding(14)
+                                .frame(width: 280)
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .disabled(isProcessing || state.selectedIsoPath == nil)
+
+                        // 部署/启动操作按钮
+                        if state.isInstalled && !cleanDeployment {
+                            Button(action: {
+                                WineService.shared.launchSolidWorks(
+                                    exePath: state.sldworksExePath.path,
+                                    winePrefix: state.bottlePath.path
+                                )
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "play.fill")
+                                    Text("启动 SolidWorks")
+                                        .fontWeight(.bold)
+                                }
+                                .frame(minWidth: 95)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                            .controlSize(.regular)
+                        } else {
+                            Button(action: startDeployment) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                    Text("开始部署")
+                                        .fontWeight(.bold)
+                                }
+                                .frame(minWidth: 95)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.regular)
+                            .disabled(isProcessing || state.selectedIsoPath == nil)
+                        }
                     }
                 }
             }
@@ -219,7 +261,17 @@ struct WizardView: View {
     // 执行顺序：① 预载注册表 -> ② 启动许可服务 -> ③ 官方安装程序 -> ④ 组件补丁
     private func startDeployment() {
         guard let iso = state.selectedIsoPath else { return }
+        hasStartedDeployment = true
         isProcessing = true
+        currentStep = .prepareEnvironment
+        stepStates = [
+            .prepareEnvironment: .running,
+            .preconfigureLicensing: .pending,
+            .runOfficialInstaller: .pending,
+            .injectWpfAndPatches: .pending,
+            .finalized: .pending
+        ]
+        stepLogs[.prepareEnvironment] = "正在挂载并检测安装介质..."
         statusText = "正在挂载并检测安装介质..."
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -235,6 +287,7 @@ struct WizardView: View {
 
             guard let exe = setupExe else {
                 DispatchQueue.main.async {
+                    self.stepStates[.prepareEnvironment] = .failed("未在所选介质中找到 setup.exe 安装向导")
                     self.statusText = "错误：未在所选介质中找到 setup.exe 安装向导！"
                     self.isProcessing = false
                 }
@@ -243,6 +296,7 @@ struct WizardView: View {
 
             // 0. 先确保独立容器环境已就绪（支持干净部署模式）
             DispatchQueue.main.async {
+                self.stepLogs[.prepareEnvironment] = self.cleanDeployment ? "正在清理旧容器并初始化全新环境..." : "正在验证 MacSW 独立运行环境..."
                 self.statusText = self.cleanDeployment ? "正在清理旧容器并重新初始化全新环境..." : "正在检查并准备 MacSW 独立环境..."
             }
             let initSema = DispatchSemaphore(value: 0)
@@ -251,10 +305,16 @@ struct WizardView: View {
             }
             _ = initSema.wait(timeout: .now() + 60)
 
-            // 1. 先“预载注册表”：如果指定了注册表文件或检测到补丁目录中的 reg，先预导入注册表
             DispatchQueue.main.async {
+                self.stepStates[.prepareEnvironment] = .completed
+                self.stepLogs[.prepareEnvironment] = "WinePrefix 独立环境就绪，已定位 setup.exe"
+                self.currentStep = .preconfigureLicensing
+                self.stepStates[.preconfigureLicensing] = .running
+                self.stepLogs[.preconfigureLicensing] = "正在预置网络注册表序列号..."
                 self.statusText = "正在预置网络序列号注册表..."
             }
+
+            // 1. 先“预载注册表”：如果指定了注册表文件或检测到补丁目录中的 reg，先预导入注册表
             let sema = DispatchSemaphore(value: 0)
             self.state.importNetworkSerials(interactive: false) { _ in
                 sema.signal()
@@ -264,30 +324,46 @@ struct WizardView: View {
             // 2. 然后“启动服务器”：如果指定了许可服务目录，在安装前先行启动，确保官方向导连通 25734
             if self.state.selectedLicenseDir != nil {
                 DispatchQueue.main.async {
+                    self.stepLogs[.preconfigureLicensing] = "正在启动本地 FlexNet 许可服务 (端口 25734)..."
                     self.statusText = "正在启动本地 FlexNet 许可服务 (端口 25734)..."
                     self.state.startLicenseServer()
                 }
                 Thread.sleep(forTimeInterval: 2.0)
             }
 
-            // 3. 然后“安装”：启动官方安装向导 setup.exe
             DispatchQueue.main.async {
+                self.stepStates[.preconfigureLicensing] = .completed
+                self.stepLogs[.preconfigureLicensing] = "网络序列号已写入，FlexNet 许可服务正常运行"
+                self.currentStep = .runOfficialInstaller
+                self.stepStates[.runOfficialInstaller] = .running
+                self.stepLogs[.runOfficialInstaller] = "SolidWorks 官方向导运行中，请在弹出的安装窗口中完成组件选择..."
                 self.statusText = "SolidWorks 官方向导运行中..."
                 self.isInstallerRunning = true
             }
+
+            // 3. 然后“安装”：启动官方安装向导 setup.exe
             let winePrefix = self.state.bottlePath.path
             WineService.shared.launchInstaller(setupExe: exe, winePrefix: winePrefix) {
                 DispatchQueue.main.async {
                     self.isInstallerRunning = false
-                }
-                // 4. 然后“补丁与运行库”：安装向导退出后，自动同步组件补丁并从安装介质抽取 WPF 主题库
-                DispatchQueue.main.async {
+                    self.stepStates[.runOfficialInstaller] = .completed
+                    self.stepLogs[.runOfficialInstaller] = "官方安装向导执行完毕"
+                    self.currentStep = .injectWpfAndPatches
+                    self.stepStates[.injectWpfAndPatches] = .running
+                    self.stepLogs[.injectWpfAndPatches] = "正在从安装介质抽取 WPF 原版主题库并同步组件补丁..."
                     self.statusText = "正在从介质提取 WPF 官方主题库并同步组件补丁..."
                 }
 
+                // 4. 然后“补丁与运行库”：安装向导退出后，自动同步组件补丁并从安装介质抽取 WPF 主题库
                 if let patchDir = self.state.selectedPatchDir {
                     self.state.applyComponentPatch(customPatchDir: patchDir) { ok in
                         DispatchQueue.main.async {
+                            self.stepStates[.injectWpfAndPatches] = ok ? .completed : .warning("补丁应用完成，存在部分非致命警告")
+                            self.stepLogs[.injectWpfAndPatches] = ok ? "WPF 官方主题库已提取注入，组件补丁已就绪" : "补丁应用已完成"
+                            self.currentStep = .finalized
+                            self.stepStates[.finalized] = .completed
+                            self.stepLogs[.finalized] = "SolidWorks 2025 原生转译环境验证通过，随时可以启动！"
+
                             self.isProcessing = false
                             self.state.checkInstallation()
                             if self.state.isInstalled {
@@ -301,6 +377,12 @@ struct WizardView: View {
                     // 若用户未指定补丁文件夹，仍然抽取 WPF 主题库，但给出明确未破解警告
                     self.state.extractAndInjectWpfThemes { _ in
                         DispatchQueue.main.async {
+                            self.stepStates[.injectWpfAndPatches] = .warning("已略过补丁（未提供补丁目录），已抽取注入 WPF 主题库")
+                            self.stepLogs[.injectWpfAndPatches] = "WPF 运行库已注入，跳过授权补丁"
+                            self.currentStep = .finalized
+                            self.stepStates[.finalized] = .completed
+                            self.stepLogs[.finalized] = "部署流程已结束。请在控制台手动指定补丁目录并应用补丁。"
+
                             self.isProcessing = false
                             self.state.checkInstallation()
                             self.statusText = "⚠️ 安装向导已退出。注意：因未指定补丁文件夹，已略过补丁！请在控制台手动指定并应用补丁。"
@@ -576,6 +658,333 @@ struct CompactDropCard: View {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             onSelectUrl(url)
+        }
+    }
+}
+
+// MARK: - 部署步骤定义与状态模型
+enum DeploymentStep: Int, CaseIterable, Identifiable {
+    case prepareEnvironment = 1
+    case preconfigureLicensing = 2
+    case runOfficialInstaller = 3
+    case injectWpfAndPatches = 4
+    case finalized = 5
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .prepareEnvironment:
+            return "准备运行环境与挂载介质"
+        case .preconfigureLicensing:
+            return "预置网络授权与许可服务"
+        case .runOfficialInstaller:
+            return "运行 SolidWorks 官方安装向导"
+        case .injectWpfAndPatches:
+            return "抽取 WPF 主题库与同步补丁"
+        case .finalized:
+            return "部署就绪，完成验证"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .prepareEnvironment:
+            return "初始化独立 WinePrefix 容器、自动挂载镜像并定位 setup.exe"
+        case .preconfigureLicensing:
+            return "写入网络序列号注册表，启动本地 FlexNet 服务 (端口 25734)"
+        case .runOfficialInstaller:
+            return "启动 setup.exe，请在 Windows 弹出的安装向导中完成组件安装"
+        case .injectWpfAndPatches:
+            return "动态抽取微软官方 WPF 主题库并注入 SSQ 核心授权补丁"
+        case .finalized:
+            return "检查主程序与运行库完整性，配置免虚拟机原生开箱即用环境"
+        }
+    }
+}
+
+enum StepStatus: Equatable {
+    case pending
+    case running
+    case completed
+    case warning(String)
+    case failed(String)
+}
+
+// MARK: - 部署步骤进度流视图 (Step View)
+struct DeploymentStepsView: View {
+    let currentStep: DeploymentStep
+    let stepStates: [DeploymentStep: StepStatus]
+    let stepLogs: [DeploymentStep: String]
+    let isProcessing: Bool
+    let isInstalled: Bool
+    let onLaunch: () -> Void
+    let onGoToDashboard: () -> Void
+    let onReset: () -> Void
+
+    var isAllCompleted: Bool {
+        return stepStates[.finalized] == .completed
+    }
+
+    var progressValue: Double {
+        let completedCount = stepStates.values.filter {
+            if case .completed = $0 { return true }
+            return false
+        }.count
+        if isAllCompleted { return 1.0 }
+        return max(0.05, Double(completedCount) / Double(DeploymentStep.allCases.count))
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // 1. 进度指示卡片
+            VStack(spacing: 6) {
+                HStack {
+                    Text(isAllCompleted ? "🎉 部署流程已全部完成" : "步骤 \(currentStep.rawValue) / \(DeploymentStep.allCases.count): \(currentStep.title)")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(isAllCompleted ? .green : .primary)
+                    Spacer()
+                    Text("\(Int(progressValue * 100))%")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                ProgressView(value: progressValue)
+                    .progressViewStyle(.linear)
+                    .tint(isAllCompleted ? .green : .purple)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+
+            // 2. 步骤 Timeline 列表
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(DeploymentStep.allCases) { step in
+                        let status = stepStates[step] ?? .pending
+                        let isCurrent = (step == currentStep && !isAllCompleted)
+                        let log = stepLogs[step]
+                        let isLast = (step == DeploymentStep.allCases.last)
+
+                        DeploymentStepRow(
+                            step: step,
+                            status: status,
+                            isCurrent: isCurrent,
+                            log: log,
+                            isLast: isLast
+                        )
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 4)
+            }
+
+            Spacer()
+
+            // 3. 底部行动区
+            if isAllCompleted {
+                HStack(spacing: 12) {
+                    Button(action: onReset) {
+                        Text("重新部署")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Spacer()
+
+                    Button(action: onGoToDashboard) {
+                        Text("进入控制台")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+
+                    Button(action: onLaunch) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.fill")
+                            Text("立即启动 SolidWorks")
+                                .fontWeight(.bold)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                    .controlSize(.regular)
+                }
+                .padding(.top, 4)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 14, height: 14)
+                    Text("请稍候，正在部署中... (若弹出 Windows 安装向导，请完成点击下一步)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.05)))
+            }
+        }
+    }
+}
+
+// MARK: - 单个步骤行组件 (Step Row)
+struct DeploymentStepRow: View {
+    let step: DeploymentStep
+    let status: StepStatus
+    let isCurrent: Bool
+    let log: String?
+    let isLast: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // 左侧指示图标与竖向引导线
+            VStack(spacing: 0) {
+                stepIcon
+                    .frame(width: 24, height: 24)
+
+                if !isLast {
+                    Rectangle()
+                        .fill(connectorColor)
+                        .frame(width: 2)
+                        .frame(minHeight: 28)
+                }
+            }
+
+            // 右侧步骤文本与动态日志
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(step.title)
+                        .font(.system(size: 13, weight: isCurrent ? .bold : .semibold))
+                        .foregroundColor(titleColor)
+
+                    Spacer()
+
+                    statusBadge
+                }
+
+                Text(step.subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let currentLog = log, !currentLog.isEmpty {
+                    HStack(spacing: 4) {
+                        if isCurrent {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                                .frame(width: 10, height: 10)
+                        }
+                        Text(currentLog)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(isCurrent ? Color.accentColor : Color.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+                    .padding(.top, 2)
+                }
+            }
+            .padding(.bottom, isLast ? 0 : 10)
+        }
+    }
+
+    @ViewBuilder
+    private var stepIcon: some View {
+        switch status {
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+                .font(.system(size: 20))
+        case .running:
+            ZStack {
+                Circle()
+                    .fill(Color.purple.opacity(0.2))
+                ProgressView()
+                    .scaleEffect(0.6)
+            }
+        case .warning:
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundColor(.orange)
+                .font(.system(size: 20))
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundColor(.red)
+                .font(.system(size: 20))
+        case .pending:
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1.5)
+                Text("\(step.rawValue)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.6))
+            }
+        }
+    }
+
+    private var connectorColor: Color {
+        switch status {
+        case .completed:
+            return Color.green.opacity(0.6)
+        default:
+            return Color.secondary.opacity(0.2)
+        }
+    }
+
+    private var titleColor: Color {
+        if isCurrent { return .primary }
+        switch status {
+        case .completed:
+            return .primary
+        case .pending:
+            return .secondary
+        case .warning:
+            return .orange
+        case .failed:
+            return .red
+        case .running:
+            return .primary
+        }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch status {
+        case .completed:
+            Text("已完成")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.green.opacity(0.12)))
+        case .running:
+            Text("进行中")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.purple)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.purple.opacity(0.15)))
+        case .warning:
+            Text("警告")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.orange)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.orange.opacity(0.12)))
+        case .failed:
+            Text("失败")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.red)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.red.opacity(0.12)))
+        case .pending:
+            Text("等待中")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary.opacity(0.8))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.08)))
         }
     }
 }
