@@ -2,7 +2,7 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="SolidWorks 2025"
+APP_NAME="MacSW"
 APP_DIR="${WORKSPACE_ROOT}/build/app/${APP_NAME}.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MAC_OS_DIR="${CONTENTS_DIR}/MacOS"
@@ -28,6 +28,9 @@ mkdir -p "${FRAMEWORKS_DIR}"
 echo "==> 正在装配二进制与 Info.plist..."
 cp "${WORKSPACE_ROOT}/build/bootstrap/MacSW_Bootstrap" "${MAC_OS_DIR}/"
 cp "${WORKSPACE_ROOT}/resources/Info.plist" "${CONTENTS_DIR}/"
+if [ -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
+    cp "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" "${RESOURCES_DIR}/"
+fi
 
 # 4. 集成定制版 Wine Runtime (如果本地有编译产物)
 WINE_TAR="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-arm64.tar.gz"
