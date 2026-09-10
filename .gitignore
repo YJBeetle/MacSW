@@ -10,6 +10,8 @@ prefixes/
 # Temporary logs, captures and artifacts
 scratch/
 *.png
+*.icns
+macos/Resources/*.icns
 scripts/diagnostics/*.exe
 build/
 dist/

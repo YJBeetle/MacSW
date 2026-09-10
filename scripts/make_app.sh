@@ -24,10 +24,17 @@ mkdir -p "${MAC_OS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 mkdir -p "${FRAMEWORKS_DIR}"
 
-# 3. 复制 Mach-O 二进制与元数据
+# 3. 复制 Mach-O 二进制与元数据及图标
 echo "==> 正在装配二进制与 Info.plist..."
 cp "${WORKSPACE_ROOT}/build/bootstrap/MacSW_Bootstrap" "${MAC_OS_DIR}/"
 cp "${WORKSPACE_ROOT}/resources/Info.plist" "${CONTENTS_DIR}/"
+
+# 如果尚未生成 App 图标，则自动从 Swift 源码渲染并编译
+if [ ! -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
+    echo "==> [MacSW] 检测到未预编译 AppIcon.icns，正在从源码光栅化渲染并构建图标..."
+    "${WORKSPACE_ROOT}/scripts/generate_app_icon.swift"
+fi
+
 if [ -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
     cp "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" "${RESOURCES_DIR}/"
 fi
