@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Collections.Generic;
-using WineSW.Daemon;
 
 class SwUiDaemon {
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
@@ -275,7 +274,14 @@ class SwUiDaemon {
             }
 
             // 4. Fix Viewport / Tree Container / Docked PropertyManager layout
-            if (t == "Tree Container Wnd") {
+            bool isTreeContainer = (t == "Tree Container Wnd" || t.Contains("Tree Container") || (c.Contains("Tree") && c.Contains("Container")));
+            if (isTreeContainer) {
+                // Ensure WS_CLIPSIBLINGS on tree container
+                int childStyle = GetWindowLong(child, GWL_STYLE);
+                if ((childStyle & WS_CLIPSIBLINGS) == 0) {
+                    SetWindowLong(child, GWL_STYLE, childStyle | WS_CLIPSIBLINGS);
+                }
+
                 IntPtr mdiDoc = GetParent(child);
                 if (mdiDoc != IntPtr.Zero) {
                     RECT rDocClient, rTree;
@@ -283,12 +289,13 @@ class SwUiDaemon {
                     GetWindowRect(child, out rTree);
 
                     int curTreeW = rTree.Right - rTree.Left;
-                    // Expand Tree Container if it's too narrow (< 300px) to show all 5 tabs
+                    // Expand Tree Container if it's too narrow (< 300px) or collapsed
                     if (curTreeW < DESIRED_PANEL_WIDTH) {
                         POINT ptTreeTL = new POINT { X = rTree.Left, Y = rTree.Top };
                         ScreenToClient(mdiDoc, ref ptTreeTL);
-                        SetWindowPos(child, IntPtr.Zero, ptTreeTL.X, ptTreeTL.Y, DESIRED_PANEL_WIDTH, rTree.Bottom - rTree.Top, SWP_NOZORDER | SWP_NOACTIVATE);
+                        SetWindowPos(child, IntPtr.Zero, Math.Max(ptTreeTL.X, 0), Math.Max(ptTreeTL.Y, 0), DESIRED_PANEL_WIDTH, Math.Max(rTree.Bottom - rTree.Top, rDocClient.Bottom), SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                         GetWindowRect(child, out rTree);
+                        RedrawWindow(child, IntPtr.Zero, IntPtr.Zero, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
                     }
 
                     int treeRight = rTree.Right;
@@ -308,7 +315,7 @@ class SwUiDaemon {
                             string sc = sibCls.ToString();
                             string st = sibTitle.ToString();
 
-                            if (st == "DVEDockedContainer" || (sc == "AfxFrameOrView140u" && st.Contains("Container"))) {
+                            if (st == "DVEDockedContainer" || (sc.Contains("AfxFrameOrView") && st.Contains("Container"))) {
                                 // Check if it has any visible children (actively displaying PropertyManager / Sketch Editor)
                                 bool hasActiveChildren = false;
                                 EnumChildWindows(sibling, delegate(IntPtr cChild, IntPtr lp3) {
@@ -339,12 +346,15 @@ class SwUiDaemon {
                         return true;
                     }, IntPtr.Zero);
 
-                    // Pass B: Adjust 3D Viewport MDI Frame (AfxMDIFrame140u) to avoid covering any docked panels
+                    // Pass B: Adjust 3D Viewport MDI Frame to avoid covering any docked panels
                     EnumChildWindows(mdiDoc, delegate(IntPtr sibling, IntPtr l2) {
                         if (GetParent(sibling) == mdiDoc && sibling != child) {
                             StringBuilder sibCls = new StringBuilder(256);
                             GetClassName(sibling, sibCls, 256);
+                            StringBuilder sibTitle = new StringBuilder(256);
+                            GetWindowText(sibling, sibTitle, 256);
                             string sc = sibCls.ToString();
+                            string st = sibTitle.ToString();
 
                             RECT rSib;
                             GetWindowRect(sibling, out rSib);
@@ -354,10 +364,12 @@ class SwUiDaemon {
                             POINT ptSibTopLeft = new POINT { X = rSib.Left, Y = rSib.Top };
                             ScreenToClient(mdiDoc, ref ptSibTopLeft);
 
-                            // 3D Viewport MDI Frame (AfxMDIFrame140u) holds the CAMetalLayer CAD rendering canvas.
-                            // It MUST start at or to the right of maxDockRight so CAMetalLayer never overlaps
-                            // either the FeatureTree or the docked PropertyManager.
-                            if (sc == "AfxMDIFrame140u" && sibW > 100 && sibH > 100) {
+                            // 3D Viewport MDI Frame holds the CAMetalLayer CAD rendering canvas.
+                            // Robust detection across all MFC version variations (AfxMDIFrame140u, AfxMDIFrame, etc.)
+                            bool isViewportFrame = sc.StartsWith("AfxMDIFrame") ||
+                                                   (sc.StartsWith("AfxFrameOrView") && !st.Contains("Container") && !st.Contains("Dock") && !st.Contains("Tree"));
+
+                            if (isViewportFrame && sibW > 100 && sibH > 100) {
                                 int newX = maxDockRight;
                                 int newY = Math.Max(ptSibTopLeft.Y, 0);
                                 int newW = rDocClient.Right - newX;
@@ -413,7 +425,7 @@ class SwUiDaemon {
                         SetWindowLong(top, GWL_EXSTYLE, exstyle | WS_EX_TOPMOST);
                         SetWindowPos(top, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                     }
-                } else if (titleStr.Contains("SOLIDWORKS")) {
+                } else if (titleStr.IndexOf("SOLIDWORKS", StringComparison.OrdinalIgnoreCase) >= 0 || clsStr.StartsWith("Afx:") || clsStr.Contains("MainFrame")) {
                     swDocWindows.Add(top);
                     if (swPid == 0) {
                         GetWindowThreadProcessId(top, out swPid);
@@ -428,7 +440,7 @@ class SwUiDaemon {
 
             if (swPid != 0) {
                 ElevateFloatingAndPopups(swPid, swDocWindows);
-                AeroCaptionHookManager.EnsureHooked(swPid);
+                // 用户明确指示：当前现代扁平浅灰无边框标题栏非常美观，无需强行启用 AeroHook
             }
 
             if (watch) {

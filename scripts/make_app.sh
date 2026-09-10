@@ -39,6 +39,12 @@ if [ -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
     cp "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" "${RESOURCES_DIR}/"
 fi
 
+# 集成 SolidWorks UI 守护进程 (自动修复 3D 视口 Metal 与特征树 GDI 渲染遮挡闪避)
+if [ -f "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" ]; then
+    echo "==> 正在集成 sw_ui_daemon.exe..."
+    cp -p "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" "${RESOURCES_DIR}/"
+fi
+
 # 4. 集成定制版 Wine Runtime (如果本地有编译产物)
 WINE_TAR="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64.tar.gz"
 if [ ! -f "${WINE_TAR}" ]; then
