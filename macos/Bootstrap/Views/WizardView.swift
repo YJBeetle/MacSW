@@ -17,7 +17,8 @@ struct WizardView: View {
         .prepareEnvironment: .pending,
         .preconfigureLicensing: .pending,
         .runOfficialInstaller: .pending,
-        .injectWpfAndPatches: .pending,
+        .extractWpfThemes: .pending,
+        .applyPatches: .pending,
         .finalized: .pending
     ]
     @State private var stepLogs: [DeploymentStep: String] = [:]
@@ -268,7 +269,8 @@ struct WizardView: View {
             .prepareEnvironment: .running,
             .preconfigureLicensing: .pending,
             .runOfficialInstaller: .pending,
-            .injectWpfAndPatches: .pending,
+            .extractWpfThemes: .pending,
+            .applyPatches: .pending,
             .finalized: .pending
         ]
         stepLogs[.prepareEnvironment] = "正在挂载并检测安装介质..."
@@ -348,48 +350,68 @@ struct WizardView: View {
                     self.isInstallerRunning = false
                     self.stepStates[.runOfficialInstaller] = .completed
                     self.stepLogs[.runOfficialInstaller] = "官方安装向导执行完毕"
-                    self.currentStep = .injectWpfAndPatches
-                    self.stepStates[.injectWpfAndPatches] = .running
-                    self.stepLogs[.injectWpfAndPatches] = "正在从安装介质抽取 WPF 原版主题库并同步组件补丁..."
-                    self.statusText = "正在从介质提取 WPF 官方主题库并同步组件补丁..."
+                    
+                    // 步骤 4: 抽取与注入微软官方原版 WPF 主题库
+                    self.currentStep = .extractWpfThemes
+                    self.stepStates[.extractWpfThemes] = .running
+                    self.stepLogs[.extractWpfThemes] = "正在从安装介质抽取原版 PresentationFramework.Aero 等主题库..."
+                    self.statusText = "正在抽取并注入微软官方 WPF 主题库..."
                 }
 
-                // 4. 然后“补丁与运行库”：安装向导退出后，自动同步组件补丁并从安装介质抽取 WPF 主题库
-                if let patchDir = self.state.selectedPatchDir {
-                    self.state.applyComponentPatch(customPatchDir: patchDir) { ok in
-                        DispatchQueue.main.async {
-                            self.stepStates[.injectWpfAndPatches] = ok ? .completed : .warning("补丁应用完成，存在部分非致命警告")
-                            self.stepLogs[.injectWpfAndPatches] = ok ? "WPF 官方主题库已提取注入，组件补丁已就绪" : "补丁应用已完成"
-                            self.currentStep = .finalized
-                            self.stepStates[.finalized] = .completed
-                            self.stepLogs[.finalized] = "SolidWorks 2025 原生转译环境验证通过，随时可以启动！"
+                // 执行步骤 4：抽取 WPF 主题库
+                self.state.extractAndInjectWpfThemes { wpfOk in
+                    DispatchQueue.main.async {
+                        self.stepStates[.extractWpfThemes] = wpfOk ? .completed : .warning("WPF 主题库注入完成（部分主题可能使用回退项）")
+                        self.stepLogs[.extractWpfThemes] = wpfOk ? "微软原版 WPF 主题库已成功提取并注入系统与程序目录" : "已完成主题库注入流程"
+                        
+                        // 步骤 5: 同步核心组件与授权补丁
+                        self.currentStep = .applyPatches
+                        self.stepStates[.applyPatches] = .running
+                        self.stepLogs[.applyPatches] = "正在同步核心程序补丁文件并导入授权注册表..."
+                        self.statusText = "正在同步核心组件与授权补丁..."
+                    }
 
-                            self.isProcessing = false
-                            self.state.checkInstallation()
-                            if self.state.isInstalled {
-                                self.statusText = ok ? "✅ 部署已全部完成，补丁与 WPF 主题库已就绪！" : "⚠️ 部署完成，但补丁同步存在警告，请在控制台检查。"
-                            } else {
-                                self.statusText = "安装向导已退出。若已完成安装，请点击右上角【进入控制台】。"
+                    // 执行步骤 5：同步授权补丁
+                    if let patchDir = self.state.selectedPatchDir {
+                        self.state.applyComponentPatch(customPatchDir: patchDir) { patchOk in
+                            DispatchQueue.main.async {
+                                self.stepStates[.applyPatches] = patchOk ? .completed : .warning("补丁应用完成，存在部分非致命警告")
+                                self.stepLogs[.applyPatches] = patchOk ? "SOLIDWORKS Corp 核心组件补丁及授权注册表已全部就绪" : "补丁应用已完成"
+                                
+                                // 步骤 6: 部署就绪，完成验证
+                                self.finishDeployment(patchOk: patchOk)
                             }
                         }
-                    }
-                } else {
-                    // 若用户未指定补丁文件夹，仍然抽取 WPF 主题库，但给出明确未破解警告
-                    self.state.extractAndInjectWpfThemes { _ in
+                    } else {
+                        // 用户未指定补丁文件夹，提示略过
                         DispatchQueue.main.async {
-                            self.stepStates[.injectWpfAndPatches] = .warning("已略过补丁（未提供补丁目录），已抽取注入 WPF 主题库")
-                            self.stepLogs[.injectWpfAndPatches] = "WPF 运行库已注入，跳过授权补丁"
-                            self.currentStep = .finalized
-                            self.stepStates[.finalized] = .completed
-                            self.stepLogs[.finalized] = "部署流程已结束。请在控制台手动指定补丁目录并应用补丁。"
-
-                            self.isProcessing = false
-                            self.state.checkInstallation()
-                            self.statusText = "⚠️ 安装向导已退出。注意：因未指定补丁文件夹，已略过补丁！请在控制台手动指定并应用补丁。"
+                            self.stepStates[.applyPatches] = .warning("已略过补丁（未提供 SOLIDWORKS Corp 补丁目录）")
+                            self.stepLogs[.applyPatches] = "未提供授权补丁目录，已跳过核心补丁同步"
+                            
+                            // 步骤 6: 部署就绪
+                            self.finishDeployment(patchOk: false, skippedPatches: true)
                         }
                     }
                 }
             }
+        }
+    }
+
+    private func finishDeployment(patchOk: Bool, skippedPatches: Bool = false) {
+        self.currentStep = .finalized
+        self.stepStates[.finalized] = .completed
+        if skippedPatches {
+            self.stepLogs[.finalized] = "基础部署已结束。后续可在控制台中随时指定补丁目录并应用补丁。"
+        } else {
+            self.stepLogs[.finalized] = "SolidWorks 2025 原生转译环境验证通过，随时可以启动！"
+        }
+
+        self.isProcessing = false
+        self.state.checkInstallation()
+        if self.state.isInstalled {
+            self.statusText = patchOk ? "✅ 部署已全部完成，补丁与 WPF 主题库已就绪！" : "⚠️ 部署完成，补丁同步存在警告，请在控制台检查。"
+        } else {
+            self.statusText = "安装流程已完成。若已完成安装，请点击右上角【返回控制台】。"
         }
     }
 }
@@ -667,8 +689,9 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
     case prepareEnvironment = 1
     case preconfigureLicensing = 2
     case runOfficialInstaller = 3
-    case injectWpfAndPatches = 4
-    case finalized = 5
+    case extractWpfThemes = 4
+    case applyPatches = 5
+    case finalized = 6
 
     var id: Int { rawValue }
 
@@ -680,8 +703,10 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
             return "预置网络授权与许可服务"
         case .runOfficialInstaller:
             return "运行 SolidWorks 官方安装向导"
-        case .injectWpfAndPatches:
-            return "抽取 WPF 主题库与同步补丁"
+        case .extractWpfThemes:
+            return "抽取微软官方 WPF 主题库"
+        case .applyPatches:
+            return "同步核心组件与授权补丁"
         case .finalized:
             return "部署就绪，完成验证"
         }
@@ -695,8 +720,10 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
             return "写入网络序列号注册表，启动本地 FlexNet 服务 (端口 25734)"
         case .runOfficialInstaller:
             return "启动 setup.exe，请在 Windows 弹出的安装向导中完成组件安装"
-        case .injectWpfAndPatches:
-            return "动态抽取微软官方 WPF 主题库并注入 SSQ 核心授权补丁"
+        case .extractWpfThemes:
+            return "动态抽取原版 PresentationFramework.Aero 等主题库注入 Mono 运行环境"
+        case .applyPatches:
+            return "同步 SOLIDWORKS Corp 核心程序补丁并导入授权激活注册表"
         case .finalized:
             return "检查主程序与运行库完整性，配置免虚拟机原生开箱即用环境"
         }

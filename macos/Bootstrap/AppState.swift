@@ -763,14 +763,11 @@ class AppState: ObservableObject {
             task.waitUntilExit()
             let ok = (task.terminationStatus == 0)
 
-            // 联动从安装介质抽取补全 WPF 官方主题库
-            self.extractAndInjectWpfThemes { _ in
-                DispatchQueue.main.async {
-                    self.isOperating = false
-                    self.checkInstallation()
-                    self.patchStatusMessage = ok ? "✅ 组件补丁与 WPF 运行库已成功同步应用！" : "❌ 组件补丁应用失败"
-                    completion?(ok)
-                }
+            DispatchQueue.main.async {
+                self.isOperating = false
+                self.checkInstallation()
+                self.patchStatusMessage = ok ? "✅ 组件补丁与授权注册表已成功同步应用！" : "❌ 组件补丁应用失败"
+                completion?(ok)
             }
         }
     }
