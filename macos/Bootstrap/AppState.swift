@@ -93,8 +93,9 @@ class AppState: ObservableObject {
     func buildWineScript(command: String, isBackground: Bool = false) -> String {
         let wineBin = WineService.shared.getWineBinary()
         let wineDir = URL(fileURLWithPath: wineBin).deletingLastPathComponent().deletingLastPathComponent().path
+        let isBundleWine = wineBin.contains(".app/Contents/Frameworks/wine") || wineBin.contains("wine-crossover-macsw")
+        let wineRoot = isBundleWine ? wineDir : "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
         let wineLib = "\(wineDir)/lib"
-        let cxRoot = "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
         let prefix = self.bottlePath.path
 
         var lines: [String] = [
@@ -103,8 +104,8 @@ class AppState: ObservableObject {
             "export LC_ALL='zh_CN.UTF-8'",
             "export WINEDEBUG='-all'"
         ]
-        if FileManager.default.fileExists(atPath: cxRoot) {
-            lines.append("export CX_ROOT='\(cxRoot)'")
+        if FileManager.default.fileExists(atPath: wineRoot) {
+            lines.append("export CX_ROOT='\(wineRoot)'")
         }
         if FileManager.default.fileExists(atPath: wineLib) {
             lines.append("export DYLD_FALLBACK_LIBRARY_PATH='\(wineLib)':$DYLD_FALLBACK_LIBRARY_PATH")

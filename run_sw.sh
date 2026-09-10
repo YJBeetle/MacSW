@@ -15,11 +15,13 @@ LOG_DIR="${HOME}/Library/Application Support/MacSW/logs"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/sw_launch.log"
 
-# 优先使用与 WineService 一致的 CrossOver wineloader，其次使用 MacSW 内置运行时
-if [ -x "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader" ]; then
-    WINE="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader"
-elif [ -x "${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine" ]; then
+# 优先使用 MacSW 内置定制 Wine，其次使用 CrossOver wineloader，最后回退系统 wine
+if [ -x "${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine" ]; then
     WINE="${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine"
+elif [ -x "${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64/bin/wine" ]; then
+    WINE="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64/bin/wine"
+elif [ -x "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader" ]; then
+    WINE="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader"
 else
     WINE="wine"
 fi
@@ -66,8 +68,16 @@ export SOLIDWORKS_LICENSE_FILE="25734@127.0.0.1;25734@localhost"
 export SW_D_LICENSE_FILE="25734@127.0.0.1;25734@localhost"
 
 # 1. 确保 FlexNet 许可服务正常运行
-"${WORKSPACE_ROOT}/scripts/manage_license.sh" start
-"${WORKSPACE_ROOT}/scripts/setup_fonts.sh"
+if nc -z 127.0.0.1 25734 2>/dev/null; then
+    echo "[INFO] FlexNet 许可服务运行正常 (25734 连通)"
+else
+    FLEX_DIR="${WINEPREFIX}/drive_c/opt/SolidWorks_Flexnet_Server"
+    if [ -f "${FLEX_DIR}/lmgrd.exe" ]; then
+        echo "[INFO] 启动本地 FlexNet 守护进程..."
+        (cd "${FLEX_DIR}" && nohup "${WINE}" "${FLEX_DIR}/lmgrd.exe" -c "${FLEX_DIR}/sw_d_SSQ.lic" -l "${WORKSPACE_ROOT}/scratch/flexnet.log" >/dev/null 2>&1 &)
+        sleep 2
+    fi
+fi
 "${WINE}" regedit "${WORKSPACE_ROOT}/scripts/disable_login_mgr.reg" >/dev/null 2>&1 || true
 
 

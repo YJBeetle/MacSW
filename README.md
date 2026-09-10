@@ -153,110 +153,62 @@
 
 ```
 WineSW/
-├── run_sw.sh                       # 🚀 一键拉起 SolidWorks 2025 主入口
+├── macos/                          # 🍎 原生 macOS Bootstrap App (SwiftUI)
+│   ├── Bootstrap/                  # App 核心源码 (状态机、许可服务、Wine桥接)
+│   └── Resources/                  # 图标、元数据与静态资源
 ├── scripts/
-│   ├── init_bottle.sh              # 容器创建与软链接初始化
-│   ├── setup_filesystem.sh         # 虚拟驱动器与 Windows 目录映射
-│   ├── import_registry.sh          # 核心注册表与许可配置导入
-│   ├── register_components.sh      # COM 组件与关键 DLL 注册
-│   ├── manage_license.sh           # FlexNet 许可服务管理守护 (start/stop/status)
-│   ├── setup_fonts.sh              # 字体软链接与 CJK 映射初始化
-│   ├── apply_msyh_fixed.reg        # 微软雅黑 UI 注册表配置方案
-│   ├── restore_stsong.reg          # 经典宋体 (STSong) 安全回退方案
-│   ├── sw_ui_daemon.cs             # ⭐️ UI 视口隔离守护进程源码
-│   ├── sw_ui_daemon.exe            # UI 守护进程预编译可执行文件
-│   ├── create_shortcut.vbs         # 生成 Windows 桌面快捷方式脚本
-│   └── diagnostics/                # 🔬 研发排查探针工具集
-│       ├── test_gdi_text.cs        # GDI 真实字形离屏渲染测试
-│       ├── inspect_dialog.cs       # 弹窗与控件树递归探针
-│       ├── inspect_menubar_font.cs # 菜单栏字体度量探针
-│       ├── check_overlap.cs        # 视口与控件坐标重叠监测
-│       └── ...
-└── .gitignore                      # 规则排除临时数据与中间产物
+│   ├── make_app.sh                 # 📦 自动化独立 App 打包流水线
+│   └── build_wine.sh               # 🍷 x86_64 Wine-crossover 定制构建脚本
+├── patches/                        # 🛠️ MacSW 专属 Wine 核心补丁集
+├── run_sw.sh                       # 终端开发者底层调试启动脚本
+└── .github/workflows/              # 🚀 自动化 CI/CD 构建流水线
 ```
 
 ---
 
-## 完整复现与部署指南
+## 快速启动与部署指南
 
-### 第一步：准备运行环境
+### 一键开箱即用（推荐）
 
-1. **操作系统：** macOS 15+ (Sequoia), Apple Silicon (M1/M2/M3/M4 系列)；
-2. **转译工具：** 安装 [CrossOver](https://www.codeweavers.com/crossover) 24+ 或 26+；
-3. **SolidWorks 安装介质：** 准备已预装或抽取的 SolidWorks 2025 SP5.0 程序目录（包含 `Program Files/SOLIDWORKS Corp` 与 `SolidSQUAD` 许可文件）。
+1. **打包生成原生 App：**
+   ```bash
+   ./scripts/make_app.sh
+   open build/app/MacSW.app
+   ```
+2. **在向导中完成部署：**
+   - 拖入 SolidWorks 安装介质（ISO 镜像或解压目录）；
+   - 向导自动识别并装配许可服务、网络注册表与组件补丁；
+   - 点击「开始部署」，向导将全程自动化完成环境准备、官方向导运行、补丁注入与 WPF 运行库补齐；
+   - 部署就绪后，直接在控制台点击「启动 SolidWorks」即可原生运行！
 
-### 第二步：初始化容器与环境配置
+### 终端开发者调试启动
 
-在终端进入本项目工作目录，执行以下步骤：
-
-```bash
-# 1. 初始化 64 位 Windows 10 Bottle
-./scripts/init_bottle.sh
-
-# 2. 映射程序文件与运行库虚拟目录
-./scripts/setup_filesystem.sh
-
-# 3. 导入注册表与许可环境配置
-./scripts/import_registry.sh
-
-# 4. 注册核心 COM 组件
-./scripts/register_components.sh
-
-# 5. 配置微软雅黑中文字体软链接
-./scripts/setup_fonts.sh
-```
-
-### 第三步：一键运行 SolidWorks 2025
-
-执行项目根目录的一键启动脚本：
+若需在终端进行底层调试，可直接执行：
 
 ```bash
 ./run_sw.sh
 ```
 
-脚本将依次自动完成：
-1. 检测并后台拉起 FlexNet 许可守护进程（监听 `127.0.0.1:25734`）；
-2. 校验并确保微软雅黑中文字体软链接就绪；
-3. 注入 CrossOver D3DMetal、DXVK 及原生 VC++ 运行库重载；
-4. 后台启动 `sw_ui_daemon` 视口隔离守护程序；
-5. 拉起 `SLDWORKS.exe` 进入主界面。
-
-> [!TIP]
-> 也可以在 CrossOver 主界面中直接双击生成的 **`SOLIDWORKS 2025`** 官方快捷图标启动！
+脚本将自适应使用 MacSW 内置 Wine，并自动校验本地 FlexNet 许可服务与 UI 守护进程状态。
 
 ---
 
 ## 常见问题与维护提示
 
-1. **如何验证中文字体渲染状态？**
-   可使用我们编写的 GDI 探针快速测试并输出位图：
-   ```bash
-   wine "C:\\windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe" /nologo /r:System.Drawing.dll /r:System.Windows.Forms.dll /out:scripts/diagnostics/test_gdi_text.exe scripts/diagnostics/test_gdi_text.cs
-   wine scripts/diagnostics/test_gdi_text.exe
-   ```
-2. **如果想切回系统默认的宋体风格？**
-   在终端执行：
-   ```bash
-   export CX_ROOT="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
-   "${CX_ROOT}/bin/wine" regedit "Z:\\Volumes\\Data\\Workspace\\WineSW\\scripts\\restore_stsong.reg"
-   ```
-3. **为什么绝对不能开启“使用软件 OpenGL”？**
+1. **为什么绝对不能开启“使用软件 OpenGL”？**
    - SolidWorks 2025 的现代视口重度依赖 OpenGL 4.5 与现代着色器流管线；
    - macOS 官方自 2018 年已全面弃用 OpenGL，在 Apple Silicon（ARM64 + Rosetta 2）转译环境下，Wine 内置的 CPU 软件渲染器会触发多线程自旋锁（Spinlock）死锁，导致主线程无响应卡死、COM 服务挂起；
    - 必须保持默认硬件加速（通过 D3DMetal / MoltenVK 转译），切勿在选项中开启软件 OpenGL。
 
-4. **属性管理器（PropertyManager）展开被 3D 视口遮挡与 CommandLink 方块字解决：**
+2. **属性管理器（PropertyManager）展开被 3D 视口遮挡与 CommandLink 方块字解决：**
    - **属性栏避让：** SolidWorks 支持在左侧特征树旁并排展开属性面板（`DVEDockedContainer`）。`sw_ui_daemon` 已升级智能感知，自适应计算所有左侧停靠面板的实际右边界 `maxDockRight`，确保 3D 视口自动避让，永不遮盖属性栏；
    - **CommandLink 方块字根治：** Windows 任务对话框及 OLE 挂起对话框的 CommandLink 按钮默认调用了旧版主题的 `Tahoma` 字体（缺少 CJK 字形）。`sw_ui_daemon` 自动检测并剥离旧主题、注入 `Segoe UI Semibold` 中文字体，彻底根治方块字现象。
 
-5. **浮动面板/工具条与弹出对话框原生图层提权（路径 1 核心机制）：**
+3. **浮动面板/工具条与弹出对话框原生图层提权（路径 1 核心机制）：**
    - **架构机理：** 传统 Wine 下子窗口（GDI）无法穿透覆盖 macOS 原生硬件视口（`CAMetalLayer`）。路径 1 方案免改 Wine 源码，通过守护进程将所有浮动工具栏（如“2D 到 3D”）、Docking 面板与弹出对话框（`#32770`）赋予 `WS_EX_TOOLWINDOW | WS_EX_TOPMOST` 样式，并将父窗口指向系统桌面；
    - **原生图层提升：** Wine `winemac.drv` 驱动在接收到该 Win32 状态后，自动在 macOS 端创建独立的 Cocoa `NSWindow` 并配置为 `NSFloatingWindowLevel`（Layer 21）。在 WindowServer 层面超越 3D 视口（Layer 0），实现任意拖拽浮动均保持在最前；
    - **失踪面板寻回：** 若用户将面板拖动到屏幕盲区或异常视口死角，`sw_ui_daemon` 会自动检测并安全复位其屏幕坐标至可见安全区（X=700, Y=200）。
 
-6. **许可服务状态排查：**
-   随时使用管理脚本查询许可健康状态：
-   ```bash
-   ./scripts/manage_license.sh status
-   ```
+4. **许可服务状态排查：**
+   在 MacSW 控制台仪表盘中可直接查看「FlexNet 许可服务」实时指示灯，或在终端通过 `nc -z 127.0.0.1 25734` 快速检测端口连通性。
 
