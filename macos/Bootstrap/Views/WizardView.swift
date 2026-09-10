@@ -358,17 +358,20 @@ struct WizardView: View {
                     self.statusText = "正在抽取并注入微软官方 WPF 主题库..."
                 }
 
-                // 执行步骤 4：抽取 WPF 主题库
+                // 执行步骤 4：抽取微软原版运行库（WPF 主题库 + VC++ 2015-2022 64位运行库）
                 self.state.extractAndInjectWpfThemes { wpfOk in
-                    DispatchQueue.main.async {
-                        self.stepStates[.extractWpfThemes] = wpfOk ? .completed : .warning("WPF 主题库注入完成（部分主题可能使用回退项）")
-                        self.stepLogs[.extractWpfThemes] = wpfOk ? "微软原版 WPF 主题库已成功提取并注入系统与程序目录" : "已完成主题库注入流程"
-                        
-                        // 步骤 5: 同步 SOLIDWORKS Corp 组件补丁
-                        self.currentStep = .applyPatches
-                        self.stepStates[.applyPatches] = .running
-                        self.stepLogs[.applyPatches] = "正在将核心程序补丁覆盖至安装目录..."
-                        self.statusText = "正在同步 SOLIDWORKS Corp 组件补丁..."
+                    self.state.extractAndInjectVcRedist { vcOk in
+                        DispatchQueue.main.async {
+                            let allOk = wpfOk && vcOk
+                            self.stepStates[.extractWpfThemes] = allOk ? .completed : .warning("核心运行库注入完成（部分项目使用预置回退项）")
+                            self.stepLogs[.extractWpfThemes] = "微软原版 WPF 主题库与 VC++ 2015-2022 核心运行库已成功提取并注入系统"
+                            
+                            // 步骤 5: 同步 SOLIDWORKS Corp 组件补丁
+                            self.currentStep = .applyPatches
+                            self.stepStates[.applyPatches] = .running
+                            self.stepLogs[.applyPatches] = "正在将核心程序补丁覆盖至安装目录..."
+                            self.statusText = "正在同步 SOLIDWORKS Corp 组件补丁..."
+                        }
                     }
 
                     // 执行步骤 5：同步组件补丁

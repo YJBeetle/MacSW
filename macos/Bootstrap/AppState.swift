@@ -23,6 +23,7 @@ class AppState: ObservableObject {
     @Published var selectedLicenseDir: URL? = nil
     @Published var isPatchApplied: Bool = false
     @Published var isWpfThemeInjected: Bool = false
+    @Published var isVcRedistInjected: Bool = false
     @Published var isExtractingOrMounting: Bool = false
     @Published var mountedVolumePath: String? = nil
     @Published var patchStatusMessage: String = ""
@@ -183,16 +184,13 @@ class AppState: ObservableObject {
         let swsecwrap = targetDir.appendingPathComponent("swsecwrap.dll")
         let sldutu = targetDir.appendingPathComponent("sldutu.dll")
         let hasSecwrap = FileManager.default.fileExists(atPath: swsecwrap.path) && FileManager.default.fileExists(atPath: sldutu.path)
-
-        let systemReg = self.bottlePath.appendingPathComponent("system.reg")
-        var hasReg = false
-        if let regContent = try? String(contentsOf: systemReg, encoding: .utf8) {
-            hasReg = regContent.contains("SolidSQUADLoaderEnabler")
-        }
-        self.isPatchApplied = hasSecwrap && hasReg
+        self.isPatchApplied = hasSecwrap
 
         let lunaDll = targetDir.appendingPathComponent("PresentationFramework.Luna.dll")
         self.isWpfThemeInjected = FileManager.default.fileExists(atPath: lunaDll.path)
+
+        let mfc140u = self.bottlePath.appendingPathComponent("drive_c/windows/system32/mfc140u.dll")
+        self.isVcRedistInjected = FileManager.default.fileExists(atPath: mfc140u.path)
     }
 
     // 从用户选定的安装介质（ISO 或解压目录）动态抽取微软官方 WPF 主题库，彻底杜绝 .NET 环境闪退
@@ -278,6 +276,96 @@ class AppState: ObservableObject {
             DispatchQueue.main.async {
                 self.checkInstallation()
                 completion?(self.isWpfThemeInjected)
+            }
+        }
+    }
+
+    // 从安装介质（ISO、已挂载卷或解压目录）的 PreReqs/VCRedist17/VC_redist.x64.exe 动态抽取微软官方 64 位 Visual C++ 运行库（mfc140u 等 26 个核心 DLL）
+    func extractAndInjectVcRedist(completion: ((Bool) -> Void)? = nil) {
+        let sys32Dir = self.bottlePath.appendingPathComponent("drive_c/windows/system32")
+        try? FileManager.default.createDirectory(at: sys32Dir, withIntermediateDirectories: true)
+
+        // 寻找 PreReqs/VCRedist17/VC_redist.x64.exe
+        var vcExePath: String? = nil
+        var isoCandidatePath: String? = nil
+
+        // 1. 检查已记录的挂载点
+        if let mounted = self.mountedVolumePath {
+            let p = "\(mounted)/PreReqs/VCRedist17/VC_redist.x64.exe"
+            if FileManager.default.fileExists(atPath: p) { vcExePath = p }
+        }
+
+        // 2. 扫描系统中所有已挂载的卷 (如 /Volumes/Solidworks1 等)
+        if vcExePath == nil {
+            if let volumes = try? FileManager.default.contentsOfDirectory(atPath: "/Volumes") {
+                for vol in volumes {
+                    let p = "/Volumes/\(vol)/PreReqs/VCRedist17/VC_redist.x64.exe"
+                    if FileManager.default.fileExists(atPath: p) {
+                        vcExePath = p
+                        break
+                    }
+                }
+            }
+        }
+
+        // 3. 用户选择的 ISO 文件或目录
+        if vcExePath == nil, let userIso = self.selectedIsoPath {
+            if userIso.pathExtension.lowercased() == "iso" {
+                isoCandidatePath = userIso.path
+            } else {
+                let p = userIso.appendingPathComponent("PreReqs/VCRedist17/VC_redist.x64.exe").path
+                if FileManager.default.fileExists(atPath: p) { vcExePath = p }
+            }
+        }
+
+        // 4. 兜底扫描工作区临时目录
+        if vcExePath == nil && isoCandidatePath == nil {
+            let localScratch = "/Volumes/Data/Workspace/WineSW/scratch/vcredist/VC_redist.x64.exe"
+            if FileManager.default.fileExists(atPath: localScratch) {
+                vcExePath = localScratch
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let tmpDir = "/tmp/macsw_vc_extract_\(ProcessInfo.processInfo.processIdentifier)"
+            try? FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
+
+            var script = "set -e\n"
+            if let iso = isoCandidatePath, vcExePath == nil {
+                script += """
+                /opt/homebrew/bin/7z e '\(iso)' 'PreReqs/VCRedist17/VC_redist.x64.exe' -o'\(tmpDir)' -y >/dev/null 2>&1 || true
+                """
+                vcExePath = "\(tmpDir)/VC_redist.x64.exe"
+            }
+
+            if let exe = vcExePath {
+                script += """
+                if [ -f '\(exe)' ]; then
+                    python3 -c "import struct; d=open(r'\(exe)','rb').read(); idx=d.rfind(b'MSCF'); open(r'\(tmpDir)/payload.cab','wb').write(d[idx:idx+struct.unpack('<I',d[idx+8:idx+12])[0]]) if idx!=-1 else None" 2>/dev/null || true
+                    if [ -f '\(tmpDir)/payload.cab' ]; then
+                        mkdir -p '\(tmpDir)/cab_out'
+                        /opt/homebrew/bin/7z x -y '\(tmpDir)/payload.cab' -o'\(tmpDir)/cab_out' >/dev/null 2>&1 || true
+                        mkdir -p '\(tmpDir)/dlls'
+                        [ -f '\(tmpDir)/cab_out/a12' ] && /opt/homebrew/bin/7z e -y '\(tmpDir)/cab_out/a12' -o'\(tmpDir)/dlls' >/dev/null 2>&1 || true
+                        [ -f '\(tmpDir)/cab_out/a13' ] && /opt/homebrew/bin/7z e -y '\(tmpDir)/cab_out/a13' -o'\(tmpDir)/dlls' >/dev/null 2>&1 || true
+                        cd '\(tmpDir)/dlls'
+                        for f in *_amd64; do [ -f "$f" ] && mv "$f" "${f%_amd64}"; done
+                        cp -f *.dll '\(sys32Dir.path)/' 2>/dev/null || true
+                    fi
+                fi
+                """
+            }
+            script += "\nrm -rf '\(tmpDir)'\n"
+
+            let task = Process()
+            task.launchPath = "/bin/bash"
+            task.arguments = ["-c", script]
+            try? task.run()
+            task.waitUntilExit()
+
+            DispatchQueue.main.async {
+                self.checkInstallation()
+                completion?(self.isVcRedistInjected)
             }
         }
     }

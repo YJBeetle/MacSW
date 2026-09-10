@@ -186,6 +186,24 @@ struct DashboardView: View {
                         .font(.system(size: 10))
                     }
                 }
+
+                Divider()
+
+                HStack {
+                    Circle()
+                        .fill(state.isVcRedistInjected ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text("VC++ 2015-2022 运行库: \(state.isVcRedistInjected ? "已就绪 (mfc140u 等官方 64位 DLL)" : "未补齐 (缺少 mfc140u 等)")")
+                        .font(.system(size: 11))
+                    Spacer()
+                    if !state.isVcRedistInjected {
+                        Button("抽取注入") {
+                            state.extractAndInjectVcRedist()
+                        }
+                        .controlSize(.small)
+                        .font(.system(size: 10))
+                    }
+                }
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
@@ -361,6 +379,18 @@ struct DashboardView: View {
     }
 
     private func launchApp() {
+        if !state.isVcRedistInjected {
+            state.extractAndInjectVcRedist { _ in
+                DispatchQueue.main.async {
+                    self.state.isSolidWorksRunning = true
+                    WineService.shared.launchSolidWorks(
+                        exePath: self.state.sldworksExePath.path,
+                        winePrefix: self.state.bottlePath.path
+                    )
+                }
+            }
+            return
+        }
         state.isSolidWorksRunning = true
         WineService.shared.launchSolidWorks(
             exePath: state.sldworksExePath.path,
