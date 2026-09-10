@@ -280,22 +280,31 @@ struct WizardView: View {
                 DispatchQueue.main.async {
                     self.isInstallerRunning = false
                 }
-                // 4. 然后“补丁”：安装向导退出后，自动同步组件补丁
+                // 4. 然后“补丁与运行库”：安装向导退出后，自动同步组件补丁并从安装介质抽取 WPF 主题库
                 DispatchQueue.main.async {
-                    self.statusText = "正在同步组件补丁与注册表环境..."
+                    self.statusText = "正在从介质提取 WPF 官方主题库并同步组件补丁..."
                 }
 
                 if let patchDir = self.state.selectedPatchDir {
-                    self.state.applyComponentPatch(customPatchDir: patchDir)
-                }
-
-                DispatchQueue.main.async {
-                    self.isProcessing = false
-                    self.state.checkInstallation()
-                    if self.state.isInstalled {
-                        self.statusText = "✅ 部署已全部完成，SolidWorks 已就绪！"
-                    } else {
-                        self.statusText = "安装向导已退出。若已完成安装，请点击右上角【进入控制台】。"
+                    self.state.applyComponentPatch(customPatchDir: patchDir) { ok in
+                        DispatchQueue.main.async {
+                            self.isProcessing = false
+                            self.state.checkInstallation()
+                            if self.state.isInstalled {
+                                self.statusText = ok ? "✅ 部署已全部完成，补丁与 WPF 主题库已就绪！" : "⚠️ 部署完成，但补丁同步存在警告，请在控制台检查。"
+                            } else {
+                                self.statusText = "安装向导已退出。若已完成安装，请点击右上角【进入控制台】。"
+                            }
+                        }
+                    }
+                } else {
+                    // 若用户未指定补丁文件夹，仍然抽取 WPF 主题库，但给出明确未破解警告
+                    self.state.extractAndInjectWpfThemes { _ in
+                        DispatchQueue.main.async {
+                            self.isProcessing = false
+                            self.state.checkInstallation()
+                            self.statusText = "⚠️ 安装向导已退出。注意：因未指定补丁文件夹，已略过补丁！请在控制台手动指定并应用补丁。"
+                        }
                     }
                 }
             }

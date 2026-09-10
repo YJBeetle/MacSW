@@ -21,6 +21,8 @@ class AppState: ObservableObject {
     @Published var selectedIsoPath: URL? = nil
     @Published var selectedPatchDir: URL? = nil
     @Published var selectedLicenseDir: URL? = nil
+    @Published var isPatchApplied: Bool = false
+    @Published var isWpfThemeInjected: Bool = false
     @Published var isExtractingOrMounting: Bool = false
     @Published var mountedVolumePath: String? = nil
     @Published var patchStatusMessage: String = ""
@@ -43,7 +45,7 @@ class AppState: ObservableObject {
         if ProcessInfo.processInfo.environment["MACSW_FORCE_WIZARD"] == "1" {
             self.isInstalled = false
         } else {
-            self.isInstalled = FileManager.default.fileExists(atPath: self.sldworksExePath.path)
+            self.checkInstallation()
         }
 
         checkLicenseStatus()
@@ -169,49 +171,169 @@ class AppState: ObservableObject {
     func checkInstallation() {
         if ProcessInfo.processInfo.environment["MACSW_FORCE_WIZARD"] == "1" {
             self.isInstalled = false
+            self.isPatchApplied = false
+            self.isWpfThemeInjected = false
             return
         }
         self.sldworksExePath = AppState.resolveSldworksPath(bottlePath: self.bottlePath)
         self.isInstalled = FileManager.default.fileExists(atPath: self.sldworksExePath.path)
+
+        let targetDir = self.sldworksExePath.deletingLastPathComponent()
+        let swsecwrap = targetDir.appendingPathComponent("swsecwrap.dll")
+        let sldutu = targetDir.appendingPathComponent("sldutu.dll")
+        let hasSecwrap = FileManager.default.fileExists(atPath: swsecwrap.path) && FileManager.default.fileExists(atPath: sldutu.path)
+
+        let systemReg = self.bottlePath.appendingPathComponent("system.reg")
+        var hasReg = false
+        if let regContent = try? String(contentsOf: systemReg, encoding: .utf8) {
+            hasReg = regContent.contains("SolidSQUADLoaderEnabler")
+        }
+        self.isPatchApplied = hasSecwrap && hasReg
+
+        let lunaDll = targetDir.appendingPathComponent("PresentationFramework.Luna.dll")
+        self.isWpfThemeInjected = FileManager.default.fileExists(atPath: lunaDll.path)
     }
 
-    // 智能自动发现并填充同级伴随资源（遵循未填写才填写、已填写不覆盖原则）
+    // 从用户选定的安装介质（ISO 或解压目录）动态抽取微软官方 WPF 主题库，彻底杜绝 .NET 环境闪退
+    func extractAndInjectWpfThemes(completion: ((Bool) -> Void)? = nil) {
+        let exeUrl = AppState.resolveSldworksPath(bottlePath: self.bottlePath)
+        let targetDir = exeUrl.deletingLastPathComponent()
+        let wpfSysDir = self.bottlePath.appendingPathComponent("drive_c/windows/Microsoft.NET/Framework64/v4.0.30319/WPF")
+        try? FileManager.default.createDirectory(at: wpfSysDir, withIntermediateDirectories: true)
+
+        // 寻找 ndp48-x86-x64-allos-enu.exe 所在路径
+        var ndpExePath: String? = nil
+        var isoCandidatePath: String? = nil
+
+        if let mounted = self.mountedVolumePath {
+            let p = "\(mounted)/PreReqs/dotNetFx/ndp48-x86-x64-allos-enu.exe"
+            if FileManager.default.fileExists(atPath: p) { ndpExePath = p }
+        }
+
+        if ndpExePath == nil, let userIso = self.selectedIsoPath {
+            if userIso.pathExtension.lowercased() == "iso" {
+                isoCandidatePath = userIso.path
+            } else {
+                let p = userIso.appendingPathComponent("PreReqs/dotNetFx/ndp48-x86-x64-allos-enu.exe").path
+                if FileManager.default.fileExists(atPath: p) { ndpExePath = p }
+            }
+        }
+
+        // 兜底扫描工作区或临时目录
+        if ndpExePath == nil && isoCandidatePath == nil {
+            let localScratch = "/Volumes/Data/Workspace/WineSW/scratch/ndp48-x86-x64-allos-enu.exe"
+            if FileManager.default.fileExists(atPath: localScratch) {
+                ndpExePath = localScratch
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let tmpDir = "/tmp/macsw_wpf_extract_\(ProcessInfo.processInfo.processIdentifier)"
+            try? FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
+
+            var script = "set -e\n"
+            if let iso = isoCandidatePath, ndpExePath == nil {
+                script += """
+                /opt/homebrew/bin/7z e '\(iso)' 'PreReqs/dotNetFx/ndp48-x86-x64-allos-enu.exe' -o'\(tmpDir)' -y >/dev/null 2>&1 || true
+                """
+                ndpExePath = "\(tmpDir)/ndp48-x86-x64-allos-enu.exe"
+            }
+
+            if let exe = ndpExePath {
+                script += """
+                if [ -f '\(exe)' ]; then
+                    /opt/homebrew/bin/7z e '\(exe)' 'netfx_Full.mzz' -o'\(tmpDir)' -y >/dev/null 2>&1 || true
+                    if [ -f '\(tmpDir)/netfx_Full.mzz' ]; then
+                        /opt/homebrew/bin/7z e '\(tmpDir)/netfx_Full.mzz' \\
+                            'PresentationFramework.Luna_amd64.dll' \\
+                            'PresentationFramework.Aero_amd64.dll' \\
+                            'PresentationFramework.Classic_amd64.dll' \\
+                            'PresentationFramework.Royale_amd64.dll' \\
+                            'PresentationFramework.AeroLite.dll_amd64' \\
+                            -o'\(tmpDir)' -y >/dev/null 2>&1 || true
+                        
+                        mkdir -p '\(targetDir.path)' '\(wpfSysDir.path)'
+                        [ -f '\(tmpDir)/PresentationFramework.Luna_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Luna_amd64.dll' '\(targetDir.path)/PresentationFramework.Luna.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Aero_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Aero_amd64.dll' '\(targetDir.path)/PresentationFramework.Aero.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Classic_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Classic_amd64.dll' '\(targetDir.path)/PresentationFramework.Classic.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.Royale_amd64.dll' ] && cp '\(tmpDir)/PresentationFramework.Royale_amd64.dll' '\(targetDir.path)/PresentationFramework.Royale.dll'
+                        [ -f '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' ] && cp '\(tmpDir)/PresentationFramework.AeroLite.dll_amd64' '\(targetDir.path)/PresentationFramework.AeroLite.dll'
+
+                        cp '\(targetDir.path)/PresentationFramework.'*.dll '\(wpfSysDir.path)/' 2>/dev/null || true
+                    fi
+                fi
+                rm -rf '\(tmpDir)'
+                """
+            } else {
+                script += "rm -rf '\(tmpDir)'\n"
+            }
+
+            let task = Process()
+            task.launchPath = "/bin/bash"
+            task.arguments = ["-c", script]
+            task.launch()
+            task.waitUntilExit()
+
+            DispatchQueue.main.async {
+                self.checkInstallation()
+                completion?(self.isWpfThemeInjected)
+            }
+        }
+    }
+
+    // 智能多层级深度自动发现并填充同级伴随资源（遵循未填写才填写、已填写不覆盖原则）
     func autoDetectCompanionFiles(from sourceUrl: URL) {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: sourceUrl.path, isDirectory: &isDir) else { return }
 
         let baseDir = isDir.boolValue ? sourceUrl : sourceUrl.deletingLastPathComponent()
-        var searchDirs: [URL] = [baseDir]
+        var rootSearchDirs: [URL] = [baseDir]
 
-        // 1. 加入父目录（若存在）
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        if let dl = downloads { rootSearchDirs.append(dl) }
+        rootSearchDirs.append(URL(fileURLWithPath: "/Volumes/Data/Workspace/WineSW"))
+
         let parentDir = baseDir.deletingLastPathComponent()
-        if parentDir.path != baseDir.path && parentDir.path != "/" {
-            searchDirs.append(parentDir)
+        if parentDir.path != baseDir.path && parentDir.path != "/" && parentDir.path != "/Volumes" {
+            rootSearchDirs.append(parentDir)
         }
 
-        // 2. 加入 baseDir 和 parentDir 下的直接子文件夹（如 crack、_SolidSQUAD_ 等常见目录）
-        var candidateDirs = searchDirs
-        for dir in searchDirs {
-            if let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+        func scanDirsRecursively(from roots: [URL], maxDepth: Int) -> [URL] {
+            var results: [URL] = []
+            var visited = Set<String>()
+
+            func traverse(dir: URL, currentDepth: Int) {
+                let path = dir.standardizedFileURL.path
+                if visited.contains(path) { return }
+                visited.insert(path)
+                results.append(dir)
+
+                if currentDepth >= maxDepth { return }
+
+                guard let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return }
                 for item in items {
-                    var subDir: ObjCBool = false
-                    if FileManager.default.fileExists(atPath: item.path, isDirectory: &subDir), subDir.boolValue {
-                        candidateDirs.append(item)
+                    var subIsDir: ObjCBool = false
+                    if FileManager.default.fileExists(atPath: item.path, isDirectory: &subIsDir), subIsDir.boolValue {
+                        let name = item.lastPathComponent.lowercased()
+                        if name == "library" || name == ".git" || name == "node_modules" || name == "build" { continue }
+                        traverse(dir: item, currentDepth: currentDepth + 1)
                     }
                 }
             }
+
+            for root in roots {
+                traverse(dir: root, currentDepth: 0)
+            }
+            return results
         }
 
-        // 去除重复路径
-        var seen = Set<String>()
-        let finalSearchDirs = candidateDirs.filter { seen.insert($0.standardizedFileURL.path).inserted }
+        let allCandidateDirs = scanDirsRecursively(from: rootSearchDirs, maxDepth: 3)
 
         DispatchQueue.main.async {
-            // A. 网络注册表 (*serials_licensing.reg) - 未填写时才填写，已存在绝不覆盖
+            // A. 网络注册表 (*serials_licensing.reg)
             if self.selectedRegPath == nil {
-                for dir in finalSearchDirs {
+                for dir in allCandidateDirs {
                     if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-                        // 优先精准匹配包含 serial 与 licens 的 .reg 文件
                         if let match = files.first(where: {
                             let name = $0.lastPathComponent.lowercased()
                             return name.hasSuffix(".reg") && name.contains("serial") && name.contains("licens")
@@ -219,7 +341,6 @@ class AppState: ObservableObject {
                             self.selectedRegPath = match
                             break
                         }
-                        // 次优匹配任意 serial*.reg (排除 loader)
                         if let match = files.first(where: {
                             let name = $0.lastPathComponent.lowercased()
                             return name.hasSuffix(".reg") && name.contains("serial") && !name.contains("loader")
@@ -231,53 +352,50 @@ class AppState: ObservableObject {
                 }
             }
 
-            // B. 许可服务目录 (SolidWorks_Flexnet_Server) - 未填写时才填写，已存在绝不覆盖
+            // B. 许可服务目录 (SolidWorks_Flexnet_Server)
             if self.selectedLicenseDir == nil {
-                for dir in finalSearchDirs {
-                    if let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
-                        for item in items {
-                            var itemIsDir: ObjCBool = false
-                            if FileManager.default.fileExists(atPath: item.path, isDirectory: &itemIsDir), itemIsDir.boolValue {
-                                let name = item.lastPathComponent.lowercased()
-                                if name.contains("solidworks") && name.contains("flexnet") && name.contains("server") {
-                                    self.selectedLicenseDir = item
-                                    break
-                                } else if name.contains("flexnet") && name.contains("server") {
-                                    self.selectedLicenseDir = item
-                                    break
-                                } else if FileManager.default.fileExists(atPath: item.appendingPathComponent("lmgrd.exe").path) {
-                                    self.selectedLicenseDir = item
-                                    break
-                                }
-                            }
-                        }
-                        if self.selectedLicenseDir != nil { break }
+                for dir in allCandidateDirs {
+                    let name = dir.lastPathComponent.lowercased()
+                    let lmgrd = dir.appendingPathComponent("lmgrd.exe")
+                    if FileManager.default.fileExists(atPath: lmgrd.path) {
+                        self.selectedLicenseDir = dir
+                        break
+                    }
+                    if (name.contains("solidworks") || name.contains("flexnet")) && name.contains("server") {
+                        self.selectedLicenseDir = dir
+                        break
                     }
                 }
             }
 
-            // C. 组件补丁目录 (SOLIDWORKS Corp) - 未填写时才填写，已存在绝不覆盖
+            // C. 组件补丁目录 (SOLIDWORKS Corp / crack)
             if self.selectedPatchDir == nil {
-                for dir in finalSearchDirs {
-                    if let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
-                        for item in items {
-                            var itemIsDir: ObjCBool = false
-                            if FileManager.default.fileExists(atPath: item.path, isDirectory: &itemIsDir), itemIsDir.boolValue {
-                                let name = item.lastPathComponent
-                                if name.localizedCaseInsensitiveContains("SOLIDWORKS Corp") {
-                                    self.selectedPatchDir = item
-                                    break
-                                }
-                            }
-                        }
-                        if self.selectedPatchDir != nil { break }
+                for dir in allCandidateDirs {
+                    let name = dir.lastPathComponent
+                    // 1. 直接包含 SOLIDWORKS Corp
+                    if name.localizedCaseInsensitiveContains("SOLIDWORKS Corp") {
+                        self.selectedPatchDir = dir
+                        break
+                    }
+                    // 2. 目录下包含 SOLIDWORKS Corp 子目录
+                    let childCorp = dir.appendingPathComponent("SOLIDWORKS Corp")
+                    if FileManager.default.fileExists(atPath: childCorp.path) {
+                        self.selectedPatchDir = childCorp
+                        break
+                    }
+                    // 3. 目录下包含 SOLIDWORKS/sldutu.dll 或 sldutu.dll
+                    let childSwDll = dir.appendingPathComponent("SOLIDWORKS/sldutu.dll")
+                    let directDll = dir.appendingPathComponent("sldutu.dll")
+                    if FileManager.default.fileExists(atPath: childSwDll.path) || FileManager.default.fileExists(atPath: directDll.path) {
+                        self.selectedPatchDir = dir
+                        break
                     }
                 }
             }
 
-            // D. 安装介质 (如果当前尚未选择 ISO 或安装目录) - 未填写时才填写，已存在绝不覆盖
+            // D. 安装介质 ISO
             if self.selectedIsoPath == nil {
-                for dir in finalSearchDirs {
+                for dir in allCandidateDirs {
                     if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
                         if let isoMatch = files.first(where: {
                             let ext = $0.pathExtension.lowercased()
@@ -593,10 +711,14 @@ class AppState: ObservableObject {
         pkill -9 -f sldworks_fs || true
         rm -f '\(actualTargetDir)/netapi32.dll' || true
         
-        # 1. 覆盖主程序补丁到实际探测到的安装目录
+        # 1. 覆盖主程序补丁到实际探测到的安装目录（兼容各种层级的补丁包结构）
         if [ -d '\(actualTargetDir)' ]; then
-            if [ -d '\(patchDir)/SOLIDWORKS' ]; then
+            if [ -d '\(patchDir)/SOLIDWORKS Corp/SOLIDWORKS' ]; then
+                rsync -av '\(patchDir)/SOLIDWORKS Corp/SOLIDWORKS/' '\(actualTargetDir)/'
+            elif [ -d '\(patchDir)/SOLIDWORKS' ]; then
                 rsync -av '\(patchDir)/SOLIDWORKS/' '\(actualTargetDir)/'
+            elif [ -f '\(patchDir)/sldutu.dll' ]; then
+                rsync -av '\(patchDir)/' '\(actualTargetDir)/'
             else
                 rsync -av '\(patchDir)/' '\(actualTargetDir)/'
             fi
@@ -604,17 +726,28 @@ class AppState: ObservableObject {
 
         # 2. 如果补丁包中包含其他同级套件目录（如 eDrawings 等），同步到父级目录
         parentTargetDir="$(dirname '\(actualTargetDir)')"
-        if [ -d "$parentTargetDir" ] && [ -d '\(patchDir)/SOLIDWORKS' ]; then
-            for sub in '\(patchDir)'/*; do
-                if [ -d "$sub" ] && [ "$(basename "$sub")" != "SOLIDWORKS" ]; then
-                    rsync -av "$sub" "$parentTargetDir/"
-                fi
-            done
+        if [ -d "$parentTargetDir" ]; then
+            corpDir=""
+            if [ -d '\(patchDir)/SOLIDWORKS Corp' ]; then
+                corpDir='\(patchDir)/SOLIDWORKS Corp'
+            elif [ -d '\(patchDir)/SOLIDWORKS' ]; then
+                corpDir='\(patchDir)'
+            fi
+            if [ -n "$corpDir" ]; then
+                for sub in "$corpDir"/*; do
+                    if [ -d "$sub" ] && [ "$(basename "$sub")" != "SOLIDWORKS" ]; then
+                        rsync -av "$sub" "$parentTargetDir/"
+                    fi
+                done
+            fi
         fi
 
         \(envHeader)
-        # 查找并导入补丁目录或父级目录中的所有注册表补丁
-        for reg in '\(patchDir)'/*.reg '\(patchDir)'/../*.reg; do
+        # 查找并导入补丁目录及各级子目录、父目录中的所有注册表补丁（包括 Loader Enabler）
+        find '\(patchDir)' -maxdepth 2 -name "*.reg" 2>/dev/null | while read -r reg; do
+            "\(wine)" regedit /s "$reg" 2>/dev/null || true
+        done
+        for reg in '\(patchDir)'/../*.reg; do
             if [ -f "$reg" ]; then
                 "\(wine)" regedit /s "$reg" 2>/dev/null || true
             fi
@@ -629,10 +762,14 @@ class AppState: ObservableObject {
             task.waitUntilExit()
             let ok = (task.terminationStatus == 0)
 
-            DispatchQueue.main.async {
-                self.isOperating = false
-                self.patchStatusMessage = ok ? "✅ 组件补丁已成功同步应用！" : "❌ 组件补丁应用失败"
-                completion?(ok)
+            // 联动从安装介质抽取补全 WPF 官方主题库
+            self.extractAndInjectWpfThemes { _ in
+                DispatchQueue.main.async {
+                    self.isOperating = false
+                    self.checkInstallation()
+                    self.patchStatusMessage = ok ? "✅ 组件补丁与 WPF 运行库已成功同步应用！" : "❌ 组件补丁应用失败"
+                    completion?(ok)
+                }
             }
         }
     }

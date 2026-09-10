@@ -128,11 +128,11 @@ struct DashboardView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
 
             // Status Card
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 HStack {
                     Circle()
                         .fill(state.isLicenseRunning ? Color.green : Color.orange)
-                        .frame(width: 9, height: 9)
+                        .frame(width: 8, height: 8)
                     Text("FlexNet 许可服务 (端口 25734): \(state.isLicenseRunning ? "运行中" : "未运行")")
                         .font(.system(size: 11))
                     Spacer()
@@ -145,6 +145,42 @@ struct DashboardView: View {
                     } else {
                         Button("刷新") {
                             state.checkLicenseStatus()
+                        }
+                        .controlSize(.small)
+                        .font(.system(size: 10))
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Circle()
+                        .fill(state.isPatchApplied ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text("SolidWorks 授权补丁: \(state.isPatchApplied ? "已应用 (SSQ 破解补丁已注入)" : "未应用 (未检测到补丁)")")
+                        .font(.system(size: 11))
+                    Spacer()
+                    if !state.isPatchApplied {
+                        Button("应用补丁") {
+                            state.applyComponentPatch()
+                        }
+                        .controlSize(.small)
+                        .font(.system(size: 10))
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Circle()
+                        .fill(state.isWpfThemeInjected ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text("WPF 原版主题运行库: \(state.isWpfThemeInjected ? "已就绪 (免虚拟机防闪退)" : "未补齐 (缺少主题库)")")
+                        .font(.system(size: 11))
+                    Spacer()
+                    if !state.isWpfThemeInjected {
+                        Button("抽取注入") {
+                            state.extractAndInjectWpfThemes()
                         }
                         .controlSize(.small)
                         .font(.system(size: 10))
