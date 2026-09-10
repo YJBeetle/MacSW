@@ -364,19 +364,19 @@ struct WizardView: View {
                         self.stepStates[.extractWpfThemes] = wpfOk ? .completed : .warning("WPF 主题库注入完成（部分主题可能使用回退项）")
                         self.stepLogs[.extractWpfThemes] = wpfOk ? "微软原版 WPF 主题库已成功提取并注入系统与程序目录" : "已完成主题库注入流程"
                         
-                        // 步骤 5: 同步核心组件与授权补丁
+                        // 步骤 5: 同步 SOLIDWORKS Corp 组件补丁
                         self.currentStep = .applyPatches
                         self.stepStates[.applyPatches] = .running
-                        self.stepLogs[.applyPatches] = "正在同步核心程序补丁文件并导入授权注册表..."
-                        self.statusText = "正在同步核心组件与授权补丁..."
+                        self.stepLogs[.applyPatches] = "正在将核心程序补丁覆盖至安装目录..."
+                        self.statusText = "正在同步 SOLIDWORKS Corp 组件补丁..."
                     }
 
-                    // 执行步骤 5：同步授权补丁
+                    // 执行步骤 5：同步组件补丁
                     if let patchDir = self.state.selectedPatchDir {
                         self.state.applyComponentPatch(customPatchDir: patchDir) { patchOk in
                             DispatchQueue.main.async {
-                                self.stepStates[.applyPatches] = patchOk ? .completed : .warning("补丁应用完成，存在部分非致命警告")
-                                self.stepLogs[.applyPatches] = patchOk ? "SOLIDWORKS Corp 核心组件补丁及授权注册表已全部就绪" : "补丁应用已完成"
+                                self.stepStates[.applyPatches] = patchOk ? .completed : .warning("补丁同步完成，存在部分非致命警告")
+                                self.stepLogs[.applyPatches] = patchOk ? "SOLIDWORKS Corp 核心组件补丁已同步就绪" : "补丁同步已完成"
                                 
                                 // 步骤 6: 部署就绪，完成验证
                                 self.finishDeployment(patchOk: patchOk)
@@ -706,7 +706,7 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
         case .extractWpfThemes:
             return "抽取微软官方 WPF 主题库"
         case .applyPatches:
-            return "同步核心组件与授权补丁"
+            return "同步 SOLIDWORKS Corp 组件补丁"
         case .finalized:
             return "部署就绪，完成验证"
         }
@@ -723,7 +723,7 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
         case .extractWpfThemes:
             return "动态抽取原版 PresentationFramework.Aero 等主题库注入 Mono 运行环境"
         case .applyPatches:
-            return "同步 SOLIDWORKS Corp 核心程序补丁并导入授权激活注册表"
+            return "将核心程序补丁文件覆盖至实际程序安装目录"
         case .finalized:
             return "检查主程序与运行库完整性，配置免虚拟机原生开箱即用环境"
         }

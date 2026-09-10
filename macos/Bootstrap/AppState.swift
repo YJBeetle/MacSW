@@ -705,9 +705,7 @@ class AppState: ObservableObject {
         // 动态定位真实安装主目录（优先通过注册表解析）
         let exeUrl = AppState.resolveSldworksPath(bottlePath: bottlePath)
         let actualTargetDir = exeUrl.deletingLastPathComponent().path
-        let wine = WineService.shared.getWineBinary()
 
-        let envHeader = self.buildWineScript(command: "")
         let script = """
         pkill -9 -f sldworks_fs || true
         rm -f '\(actualTargetDir)/netapi32.dll' || true
@@ -742,17 +740,6 @@ class AppState: ObservableObject {
                 done
             fi
         fi
-
-        \(envHeader)
-        # 查找并导入补丁目录及各级子目录、父目录中的所有注册表补丁（包括 Loader Enabler）
-        find '\(patchDir)' -maxdepth 2 -name "*.reg" 2>/dev/null | while read -r reg; do
-            "\(wine)" regedit /s "$reg" 2>/dev/null || true
-        done
-        for reg in '\(patchDir)'/../*.reg; do
-            if [ -f "$reg" ]; then
-                "\(wine)" regedit /s "$reg" 2>/dev/null || true
-            fi
-        done
         """
 
         DispatchQueue.global(qos: .userInitiated).async {
