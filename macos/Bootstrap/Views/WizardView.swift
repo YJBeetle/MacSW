@@ -28,8 +28,8 @@ struct WizardView: View {
                 }
                 Spacer()
 
-                if state.isInstalled {
-                    Button("进入控制台") {
+                if state.hasInstalledExecutable {
+                    Button("返回控制台") {
                         state.isInstalled = true
                     }
                     .font(.system(size: 11))

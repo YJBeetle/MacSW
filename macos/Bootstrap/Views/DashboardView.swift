@@ -26,8 +26,7 @@ struct DashboardView: View {
             // Segmented Picker
             Picker("", selection: $state.selectedTab) {
                 Text("🚀 运行启动").tag(0)
-                Text("🔑 激活与许可").tag(1)
-                Text("🛠️ 重新安装").tag(2)
+                Text("🔑 激活与维护").tag(1)
             }
             .pickerStyle(.segmented)
 
@@ -38,10 +37,8 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     if state.selectedTab == 0 {
                         launchTab
-                    } else if state.selectedTab == 1 {
-                        licenseTab
                     } else {
-                        installTab
+                        maintenanceTab
                     }
                 }
                 .padding(.vertical, 4)
@@ -181,8 +178,8 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Tab 1: 激活与许可
-    private var licenseTab: some View {
+    // MARK: - Tab 1: 激活与维护
+    private var maintenanceTab: some View {
         VStack(spacing: 14) {
             // License Server Config
             VStack(alignment: .leading, spacing: 10) {
@@ -292,66 +289,38 @@ struct DashboardView: View {
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.purple.opacity(0.08)))
-        }
-    }
 
-    // MARK: - Tab 2: 重新安装与维护
-    private var installTab: some View {
-        VStack(spacing: 14) {
-            // Setup Launcher Card
+            // Reinstall & Setup Wizard Action Card
             VStack(alignment: .leading, spacing: 10) {
-                Text("SolidWorks 安装管理程序 (setup.exe)")
-                    .font(.system(size: 13, weight: .bold))
+                HStack {
+                    Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                        .foregroundColor(.blue)
+                    Text("重新安装或重置环境")
+                        .font(.system(size: 12, weight: .bold))
+                    Spacer()
+                }
 
-                Text("点击下方按钮将通过 Wine 唤起官方安装程序，可选择【修改单机安装】或【全新安装】。")
+                Text("如需选择新安装镜像、重新安装 SolidWorks 或完整清理并重新初始化 Wine 独立容器，请打开配置向导。")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
-                HStack(spacing: 12) {
-                    Button(action: { state.launchSetupExe() }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                            Text("启动安装程序 (setup.exe)")
-                                .font(.system(size: 13, weight: .bold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("预置序列号") {
-                        state.importNetworkSerials()
-                    }
-                    .font(.system(size: 11))
-                }
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
-
-            // Installation Guidance Card
-            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundColor(.blue)
-                    Text("重新安装避坑指引 (非常重要)")
-                        .font(.system(size: 12, weight: .bold))
-                }
+                    Button(action: {
+                        state.isInstalled = false
+                    }) {
+                        Label("打开部署与配置向导...", systemImage: "sparkles")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("1. 安装类型: 请务必勾选【在此计算机上安装】(单机/网络客户端模式)。")
-                    Text("2. 序列号检查: 提示“在激活数据库中找不到序列号”时，直接点【确定/忽略】继续。")
-                    Text("3. 许可服务器: 当要求输入端口与服务器时，填入: 25734@localhost")
-                        .foregroundColor(.accentColor)
-                        .bold()
-                    Text("4. 订购到期提醒: 提示“无法确定当前订购服务到期日期”时，点【否】，提示稍后激活点【是】。")
-                    Text("5. 完成安装后: 返回本软件，在【🔑 激活与许可】页面点击【一键应用组件补丁】。")
+                    Spacer()
+                    Text("快捷键: ⇧⌘R")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
                 }
-                .font(.system(size: 10.5))
-                .foregroundColor(.secondary)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.3), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
         }
     }
 

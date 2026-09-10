@@ -29,6 +29,10 @@ class AppState: ObservableObject {
     var sldworksExePath: URL
     let appSupportDir: URL
 
+    var hasInstalledExecutable: Bool {
+        return FileManager.default.fileExists(atPath: sldworksExePath.path)
+    }
+
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         self.appSupportDir = appSupport.appendingPathComponent("MacSW")

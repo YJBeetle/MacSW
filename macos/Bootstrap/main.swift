@@ -79,11 +79,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         toolsMenu.addItem(termSwItem)
 
         toolsMenu.addItem(NSMenuItem.separator())
-        let setupExeItem = NSMenuItem(title: "启动官方安装程序 (setup.exe)", action: #selector(launchSetupAction), keyEquivalent: "")
-        setupExeItem.target = self
-        toolsMenu.addItem(setupExeItem)
-
-        toolsMenu.addItem(NSMenuItem.separator())
 
         let restartLicItem = NSMenuItem(title: "重启 FlexNet 许可服务", action: #selector(restartLicenseAction), keyEquivalent: "")
         restartLicItem.target = self
@@ -137,10 +132,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func terminateSolidWorksAction() {
         appState.terminateSolidWorks()
-    }
-
-    @objc func launchSetupAction() {
-        appState.launchSetupExe()
     }
 
     @objc func restartLicenseAction() {
