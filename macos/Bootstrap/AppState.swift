@@ -191,6 +191,20 @@ class AppState: ObservableObject {
 
         let mfc140u = self.bottlePath.appendingPathComponent("drive_c/windows/system32/mfc140u.dll")
         self.isVcRedistInjected = FileManager.default.fileExists(atPath: mfc140u.path)
+
+        // 自动自愈同步修复版 mscoree.dll（防止 C++/CLI 虚表修复断言崩溃）
+        let mscoreeDst = self.bottlePath.appendingPathComponent("drive_c/windows/system32/mscoree.dll")
+        let appMscoree = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine/lib/wine/x86_64-windows/mscoree.dll")
+        let localDistMscoree = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("dist/mscoree_x64.dll")
+        let mscoreeSrc = FileManager.default.fileExists(atPath: appMscoree.path) ? appMscoree : localDistMscoree
+        if FileManager.default.fileExists(atPath: mscoreeSrc.path) {
+            let srcSize = (try? FileManager.default.attributesOfItem(atPath: mscoreeSrc.path)[.size] as? Int) ?? 0
+            let dstSize = (try? FileManager.default.attributesOfItem(atPath: mscoreeDst.path)[.size] as? Int) ?? 0
+            if srcSize > 0 && srcSize != dstSize {
+                try? FileManager.default.removeItem(at: mscoreeDst)
+                try? FileManager.default.copyItem(at: mscoreeSrc, to: mscoreeDst)
+            }
+        }
     }
 
     // 从用户选定的安装介质（ISO 或解压目录）动态抽取微软官方 WPF 主题库，彻底杜绝 .NET 环境闪退

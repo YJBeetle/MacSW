@@ -16,5 +16,7 @@ macos/Resources/*.icns
 scripts/diagnostics/*.exe
 build/
 dist/
+*.dll
+resources/*.dll
 
 crack/

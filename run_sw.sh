@@ -81,8 +81,22 @@ fi
 "${WINE}" regedit "${WORKSPACE_ROOT}/scripts/disable_login_mgr.reg" >/dev/null 2>&1 || true
 
 
-# 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++)
-export WINEDLLOVERRIDES="concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
+# 确保容器中内置正确的 mscoree.dll (彻底防止 C++/CLI 虚表修复断言崩溃)
+CONTAINER_MSCOREE="${WINEPREFIX}/drive_c/windows/system32/mscoree.dll"
+MSCOREE_SOURCE="${WORKSPACE_ROOT}/dist/mscoree_x64.dll"
+if [ ! -f "${MSCOREE_SOURCE}" ] && [ -f "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows/mscoree.dll" ]; then
+    mkdir -p "${WORKSPACE_ROOT}/dist"
+    cp -p "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows/mscoree.dll" "${MSCOREE_SOURCE}"
+fi
+if [ -f "${MSCOREE_SOURCE}" ]; then
+    if [ ! -f "${CONTAINER_MSCOREE}" ] || [ "$(stat -f%z "${CONTAINER_MSCOREE}" 2>/dev/null || echo 0)" != "203856" ]; then
+        echo "[INFO] 正在同步并自愈修复版 mscoree.dll..."
+        cp -p "${MSCOREE_SOURCE}" "${CONTAINER_MSCOREE}"
+    fi
+fi
+
+# 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++ / Native mscoree)
+export WINEDLLOVERRIDES="mscoree=n,b;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
 export DXVK_LOG_LEVEL="info"
 export MVK_CONFIG_LOG_LEVEL="2"
 
@@ -92,8 +106,8 @@ echo "[INFO] 启动 SolidWorks UI 守护进程 (sw_ui_daemon)..."
 DAEMON_PID=$!
 trap 'kill ${DAEMON_PID} 2>/dev/null || true' EXIT
 
-# 4. 调试输出配置 (默认记录 warn/err/fixme)
-export WINEDEBUG="${WINEDEBUG:-+loaddll,-all,fixme-all}"
+# 4. 调试输出配置 (生产级静默模式，彻底消除日志开销以保证最高帧率与响应)
+export WINEDEBUG="${WINEDEBUG:--all}"
 
 cd "${SW_DIR}"
 echo "[INFO] 正在拉起 SLDWORKS.exe..."
