@@ -1,6 +1,8 @@
-# PR draft — not submitted
+# Mono upstream PR
 
-Proposed repository: `wine-mono/mono` (the runtime, not the packaging repository).
+Repository: `wine-mono/mono` (the runtime, not the packaging repository).
+Base branch: `main`.
+Submitted PR: [wine-mono/mono#35](https://github.com/wine-mono/mono/pull/35).
 
 ## Title
 
@@ -115,17 +117,14 @@ These commands compile only the reproducer, not Mono. The original local
 bridge matrix used the same C# source compiled with Wine-Mono's `csc`; the
 upstream CI regression described below is compiled with `mcs`.
 
-Download the official runtime and the tested candidate DLL into a new work
-directory containing the two compiled reproducer files:
+Download the official runtime into a new work directory containing the two
+compiled reproducer files:
 
 ```sh
 curl -fL https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-x86.tar.xz \
     -o runtime.tar.xz
 mkdir runtime
 tar -xf runtime.tar.xz -C runtime
-curl -fL https://github.com/YJBeetle/wine-mono/releases/download/macsw-mono-11.3.0-v4/libmono-2.0-x86.dll \
-    -o candidate-x86.dll
-echo '1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562  candidate-x86.dll' | sha256sum -c -
 ```
 
 Save as `reproduce.sh`, then run `xvfb-run -a bash reproduce.sh`:
@@ -138,35 +137,29 @@ export WINEDEBUG=-all
 mkdir -p logs
 runtime=$(dirname "$(dirname "$(find "$PWD/runtime" -name libmono-2.0-x86.dll -print -quit)")")
 test -f "$runtime/lib/mono/4.5/mscorlib.dll"
-cp "$runtime/bin/libmono-2.0-x86.dll" baseline-x86.dll
 WINEDLLOVERRIDES='mscoree,mshtml=' timeout -k 5 120 wine wineboot -u
 wine reg add 'HKCU\Software\Wine\Mono' /v RuntimePath /t REG_SZ \
     /d "$(winepath -w "$runtime")" /f
-for variant in baseline candidate; do
-    wineserver -k || true
-    wineserver -w
-    cp "$variant-x86.dll" "$runtime/bin/libmono-2.0-x86.dll"
-    sha256sum "$runtime/bin/libmono-2.0-x86.dll"
-    for mode in interp none; do
-        export WINE_MONO_AOT="$mode"
-        for convention in cdecl stdcall; do
-            set +e
-            timeout -k 5 60 wine "$PWD/NativeBridgeProbe.exe" "$convention" \
-                > "logs/$variant-$mode-$convention.log" 2>&1
-            result=$?
-            set -e
-            echo "$variant $mode $convention exit=$result"
-            cat "logs/$variant-$mode-$convention.log"
-            wineserver -k || true
-            wineserver -w
-        done
+sha256sum "$runtime/bin/libmono-2.0-x86.dll"
+for mode in interp none; do
+    export WINE_MONO_AOT="$mode"
+    for convention in cdecl stdcall; do
+        set +e
+        timeout -k 5 60 wine "$PWD/NativeBridgeProbe.exe" "$convention" \
+            > "logs/$mode-$convention.log" 2>&1
+        result=$?
+        set -e
+        echo "$mode $convention exit=$result"
+        cat "logs/$mode-$convention.log"
+        wineserver -k || true
+        wineserver -w
     done
 done
 ```
 
 `WINE_MONO_AOT=none` selects the JIT control. The script's wineserver
 operations are scoped by the dedicated `WINEPREFIX`. Use a fresh extraction
-for each full run so `baseline-x86.dll` remains the unmodified engine.
+for each full run so the engine remains the unmodified official baseline.
 
 ### Observed results
 
@@ -186,13 +179,11 @@ run-dependent. The crash report, not the timeout alone, is the evidence.
 The Linux bridge baseline was built from the release's pinned Mono commit
 `73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc`, with DLL SHA-256
 `003255a0ef2a59d47e2052abb883d9925a206a534ee4bcbe8ab8786de5bd3d7b`.
-The downloadable candidate above corresponds to runtime commit
-`50c8800d806195d7e55813d5cb59fd10b2fb4894`.
 
 ### Upstream regression test and CI evidence
 
 The added upstream-style test is committed at
-[1b6b7ce575e](https://github.com/YJBeetle/mono/commit/1b6b7ce575ef5eb0aa765a5540c3590d90e95d92).
+[9bcc7f5a5c7](https://github.com/YJBeetle/mono/commit/9bcc7f5a5c7a84204f75f7c0affa395bd2109748).
 It does not depend on `CreateActCtxW`: native pointer identity functions
 exercise the same ABI boundary without Windows API behavior in the assertion.
 
@@ -207,8 +198,8 @@ The same test executable, native library and managed class libraries are
 used for both engines. The CI negative control uses the unmodified DLL from
 the official 11.3.0 archive, rather than the separately built local baseline.
 
-[Full before/after CI run](https://github.com/YJBeetle/wine-mono/actions/runs/34615947382)
-([pinned workflow and script](https://github.com/YJBeetle/wine-mono/tree/f2edca421e88f273fcc514c7da810ee3c0522cab/.github)):
+[Full before/after CI run](https://github.com/YJBeetle/wine-mono/actions/runs/34644559410)
+([pinned workflow and script](https://github.com/YJBeetle/wine-mono/tree/19166056753e490bf4cb78b9c8c841e2adb5452b/.github)):
 
 ```text
 baseline interpreter:
@@ -236,6 +227,13 @@ for the three positive controls. Loader failures and generic timeouts do
 not satisfy the negative-control assertion. Logs and engine checksums are
 uploaded in the `x86-regression-logs` artifact.
 
+The candidate in that run is commit `9bcc7f5a5c7`, based directly on
+`wine-mono/mono:main` at `dd89f9da647`. Its matching x86 `mono-sgen.exe`
+host and runtime DLL are built together from that revision. A separate
+[Wine Mono integration run](https://github.com/YJBeetle/wine-mono/actions/runs/34639563698)
+applied the same two commits on top of the current `wine-mono` integration
+branch and passed the same interpreter/JIT matrix.
+
 ### Scope and limitations
 
 - Reproduced under Wine on both Linux x86_64 and macOS Apple Silicon. Native
@@ -246,19 +244,16 @@ uploaded in the `x86-regression-logs` artifact.
 - This patch does not fix the separate macOS x86 JIT startup hang, add
   arbitrary-signature x86 interpreter P/Invoke support, or establish
   correctness on other architectures.
-- Validation is based on the Mono commit pinned by Wine Mono 11.3.0.
-  Compatibility with the current upstream target branch must be checked
-  before submission.
+- The standalone bridge matrix uses the Mono commit pinned by Wine Mono
+  11.3.0. The upstream regression CI additionally builds and tests the
+  proposed commits directly on the current `main` branch.
 
 ---
 
-## Local submission checklist (not part of the PR body)
+## Submission record (not part of the PR body)
 
-- Await user approval before opening the PR.
-- Prepare a clean review branch with the final runtime fix and regression
-  test; preserve the experimental branch and CI references.
-- Remove incidental end-of-file whitespace changes.
-- Inspect the current upstream target diff; rerun CI if adapting code.
+- Submitted `YJBeetle:codex/x86-interp-stdcall-main`, containing only the
+  runtime fix and regression test, against `wine-mono/mono:main`.
 - Keep CI infrastructure in the packaging fork, outside the runtime PR.
-- The recipe above is assembled from validated steps; execute it verbatim
-  in a fresh directory before describing it as a tested copy/paste recipe.
+- PR creation-time state: mergeable with a clean merge state; the repository
+  did not report required status checks.

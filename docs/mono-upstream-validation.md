@@ -12,7 +12,8 @@ Host: Debian 13 x86_64. Wine: Debian 10.0~repack-6, with amd64 and i386
 packages. Tests use an independent prefix and Xvfb on 10.24.11.1.
 No SOLIDWORKS files or license configuration are involved.
 
-Both engines were built by GitHub CI from the Wine Mono 11.3.0 baseline.
+The independent bridge engines were built by GitHub CI from the Wine Mono
+11.3.0 baseline.
 
 | Engine | Interpreter cdecl | Interpreter stdcall | JIT cdecl | JIT stdcall |
 | --- | --- | --- | --- | --- |
@@ -31,27 +32,32 @@ Candidate DLL SHA-256:
 `1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562`
 
 Local raw logs: `scratch/linux-mono-results/`.
-Remote scripts and logs: `/home/YJBeetle/macsw-mono-repro/`.
 
 ## Proposed upstream coverage
 
 The fork adds pointer-return P/Invoke coverage to the existing `pinvoke2.cs`
 and `libtest.c` framework. It interleaves cdecl, explicit stdcall, and default
-Winapi calls repeatedly. CI 34614333278 ran the test successfully under
-both the candidate interpreter and JIT. CI 34615947382 then ran the same
-test binary and class libraries with the official 11.3.0 release engine
-and the candidate: the release interpreter crashed after entering the
-test, whereas release JIT and both candidate modes reported one test and
-zero failures. The matrix above remains the independent bridge result.
+Winapi calls repeatedly. CI 34644559410 builds commit `9bcc7f5a5c7` directly
+on the current `wine-mono/mono:main` baseline (`dd89f9da647`) and runs the
+same test binary and class libraries with the official 11.3.0 release engine
+and the matching candidate host/runtime pair. The release interpreter crashes
+after entering the test, whereas release JIT and both candidate modes report
+one test and zero failures.
 
-Before opening a PR:
+CI 34639563698 independently applies the same two clean commits on top of the
+current `wine-mono` integration branch. Its interpreter and JIT matrix also
+passes, showing that the main-targeted change remains compatible after the
+integration merge. The bridge matrix above remains the independent Linux
+reproducer result.
 
-- Preserve the completed baseline/candidate CI evidence and rerun it after
-  any implementation changes.
-- Add broader argument-count and return-type coverage for the new dispatch.
-- Review normalized signature ownership and wrapper selection.
-- Consolidate exploratory implementation commits, excluding the transient
-  signature lifetime bug introduced by candidate v3.
-- Keep the macOS JIT issue separate and state host/runtime coverage precisely.
+The proposed PR branch is `YJBeetle:codex/x86-interp-stdcall-main`, containing
+only these two commits:
 
-No upstream PR has been opened.
+- `cce567ba2ca` — interpreter implementation;
+- `9bcc7f5a5c7` — upstream regression coverage.
+
+The PR targets `wine-mono/mono:main`. The macOS x86 JIT issue remains separate,
+and the CI infrastructure remains in the packaging fork.
+
+Submitted upstream as
+[wine-mono/mono#35](https://github.com/wine-mono/mono/pull/35).
