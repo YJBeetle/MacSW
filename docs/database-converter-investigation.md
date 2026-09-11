@@ -39,3 +39,8 @@ macOS 线程采样有大量 Rosetta exceptionserver 活动，但符号不完整�
 声称 Toolbox 已准备完成，也不能未经验证取消 32BITREQUIRED，因为存在
 OleDb 与本地 SQLite 依赖。下一步应以最小程序定位 32 位启动问题，再单独
 核查官方安装介质中数据库资源的部署流程。
+
+补充介质检查：swwi/data/English.cab 已包含 swbrowser.sldedb（20,250,624 字节）
+及 updatedb.sldedb（18,605,056 字节）。因此不能认为介质只有待转换的旧 MDB；
+新容器可能应直接部署现成数据库。仍需核查 MSI 文件/组件映射和语言部署流程，
+解释为何这些资源没有落入正式容器；本轮仅列出 CAB 内容，未提取或写入容器。
