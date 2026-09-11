@@ -93,3 +93,30 @@ CreateActCtxW(NULL)，不依赖 WinForms，也不创建实际激活上下文。
 Rosetta 执行权限处理。没有修改正式运行时或把失败调用替换为成功。
 本地日志为 nativecall32-interp.log、nativecall32-no-last-error.log、
 nativecall64-interp.log、nativecall32-kernelbase.log。
+
+## 运行时组合对照
+
+继续以 NativeCall32NoLastError.exe 和解释器模式对照，同一探针二进制：
+
+| Wine 来源 | Mono | 结果 |
+| --- | --- | --- |
+| App Gcenx 11.16 | 10.4.1 | PID 正常，CreateActCtx 崩溃 |
+| Gcenx stable 11.0_1 | 11.3.0 | PID 正常，CreateActCtx 崩溃 |
+| CrossOver 26.3.0.39832 | 自带 10.4.1 | PID 正常，CreateActCtx 崩溃 |
+
+每组通过 loaddll 确认实际 libmono-2.0-x86.dll 路径。旧 Mono 对照克隆
+app-runtime-smoke 到 scratch/mono104-compare/prefix，并仅在该副本设置
+HKCU\Software\Wine\Mono 的 RuntimePath。稳定版使用全新
+scratch/wine110-compare/prefix，CrossOver 使用 CX_BOTTLE_PATH 指向
+scratch/crossover-compare，通过 cxbottle 创建 mono-probe（win10_64）。
+没有替换 App 内运行时，也没有修改已有 CrossOver 容器。
+
+日志分别为 mono104-compare/nativecall-interp.log、
+wine110-compare/nativecall-interp.log、crossover-compare/nativecall-interp.log，
+均位于 scratch。稳定版来源：
+https://github.com/Gcenx/macOS_Wine_builds/releases/tag/11.0_1
+
+这些结果不足以把问题归因于 Gcenx 11.16 或 Mono 11.3.0 的单独回归。
+它们只是解释器原生调用对照，不代表所有组合的默认 JIT、WinForms 或实际
+安装器均已测试。旧 Wine 主版本仍未完成：查询时 Gcenx 官方发布与标签清单
+仅列出 11 系列，需另找可核实的历史构建来源。
