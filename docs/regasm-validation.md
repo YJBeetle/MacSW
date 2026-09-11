@@ -82,4 +82,13 @@ x86/x64 regasm.exe 占位实现；先用安装器相同的参数验证 x64 工�
 
 结论：对于本轮 MSI 的 ExecuteRegAsm 路径，正常启动并返回 0 足以让安装器
 接受结果、继续后续步骤。21 次托管注册实际均未执行，不能把安装器接受结果
-视为 COM 组件注册成功；正式 App 仍未应用这一策略。
+视为 COM 组件注册成功。
+
+## App 干净安装验证版本
+
+经用户确认，安装流程现在在 wineboot 后补齐两种架构的 Wine RegAsm 占位工具。
+来源固定为 App 自带 runtime，不引入原生 .NET，不修改安装包，也不自动处理
+许可服务或授权。遇到已有的不同版本 RegAsm 会中止，避免覆盖原生工具。
+安装前及最终结果明确显示托管 COM 注册跳过，详细记录在
+Application Support/MacSW/logs/regasm-compatibility.log。
+此版本等待用户干净安装验证；数据库转换和相关插件能力仍未确认。

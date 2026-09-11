@@ -5,6 +5,43 @@ final class PrerequisiteService {
     static let shared = PrerequisiteService()
     static let themes = ["Luna", "Aero", "Classic", "Royale", "AeroLite"]
 
+    /// Installation continuity only: Wine RegAsm returns zero without registering COM types.
+    /// Never replace an existing native or unknown registration tool.
+    static func prepareRegAsmCompatibility(runtime: URL, prefix: URL) throws {
+        let fm = FileManager.default
+        let mappings = [("x86_64-windows", "Framework64"), ("i386-windows", "Framework")]
+        var copies: [(URL, Data)] = []
+        for (architecture, framework) in mappings {
+            let source = runtime.appendingPathComponent("lib/wine/\(architecture)/regasm.exe")
+            let data = try Data(contentsOf: source)
+            guard !data.isEmpty else {
+                throw NSError(domain: "MacSW.Prerequisites", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "App 内 RegAsm 兼容文件为空，请重新打包。"])
+            }
+            let target = prefix.appendingPathComponent("drive_c/windows/Microsoft.NET/\(framework)/v4.0.30319/regasm.exe")
+            let directory = target.deletingLastPathComponent()
+            // Windows paths are case-insensitive even on a case-sensitive host volume.
+            let entries = fm.fileExists(atPath: directory.path)
+                ? try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) : []
+            for existing in entries where existing.lastPathComponent.lowercased() == "regasm.exe" {
+                guard try Data(contentsOf: existing) == data else {
+                    throw NSError(domain: "MacSW.Prerequisites", code: 3,
+                        userInfo: [NSLocalizedDescriptionKey: "容器存在其他版本的 RegAsm，已停止以避免覆盖：\(existing.path)"])
+                }
+            }
+            copies.append((target, data))
+        }
+        // Validate both architectures before writing either destination.
+        for (target, data) in copies {
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+        }
+        let logs = prefix.deletingLastPathComponent().appendingPathComponent("logs")
+        try fm.createDirectory(at: logs, withIntermediateDirectories: true)
+        let message = "\(Date()): Wine RegAsm compatibility enabled (x86/x64). Returns zero only; managed COM registration is SKIPPED, not successful. Runtime: \(runtime.path)\n"
+        try Data(message.utf8).write(to: logs.appendingPathComponent("regasm-compatibility.log"), options: .atomic)
+    }
+
     private func failure(_ message: String) -> Error {
         NSError(domain: "MacSW.Prerequisites", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }

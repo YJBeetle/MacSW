@@ -36,6 +36,8 @@ struct WizardView: View {
                             .font(.caption).foregroundColor(.secondary)
                         Text("使用官方安装器并禁止回退；发生错误时保留文件，明确显示未完成步骤。")
                             .font(.caption).foregroundColor(.secondary)
+                        Text("RegAsm 兼容模式：跳过托管 COM 组件注册，让后续安装继续；相关插件功能可能不可用，仍需验证。")
+                            .font(.caption).foregroundColor(.orange)
                     }.padding(2)
                 }
                 .disabled(state.isOperating)
