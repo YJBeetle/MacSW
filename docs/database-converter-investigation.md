@@ -237,3 +237,19 @@ Wine 11.16 / Mono 11.3.0，WINE_MONO_AOT=interp：
 WinForms 全部 P/Invoke 或默认 JIT 启动问题，不能直接作为 App 修复交付。
 本地构建：i686-w64-mingw32-gcc -shared -O2 -Wl,--kill-at；日志为
 scratch/regasm-zero-logs/bridge-cdecl.log 和 bridge-stdcall.log。
+
+## GitHub CI 基线产物验证
+
+用户要求引擎只在 GitHub CI 构建；本地仅编译探针、编辑源码和运行验证。
+fork 的基线 run 34594568831 全部成功，仅构建 libmono-2.0-x86.dll：
+https://github.com/YJBeetle/wine-mono/actions/runs/34594568831
+
+产物 SHA-256 校验一致：
+003255a0ef2a59d47e2052abb883d9925a206a534ee4bcbe8ab8786de5bd3d7b。
+在 scratch/mono-ci-runtime 中克隆运行时与测试容器，只替换副本的 x86 引擎，
+通过 RuntimePath 指向该副本。loaddll 确认实际加载新引擎。
+
+- baseline-stdcall.log：同一探针在 03290080 执行异常。
+- baseline-cdecl.log：同一探针正常输出 RESULT=-1。
+
+因此 CI 产物复现了原有差异，可用于补丁前后比较。正式 App 和容器未修改。
