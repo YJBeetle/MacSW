@@ -557,6 +557,7 @@ class AppState: ObservableObject {
                 let boot = try service.run(service.makeProcess(arguments: ["wineboot", "-u"], prefix: self.bottlePath.path),
                     log: service.logDirectory(self.bottlePath.path).appendingPathComponent("wineboot.log"))
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
+                try PrerequisiteService.configureMono(prefix: self.bottlePath)
                 try PrerequisiteService.prepareRegAsmCompatibility(runtime: service.runtimeURL, prefix: self.bottlePath)
                 self.reportDeployment(.environment, .completed, "Wine 已就绪；已配置 RegAsm 兼容模式（跳过托管 COM 注册）")
                 self.reportDeployment(.vc, .running, "正在运行官方 VC++ x64 安装包…")

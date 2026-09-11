@@ -84,6 +84,17 @@ ln -sf wine "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 test -x "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 test -x "${FRAMEWORKS_DIR}/wine/bin/wineserver"
 test -d "${FRAMEWORKS_DIR}/wine/share/wine/mono/wine-mono-11.3.0"
+
+# GitHub CI run 34605603341; mono commit 50c8800d806195d7e55813d5cb59fd10b2fb4894.
+MONO_PATCH="${WORKSPACE_ROOT}/dist/mono-11.3.0-v4/libmono-2.0-x86.dll"
+if [ ! -f "${MONO_PATCH}" ]; then
+    mkdir -p "$(dirname "${MONO_PATCH}")"
+    curl -fL --retry 3 "https://github.com/YJBeetle/wine-mono/releases/download/macsw-mono-11.3.0-v4/libmono-2.0-x86.dll" -o "${MONO_PATCH}.download"
+    test "$(shasum -a 256 "${MONO_PATCH}.download" | awk '{print $1}')" = "1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562" || { echo "Downloaded Mono DLL checksum mismatch" >&2; exit 1; }
+    mv "${MONO_PATCH}.download" "${MONO_PATCH}"
+fi
+test "$(shasum -a 256 "${MONO_PATCH}" | awk '{print $1}')" = "1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562" || { echo "Mono DLL checksum mismatch" >&2; exit 1; }
+cp "${MONO_PATCH}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll"
 test -f "${RESOURCES_DIR}/sw_ui_daemon.exe"
 # Preserve matching mscoree and Mono; never inject the old CrossOver DLL.
 "${FRAMEWORKS_DIR}/wine/bin/wineloader" --version

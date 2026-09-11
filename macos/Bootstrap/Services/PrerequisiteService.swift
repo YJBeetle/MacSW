@@ -1,9 +1,30 @@
 import Foundation
+import CryptoKit
 
 /// Only extracts prerequisites, never SolidWorks CAB payloads.
 final class PrerequisiteService {
     static let shared = PrerequisiteService()
     static let themes = ["Luna", "Aero", "Classic", "Royale", "AeroLite"]
+
+    static func configureMono(prefix: URL) throws {
+        let service = WineService.shared
+        let mono = service.runtimeURL.appendingPathComponent("share/wine/mono/wine-mono-11.3.0")
+        let data = try Data(contentsOf: mono.appendingPathComponent("bin/libmono-2.0-x86.dll"))
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard hash == "1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562" else {
+            throw NSError(domain: "MacSW.Prerequisites", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "App 内 Mono 修复版本校验失败，请使用重新打包的 App。"])
+        }
+        let windowsPath = "Z:" + mono.path.replacingOccurrences(of: "/", with: "\\")
+        let code = try service.run(service.makeProcess(arguments: ["reg", "add",
+            "HKCU\\Software\\Wine\\Mono", "/v", "RuntimePath", "/t", "REG_SZ",
+            "/d", windowsPath, "/f"], prefix: prefix.path),
+            log: service.logDirectory(prefix.path).appendingPathComponent("mono-runtime.log"))
+        guard code == 0 else {
+            throw NSError(domain: "MacSW.Prerequisites", code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: "Mono 运行时配置失败，请查看 mono-runtime.log。"])
+        }
+    }
 
     /// Installation continuity only: Wine RegAsm returns zero without registering COM types.
     /// Never replace an existing native or unknown registration tool.
