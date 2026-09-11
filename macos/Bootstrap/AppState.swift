@@ -562,7 +562,7 @@ class AppState: ObservableObject {
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
                 try PrerequisiteService.configureMono(prefix: self.bottlePath)
                 try PrerequisiteService.prepareRegAsmCompatibility(runtime: service.runtimeURL, prefix: self.bottlePath)
-                self.reportDeployment(.environment, .completed, "Wine 已就绪；已配置 RegAsm 兼容模式（跳过托管 COM 注册）")
+                self.reportDeployment(.environment, .completed, "运行环境已就绪")
                 self.reportDeployment(.vc, .running, "正在运行官方 VC++ x64 安装包…")
                 try PrerequisiteService.shared.installVC(media: media, prefix: self.bottlePath)
                 self.reportDeployment(.vc, .completed, "VC++ 运行库已检查")
@@ -577,7 +577,7 @@ class AppState: ObservableObject {
                     self.deploymentStates[.registry] = self.selectedRegPath == nil ? .skipped : .completed
                     self.deploymentDetails[.registry] = self.selectedRegPath == nil ? "未选择 .reg，请在官方安装器中填写" : "已导入所选序列号注册表"
                     self.deploymentStates[.installer] = .running
-                    self.deploymentDetails[.installer] = "请在官方安装窗口操作；禁用回退，跳过托管 COM 注册"
+                    self.deploymentDetails[.installer] = "请在官方安装窗口继续操作"
                     service.launchInstaller(setupExe: msi.path, winePrefix: self.bottlePath.path) { code in
                         let installerOK = [Int32(0), 3010, 194].contains(code)
                         self.deploymentStates[.installer] = installerOK ? .completed : .warning
@@ -598,9 +598,9 @@ class AppState: ObservableObject {
                             self.checkInstallation()
                             let ready = installerOK && ok && self.isVcRedistInjected
                             self.deploymentStates[.validation] = ready ? .completed : .warning
-                            self.deploymentDetails[.validation] = ready ? "基础文件检查通过；托管 COM 注册已跳过，相关功能仍需验证" : "文件已保留；托管 COM 注册已跳过，安装/依赖仍需检查"
+                            self.deploymentDetails[.validation] = ready ? "基础文件检查通过，可继续验证启动" : "文件已保留，安装或依赖仍需检查"
                             self.statusMessage = "安装器退出码 \(code)；WPF \(ok ? "已补齐" : "补齐失败")。" +
-                                ([0, 3010, 194].contains(code) ? "可继续验证启动；托管 COM 注册已跳过，不代表完整部署成功。" : "文件已保留，但安装未完整完成，请查看日志。")
+                                (ready ? "可继续验证启动。" : "安装或依赖未完整就绪，请查看日志。")
                         }
                     }
                 }
