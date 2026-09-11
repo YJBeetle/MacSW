@@ -26,6 +26,19 @@ else
     WINE="wine"
 fi
 
+# 自动防 version mismatch 自愈：确保当前运行的 wineserver 与选定的 WINE 运行库版本 100% 匹配
+WINE_DIR="$(dirname "${WINE}")"
+TARGET_WINESERVER="${WINE_DIR}/wineserver"
+RUNNING_SERVER_PID="$(pgrep -x "wineserver" 2>/dev/null || pgrep -f "wineserver" 2>/dev/null | head -n 1 || true)"
+if [ -n "${RUNNING_SERVER_PID}" ]; then
+    RUNNING_SERVER_PATH="$(lsof -p "${RUNNING_SERVER_PID}" 2>/dev/null | awk '$5=="REG" && $9 ~ /wineserver$/ {print $9}' | head -n 1 || ps -p "${RUNNING_SERVER_PID}" -o command= 2>/dev/null || true)"
+    if [ -f "${TARGET_WINESERVER}" ] && [[ "${RUNNING_SERVER_PATH}" != *"${TARGET_WINESERVER}"* ]]; then
+        echo "[INFO] 检测到后台运行异构版本 wineserver，自动执行安全重置以杜绝协议冲突..."
+        killall -9 wineserver wine64-preloader wineloader 2>/dev/null || true
+        sleep 0.5
+    fi
+fi
+
 SW_DIR=""
 if [ $# -ge 1 ] && [ -f "$1" ]; then
     TARGET_EXE="$1"
