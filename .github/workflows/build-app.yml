@@ -31,8 +31,9 @@ jobs:
           path: |
             dist/game-porting-toolkit-*.tar.xz
             dist/wine-mono-*.tar.xz
+            dist/7zz
             ~/Library/Caches/wine/
-          key: gptk-3.0-3-mono-10.4.1
+          key: gptk-3.0-3-mono-10.4.1-7zz
 
       - name: Ensure Dist Runtime
         run: |

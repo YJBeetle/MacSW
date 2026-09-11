@@ -7,29 +7,61 @@ public class InstallExtractorService {
     
     /// 检测系统 7z 可执行程序路径
     public func find7zPath() -> String? {
-        let candidates = [
-            "/opt/homebrew/bin/7z",
-            "/usr/local/bin/7z",
-            "/usr/bin/7z"
+        // 1. 优先使用 App Bundle 内置的 7zz / 7z
+        let bundleCandidates = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/7zz").path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/7z").path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/7zz").path,
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/7z").path
         ]
-        for path in candidates {
+        for path in bundleCandidates {
             if FileManager.default.isExecutableFile(atPath: path) {
                 return path
             }
         }
         
-        let pipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["7z"]
-        process.standardOutput = pipe
-        try? process.run()
-        process.waitUntilExit()
+        // 2. 本地工作区 dist/ 缓存 (开发或测试阶段)
+        let localDistCandidates = [
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("dist/7zz").path,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("dist/7z").path,
+            "/Volumes/Data/Workspace/WineSW/dist/7zz"
+        ]
+        for path in localDistCandidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
         
-        if process.terminationStatus == 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
-                return output
+        // 3. 系统/Homebrew 路径
+        let systemCandidates = [
+            "/opt/homebrew/bin/7zz",
+            "/opt/homebrew/bin/7z",
+            "/usr/local/bin/7zz",
+            "/usr/local/bin/7z",
+            "/usr/bin/7zz",
+            "/usr/bin/7z"
+        ]
+        for path in systemCandidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        
+        // 4. which 探测
+        for bin in ["7zz", "7z"] {
+            let pipe = Pipe()
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+            process.arguments = [bin]
+            process.standardOutput = pipe
+            try? process.run()
+            process.waitUntilExit()
+            
+            if process.terminationStatus == 0 {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+                    return output
+                }
             }
         }
         return nil

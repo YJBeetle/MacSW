@@ -45,6 +45,21 @@ if [ -f "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" ]; then
     cp -p "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" "${RESOURCES_DIR}/"
 fi
 
+# 集成 7-Zip 官方 Universal2 独立引擎 (确保无 Homebrew 的任意 Mac 均可极速解压)
+SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
+if [ ! -f "${SEVEN_Z_BIN}" ]; then
+    echo "==> 正在从 7-zip.org 获取官方 macOS Universal 2 独立版 7zz..."
+    mkdir -p "${WORKSPACE_ROOT}/dist"
+    curl -fSL "https://www.7-zip.org/a/7z2301-mac.tar.xz" | tar -xJf - -C "${WORKSPACE_ROOT}/dist" 7zz
+    chmod +x "${SEVEN_Z_BIN}"
+fi
+
+if [ -f "${SEVEN_Z_BIN}" ]; then
+    echo "==> 正在内置 7-Zip 官方 Universal2 引擎至 App Bundle..."
+    cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
+    ln -sf "7zz" "${MAC_OS_DIR}/7z"
+fi
+
 # 4. 集成独立 Wine Runtime (优先使用 Game Porting Toolkit 官方二进制发布)
 GPTK_VERSION="3.0-3"
 GPTK_TAR="game-porting-toolkit-${GPTK_VERSION}.tar.xz"
