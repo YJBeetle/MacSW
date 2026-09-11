@@ -137,10 +137,14 @@ public class MediaInspectorService {
             ("flow_sim", "Flow Simulation", "Flow Simulation 流体分析", .simulation, "内外部流体动力学与电子散热热仿真", 1_200_000_000, false),
             ("plastics", "plastics", "Plastics 注塑模流分析", .simulation, "零件注塑充填、保压与翘曲变形预测", 550_000_000, false),
             ("cam", "cam", "SOLIDWORKS CAM", .manufacturing, "2.5轴/3轴铣削与车削数控加工编程", 850_000_000, false),
-            ("visualize", "visualize", "SOLIDWORKS Visualize", .utilities, "照片级写实渲染与动态产品动画输出", 1_600_000_000, false),
             ("eDrawings", "eDrawings", "eDrawings 图纸查看器", .utilities, "轻量化 2D/3D CAD 图纸查看与协同审阅", 220_000_000, false),
-            ("swelectric", "swelectric", "Electrical 电气设计套件", .utilities, "原理图设计与 3D 智能布线嵌入集成", 900_000_000, false),
-            ("SWPDMClient", "SWPDMClient", "PDM 客户端套件", .utilities, "企业级产品数据与工程版本协同管理", 350_000_000, false)
+            ("swComposer", "swComposer", "SOLIDWORKS Composer", .utilities, "3D 技术交流与交互式文档/动画编制", 1_100_000_000, false),
+            ("swelectric", "swelectric", "SOLIDWORKS Electrical", .utilities, "原理图设计与 3D 智能布线嵌入集成", 900_000_000, false),
+            ("inspection", "inspection", "SOLIDWORKS Inspection", .utilities, "首件检查 (FAI) 与品质报告自动生成", 300_000_000, false),
+            ("SWManageClient", "SWManageClient", "SOLIDWORKS Manage Client", .utilities, "高级过程协同与工程项目数据管理", 450_000_000, false),
+            ("SWPDMClient", "SWPDMClient", "SOLIDWORKS PDM", .utilities, "企业级产品数据与工程版本协同管理", 350_000_000, false),
+            ("visualize", "visualize", "SOLIDWORKS Visualize", .utilities, "照片级写实渲染与动态产品动画输出", 1_600_000_000, false),
+            ("visualizeboost", "visualizeboost", "SOLIDWORKS Visualize Boost", .utilities, "网络分布式渲染加速与负载集群", 800_000_000, false)
         ]
         
         for def in definitions {

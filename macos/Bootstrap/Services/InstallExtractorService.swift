@@ -68,10 +68,10 @@ public class InstallExtractorService {
 
         [HKEY_LOCAL_MACHINE\\Software\\SolidWorks\\General]
         "Current Language"="\(cleanLang)"
-        "SolidWorks Folder"="C:\\\\Program Files\\\\SOLIDWORKS"
+        "SolidWorks Folder"="C:\\\\Program Files\\\\SOLIDWORKS Corp\\\\SOLIDWORKS"
 
         [HKEY_LOCAL_MACHINE\\Software\\SolidWorks\\Setup]
-        "SolidWorks Folder"="C:\\\\Program Files\\\\SOLIDWORKS"
+        "SolidWorks Folder"="C:\\\\Program Files\\\\SOLIDWORKS Corp\\\\SOLIDWORKS"
         "SolidWorks Language"="\(cleanLang)"
         "Toolbox Folder"="C:\\\\SOLIDWORKS Data"
 
@@ -145,13 +145,30 @@ public class InstallExtractorService {
             }
             
             let fm = FileManager.default
-            let swInstallDir = (winePrefix as NSString).appendingPathComponent("drive_c/Program Files/SOLIDWORKS")
+            let corpDir = (winePrefix as NSString).appendingPathComponent("drive_c/Program Files/SOLIDWORKS Corp")
+            let swInstallDir = (corpDir as NSString).appendingPathComponent("SOLIDWORKS")
             let swLangDir = (swInstallDir as NSString).appendingPathComponent("lang")
             let toolboxDir = (winePrefix as NSString).appendingPathComponent("drive_c/SOLIDWORKS Data/browser")
             
+            try? fm.createDirectory(atPath: corpDir, withIntermediateDirectories: true)
             try? fm.createDirectory(atPath: swInstallDir, withIntermediateDirectories: true)
             try? fm.createDirectory(atPath: swLangDir, withIntermediateDirectories: true)
             try? fm.createDirectory(atPath: toolboxDir, withIntermediateDirectories: true)
+            
+            // 套件目标绝对路径精确映射 (严格遵循 C:\Program Files\SOLIDWORKS Corp\ 官方标准架构)
+            let componentTargetMap: [String: String] = [
+                "eDrawings": (corpDir as NSString).appendingPathComponent("eDrawings"),
+                "swComposer": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Composer"),
+                "swelectric": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Electrical"),
+                "inspection": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Inspection"),
+                "SWManageClient": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Manage Client"),
+                "SWPDMClient": (corpDir as NSString).appendingPathComponent("SOLIDWORKS PDM"),
+                "visualize": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Visualize"),
+                "visualizeboost": (corpDir as NSString).appendingPathComponent("SOLIDWORKS Visualize Boost"),
+                "flow_sim": (swInstallDir as NSString).appendingPathComponent("Simulation"),
+                "plastics": (swInstallDir as NSString).appendingPathComponent("plastics"),
+                "cam": (swInstallDir as NSString).appendingPathComponent("SOLIDWORKS CAM")
+            ]
             
             // 1. 收集解压任务
             struct ExtractTask {
@@ -202,7 +219,9 @@ public class InstallExtractorService {
                     }
                 } else if comp.id != "swwi" {
                     let compDir = (mediaPath as NSString).appendingPathComponent(comp.folderName)
-                    let destCompDir = (swInstallDir as NSString).appendingPathComponent(comp.folderName)
+                    let destCompDir = componentTargetMap[comp.id] ?? (corpDir as NSString).appendingPathComponent(comp.name)
+                    try? fm.createDirectory(atPath: destCompDir, withIntermediateDirectories: true)
+                    
                     if let compFiles = try? fm.contentsOfDirectory(atPath: compDir) {
                         for file in compFiles where file.lowercased().hasSuffix(".cab") {
                             let archivePath = (compDir as NSString).appendingPathComponent(file)
@@ -248,7 +267,7 @@ public class InstallExtractorService {
             DispatchQueue.main.async {
                 progressHandler(0.88, "正在重命名与规范化 Windows 组件模块...")
             }
-            self.normalizeExtractedDirectory(dirPath: swInstallDir)
+            self.normalizeExtractedDirectory(dirPath: corpDir)
             self.normalizeExtractedDirectory(dirPath: toolboxDir)
             
             // 4. 写入语言与安装路径注册表 (95% -> 100%)

@@ -80,85 +80,105 @@ struct WizardView: View {
                     }
                 )
             } else {
-                // 1. 顶部最大、居中突出的必要安装介质卡片 (Hero Card)
-                HeroMediaCard(
-                    selectedUrl: state.selectedIsoPath,
-                    onSelectUrl: { url in
-                        state.selectedIsoPath = url
-                        state.autoDetectCompanionFiles(from: url)
-                    },
-                    onClear: {
-                        state.selectedIsoPath = nil
-                    }
-                )
-
-                // 2. 下方横向排列的三个可选卡片
-                HStack(spacing: 10) {
-                    // 可选 1: 预载网络注册表
-                    CompactDropCard(
-                        title: "网络注册表",
-                        badge: "可选",
-                        placeholder: "拖拽 .reg 文件\n(如 serials_licensing.reg)",
-                        icon: "doc.badge.gearshape",
-                        selectedUrl: state.selectedRegPath,
-                        isFileOnly: true,
-                        isFolderOnly: false,
-                        allowedExtensions: ["reg"],
-                        onSelectUrl: { url in
-                            var isDir: ObjCBool = false
-                            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                                return
-                            }
-                            if url.pathExtension.lowercased() == "reg" {
-                                state.selectedRegPath = url
+                ScrollView {
+                    VStack(spacing: 12) {
+                        // 1. 顶部必要安装介质卡片 (Hero Card)
+                        HeroMediaCard(
+                            selectedUrl: state.selectedIsoPath,
+                            onSelectUrl: { url in
+                                state.selectedIsoPath = url
                                 state.autoDetectCompanionFiles(from: url)
+                                state.inspectSelectedMedia(path: url.path)
+                            },
+                            onClear: {
+                                state.selectedIsoPath = nil
+                                state.mediaProfile = nil
                             }
-                        },
-                        onClear: {
-                            state.selectedRegPath = nil
-                        }
-                    )
+                        )
 
-                    // 可选 2: FlexNet 许可服务
-                    CompactDropCard(
-                        title: "许可服务",
-                        badge: "可选",
-                        placeholder: "拖拽 FlexNet Server\n服务根目录至此",
-                        icon: "server.rack",
-                        selectedUrl: state.selectedLicenseDir,
-                        isFileOnly: false,
-                        isFolderOnly: true,
-                        allowedExtensions: nil,
-                        onSelectUrl: { url in
-                            state.selectedLicenseDir = url
-                            state.autoDetectCompanionFiles(from: url)
-                        },
-                        onClear: {
-                            state.selectedLicenseDir = nil
+                        // 2. 介质组件与语言定制面板 (动态展开)
+                        if state.mediaProfile != nil {
+                            CustomInstallOptionsCard(state: state)
+                        } else if state.isInspectingMedia {
+                            HStack(spacing: 8) {
+                                ProgressView().scaleEffect(0.7)
+                                Text("正在扫描安装介质组件与语言配置...")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 8)
                         }
-                    )
 
-                    // 可选 3: 组件补丁
-                    CompactDropCard(
-                        title: "组件补丁",
-                        badge: "可选",
-                        placeholder: "拖拽 SOLIDWORKS Corp\n补丁文件夹至此",
-                        icon: "shippingbox.fill",
-                        selectedUrl: state.selectedPatchDir,
-                        isFileOnly: false,
-                        isFolderOnly: true,
-                        allowedExtensions: nil,
-                        onSelectUrl: { url in
-                            state.selectedPatchDir = url
-                            state.autoDetectCompanionFiles(from: url)
-                        },
-                        onClear: {
-                            state.selectedPatchDir = nil
+                        // 3. 下方横向排列的三个可选卡片
+                        HStack(spacing: 10) {
+                            // 可选 1: 预载网络注册表
+                            CompactDropCard(
+                                title: "网络注册表",
+                                badge: "可选",
+                                placeholder: "拖拽 .reg 文件\n(如 serials_licensing.reg)",
+                                icon: "doc.badge.gearshape",
+                                selectedUrl: state.selectedRegPath,
+                                isFileOnly: true,
+                                isFolderOnly: false,
+                                allowedExtensions: ["reg"],
+                                onSelectUrl: { url in
+                                    var isDir: ObjCBool = false
+                                    if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                                        return
+                                    }
+                                    if url.pathExtension.lowercased() == "reg" {
+                                        state.selectedRegPath = url
+                                        state.autoDetectCompanionFiles(from: url)
+                                    }
+                                },
+                                onClear: {
+                                    state.selectedRegPath = nil
+                                }
+                            )
+
+                            // 可选 2: FlexNet 许可服务
+                            CompactDropCard(
+                                title: "许可服务",
+                                badge: "可选",
+                                placeholder: "拖拽 FlexNet Server\n服务根目录至此",
+                                icon: "server.rack",
+                                selectedUrl: state.selectedLicenseDir,
+                                isFileOnly: false,
+                                isFolderOnly: true,
+                                allowedExtensions: nil,
+                                onSelectUrl: { url in
+                                    state.selectedLicenseDir = url
+                                    state.autoDetectCompanionFiles(from: url)
+                                },
+                                onClear: {
+                                    state.selectedLicenseDir = nil
+                                }
+                            )
+
+                            // 可选 3: 组件补丁
+                            CompactDropCard(
+                                title: "组件补丁",
+                                badge: "可选",
+                                placeholder: "拖拽 SOLIDWORKS Corp\n补丁文件夹至此",
+                                icon: "shippingbox.fill",
+                                selectedUrl: state.selectedPatchDir,
+                                isFileOnly: false,
+                                isFolderOnly: true,
+                                allowedExtensions: nil,
+                                onSelectUrl: { url in
+                                    state.selectedPatchDir = url
+                                    state.autoDetectCompanionFiles(from: url)
+                                },
+                                onClear: {
+                                    state.selectedPatchDir = nil
+                                }
+                            )
                         }
-                    )
+                    }
+                    .padding(.bottom, 6)
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 // 3. 底部部署动作栏与状态显示
                 HStack(spacing: 12) {
@@ -287,10 +307,10 @@ struct WizardView: View {
                 setupExe = IsoService.shared.findSetupExe(in: iso.path)
             }
 
-            guard let exe = setupExe else {
+            guard setupExe != nil else {
                 DispatchQueue.main.async {
-                    self.stepStates[.prepareEnvironment] = .failed("未在所选介质中找到 setup.exe 安装向导")
-                    self.statusText = "错误：未在所选介质中找到 setup.exe 安装向导！"
+                    self.stepStates[.prepareEnvironment] = .failed("未在所选介质中找到安装介质结构")
+                    self.statusText = "错误：未在所选介质中找到安装介质结构！"
                     self.isProcessing = false
                 }
                 return
@@ -309,7 +329,7 @@ struct WizardView: View {
 
             DispatchQueue.main.async {
                 self.stepStates[.prepareEnvironment] = .completed
-                self.stepLogs[.prepareEnvironment] = "WinePrefix 独立环境就绪，已定位 setup.exe"
+                self.stepLogs[.prepareEnvironment] = "WinePrefix 独立环境就绪，介质检测正常"
                 self.currentStep = .preconfigureLicensing
                 self.stepStates[.preconfigureLicensing] = .running
                 self.stepLogs[.preconfigureLicensing] = "正在预置网络注册表序列号..."
@@ -338,65 +358,76 @@ struct WizardView: View {
                 self.stepLogs[.preconfigureLicensing] = "网络序列号已写入，FlexNet 许可服务正常运行"
                 self.currentStep = .runOfficialInstaller
                 self.stepStates[.runOfficialInstaller] = .running
-                self.stepLogs[.runOfficialInstaller] = "SolidWorks 官方向导运行中，请在弹出的安装窗口中完成组件选择..."
-                self.statusText = "SolidWorks 官方向导运行中..."
+                self.stepLogs[.runOfficialInstaller] = "正在进行 SolidWorks 多线程极速解包与环境配置..."
+                self.statusText = "正在进行 SolidWorks 极速部署..."
                 self.isInstallerRunning = true
             }
 
-            // 3. 然后“安装”：启动官方安装向导 setup.exe
-            let winePrefix = self.state.bottlePath.path
-            WineService.shared.launchInstaller(setupExe: exe, winePrefix: winePrefix) {
-                DispatchQueue.main.async {
-                    self.isInstallerRunning = false
-                    self.stepStates[.runOfficialInstaller] = .completed
-                    self.stepLogs[.runOfficialInstaller] = "官方安装向导执行完毕"
-                    
-                    // 步骤 4: 抽取与注入微软官方原版 WPF 主题库
-                    self.currentStep = .extractWpfThemes
-                    self.stepStates[.extractWpfThemes] = .running
-                    self.stepLogs[.extractWpfThemes] = "正在从安装介质抽取原版 PresentationFramework.Aero 等主题库..."
-                    self.statusText = "正在抽取并注入微软官方 WPF 主题库..."
-                }
-
-                // 执行步骤 4：抽取微软原版运行库（WPF 主题库 + VC++ 2015-2022 64位运行库）
-                self.state.extractAndInjectWpfThemes { wpfOk in
-                    self.state.extractAndInjectVcRedist { vcOk in
-                        DispatchQueue.main.async {
-                            let allOk = wpfOk && vcOk
-                            self.stepStates[.extractWpfThemes] = allOk ? .completed : .warning("核心运行库注入完成（部分项目使用预置回退项）")
-                            self.stepLogs[.extractWpfThemes] = "微软原版 WPF 主题库与 VC++ 2015-2022 核心运行库已成功提取并注入系统"
-                            
-                            // 步骤 5: 同步 SOLIDWORKS Corp 组件补丁
-                            self.currentStep = .applyPatches
-                            self.stepStates[.applyPatches] = .running
-                            self.stepLogs[.applyPatches] = "正在将核心程序补丁覆盖至安装目录..."
-                            self.statusText = "正在同步 SOLIDWORKS Corp 组件补丁..."
+            // 3. 然后“安装”：调用原生极速组件解包与 Windows 配置
+            self.state.performCustomInstallation(
+                progressHandler: { progress, currentMsg in
+                    DispatchQueue.main.async {
+                        self.stepLogs[.runOfficialInstaller] = currentMsg
+                        self.statusText = currentMsg
+                    }
+                },
+                completion: { ok in
+                    DispatchQueue.main.async {
+                        self.isInstallerRunning = false
+                        if ok {
+                            self.stepStates[.runOfficialInstaller] = .completed
+                            self.stepLogs[.runOfficialInstaller] = "SolidWorks 组件与语言包极速解包配置完毕"
+                        } else {
+                            self.stepStates[.runOfficialInstaller] = .failed("解包过程中发生错误")
                         }
+                        
+                        // 步骤 4: 抽取与注入微软官方原版 WPF 主题库
+                        self.currentStep = .extractWpfThemes
+                        self.stepStates[.extractWpfThemes] = .running
+                        self.stepLogs[.extractWpfThemes] = "正在从安装介质抽取原版 PresentationFramework.Aero 等主题库..."
+                        self.statusText = "正在抽取并注入微软官方 WPF 主题库..."
                     }
 
-                    // 执行步骤 5：同步组件补丁
-                    if let patchDir = self.state.selectedPatchDir {
-                        self.state.applyComponentPatch(customPatchDir: patchDir) { patchOk in
+                    // 执行步骤 4：抽取微软原版运行库（WPF 主题库 + VC++ 2015-2022 64位运行库）
+                    self.state.extractAndInjectWpfThemes { wpfOk in
+                        self.state.extractAndInjectVcRedist { vcOk in
                             DispatchQueue.main.async {
-                                self.stepStates[.applyPatches] = patchOk ? .completed : .warning("补丁同步完成，存在部分非致命警告")
-                                self.stepLogs[.applyPatches] = patchOk ? "SOLIDWORKS Corp 核心组件补丁已同步就绪" : "补丁同步已完成"
+                                let allOk = wpfOk && vcOk
+                                self.stepStates[.extractWpfThemes] = allOk ? .completed : .warning("核心运行库注入完成（部分项目使用预置回退项）")
+                                self.stepLogs[.extractWpfThemes] = "微软原版 WPF 主题库与 VC++ 2015-2022 核心运行库已成功提取并注入系统"
                                 
-                                // 步骤 6: 部署就绪，完成验证
-                                self.finishDeployment(patchOk: patchOk)
+                                // 步骤 5: 同步 SOLIDWORKS Corp 组件补丁
+                                self.currentStep = .applyPatches
+                                self.stepStates[.applyPatches] = .running
+                                self.stepLogs[.applyPatches] = "正在将核心程序补丁覆盖至安装目录..."
+                                self.statusText = "正在同步 SOLIDWORKS Corp 组件补丁..."
+                            }
+
+                            // 执行步骤 5：同步组件补丁
+                            if let patchDir = self.state.selectedPatchDir {
+                                self.state.applyComponentPatch(customPatchDir: patchDir) { patchOk in
+                                    DispatchQueue.main.async {
+                                        self.stepStates[.applyPatches] = patchOk ? .completed : .warning("补丁同步完成，存在部分非致命警告")
+                                        self.stepLogs[.applyPatches] = patchOk ? "SOLIDWORKS Corp 核心组件补丁已同步就绪" : "补丁同步已完成"
+                                        
+                                        // 步骤 6: 部署就绪，完成验证
+                                        self.finishDeployment(patchOk: patchOk)
+                                    }
+                                }
+                            } else {
+                                // 用户未指定补丁文件夹，提示略过
+                                DispatchQueue.main.async {
+                                    self.stepStates[.applyPatches] = .warning("已略过补丁（未提供 SOLIDWORKS Corp 补丁目录）")
+                                    self.stepLogs[.applyPatches] = "未提供授权补丁目录，已跳过核心补丁同步"
+                                    
+                                    // 步骤 6: 部署就绪
+                                    self.finishDeployment(patchOk: false, skippedPatches: true)
+                                }
                             }
                         }
-                    } else {
-                        // 用户未指定补丁文件夹，提示略过
-                        DispatchQueue.main.async {
-                            self.stepStates[.applyPatches] = .warning("已略过补丁（未提供 SOLIDWORKS Corp 补丁目录）")
-                            self.stepLogs[.applyPatches] = "未提供授权补丁目录，已跳过核心补丁同步"
-                            
-                            // 步骤 6: 部署就绪
-                            self.finishDeployment(patchOk: false, skippedPatches: true)
-                        }
                     }
                 }
-            }
+            )
         }
     }
 
@@ -705,7 +736,7 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
         case .preconfigureLicensing:
             return "预置网络授权与许可服务"
         case .runOfficialInstaller:
-            return "运行 SolidWorks 官方安装向导"
+            return "极速部署 SolidWorks 组件与语言包"
         case .extractWpfThemes:
             return "抽取微软官方 WPF 主题库"
         case .applyPatches:
@@ -718,11 +749,11 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .prepareEnvironment:
-            return "初始化独立 WinePrefix 容器、自动挂载镜像并定位 setup.exe"
+            return "初始化独立 WinePrefix 容器、自动挂载镜像并定位安装介质"
         case .preconfigureLicensing:
             return "写入网络序列号注册表，启动本地 FlexNet 服务 (端口 25734)"
         case .runOfficialInstaller:
-            return "启动 setup.exe，请在 Windows 弹出的安装向导中完成组件安装"
+            return "多线程极速解包选定组件与语言资源至 Program Files/SOLIDWORKS Corp/ 并注入运行配置"
         case .extractWpfThemes:
             return "动态抽取原版 PresentationFramework.Aero 等主题库注入 Mono 运行环境"
         case .applyPatches:
@@ -846,7 +877,7 @@ struct DeploymentStepsView: View {
                     ProgressView()
                         .scaleEffect(0.7)
                         .frame(width: 14, height: 14)
-                    Text("请稍候，正在部署中... (若弹出 Windows 安装向导，请完成点击下一步)")
+                    Text("请稍候，正在全自动多线程解包并部署中...")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
@@ -1018,3 +1049,217 @@ struct DeploymentStepRow: View {
         }
     }
 }
+
+// MARK: - 介质组件与语言定制卡片 (Custom Install Options Card)
+struct CustomInstallOptionsCard: View {
+    @ObservedObject var state: AppState
+    @State private var isExpanded: Bool = true
+    
+    var body: some View {
+        guard let profile = state.mediaProfile else { return AnyView(EmptyView()) }
+        
+        return AnyView(
+            VStack(alignment: .leading, spacing: 10) {
+                // 标题栏 (点击可展开/折叠)
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.accentColor)
+                        Text("介质组件与语言定制")
+                            .font(.system(size: 12, weight: .bold))
+                        
+                        Text("动态解析")
+                            .font(.system(size: 9, weight: .semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(3)
+                        
+                        Spacer()
+                        
+                        Text("预估: \(formatBytes(profile.totalEstimatedBytes))")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Divider()
+                        
+                        // 1. 语言支持 Chips
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("界面语言")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Spacer()
+                                Text("支持多国语言切换")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(profile.languages) { lang in
+                                        let isSelected = (state.selectedLanguageLcid.lowercased() == lang.lcid.lowercased())
+                                        Button(action: {
+                                            state.selectedLanguageLcid = lang.lcid
+                                        }) {
+                                            HStack(spacing: 4) {
+                                                if isSelected {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .font(.system(size: 10))
+                                                }
+                                                Text(lang.name)
+                                                    .font(.system(size: 11, weight: isSelected ? .bold : .medium))
+                                            }
+                                            .padding(.horizontal, 9)
+                                            .padding(.vertical, 4)
+                                            .background(
+                                                isSelected
+                                                    ? Color.accentColor
+                                                    : Color.secondary.opacity(0.12)
+                                            )
+                                            .foregroundColor(isSelected ? .white : .primary)
+                                            .cornerRadius(12)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Divider()
+                        
+                        // 2. 组件列表 (按分类)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("安装组件套件")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Spacer()
+                                Text("安装至: Program Files/SOLIDWORKS Corp")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            VStack(spacing: 6) {
+                                ForEach(ComponentCategory.allCases, id: \.self) { cat in
+                                    let comps = profile.components.filter { $0.category == cat }
+                                    if !comps.isEmpty {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(cat.rawValue)
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundColor(.secondary)
+                                                .padding(.top, 2)
+                                            
+                                            ForEach(comps) { comp in
+                                                ComponentRowView(
+                                                    comp: comp,
+                                                    onToggle: { isSelected in
+                                                        if let idx = state.mediaProfile?.components.firstIndex(where: { $0.id == comp.id }) {
+                                                            state.mediaProfile?.components[idx].isSelected = isSelected
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        )
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        if bytes >= 1_000_000_000 {
+            return String(format: "%.1f GB", Double(bytes) / 1_000_000_000.0)
+        } else {
+            return "\(bytes / 1_000_000) MB"
+        }
+    }
+}
+
+// MARK: - 单个组件条目视图
+struct ComponentRowView: View {
+    let comp: ComponentOption
+    let onToggle: (Bool) -> Void
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Toggle(isOn: Binding(
+                get: { comp.isSelected },
+                set: { val in
+                    if !comp.isRequired {
+                        onToggle(val)
+                    }
+                }
+            )) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(comp.name)
+                            .font(.system(size: 11, weight: .medium))
+                        
+                        if comp.isRequired {
+                            Text("必需")
+                                .font(.system(size: 8, weight: .bold))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.red.opacity(0.12))
+                                .foregroundColor(.red)
+                                .cornerRadius(3)
+                        }
+                    }
+                    Text(comp.description)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .disabled(comp.isRequired)
+            
+            Spacer()
+            
+            Text(formatBytes(comp.approximateBytes))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(comp.isSelected ? Color.accentColor.opacity(0.04) : Color.clear)
+        .cornerRadius(4)
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        if bytes >= 1_000_000_000 {
+            return String(format: "%.1f GB", Double(bytes) / 1_000_000_000.0)
+        } else {
+            return "\(bytes / 1_000_000) MB"
+        }
+    }
+}
+

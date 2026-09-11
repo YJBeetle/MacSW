@@ -28,6 +28,9 @@ class AppState: ObservableObject {
     @Published var isExtractingOrMounting: Bool = false
     @Published var mountedVolumePath: String? = nil
     @Published var patchStatusMessage: String = ""
+    @Published var mediaProfile: MediaProfile? = nil
+    @Published var selectedLanguageLcid: String = "0x0804"
+    @Published var isInspectingMedia: Bool = false
 
     let bottlePath: URL
     var sldworksExePath: URL
@@ -54,6 +57,14 @@ class AppState: ObservableObject {
         checkSolidWorksRunningStatus()
         self.runningMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkSolidWorksRunningStatus()
+        }
+
+        if FileManager.default.fileExists(atPath: "/Volumes/Solidworks1/swwi/data/Setup.ini") {
+            let mediaUrl = URL(fileURLWithPath: "/Volumes/Solidworks1")
+            self.selectedIsoPath = mediaUrl
+            self.mountedVolumePath = "/Volumes/Solidworks1"
+            self.autoDetectCompanionFiles(from: mediaUrl)
+            self.inspectSelectedMedia(path: "/Volumes/Solidworks1")
         }
     }
 
@@ -877,6 +888,79 @@ class AppState: ObservableObject {
                 completion?(ok)
             }
         }
+    }
+
+    // 扫描安装介质的语言与组件配置
+    func inspectSelectedMedia(path: String) {
+        guard !path.isEmpty else { return }
+        isInspectingMedia = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            var scanDir = path
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir) {
+                if !isDir.boolValue && path.lowercased().hasSuffix(".iso") {
+                    if let mountPoint = IsoService.shared.mountIso(at: URL(fileURLWithPath: path)) {
+                        scanDir = mountPoint
+                        DispatchQueue.main.async {
+                            self.mountedVolumePath = mountPoint
+                        }
+                    }
+                }
+            }
+            
+            let profile = MediaInspectorService.shared.inspect(mediaPath: scanDir)
+            DispatchQueue.main.async {
+                self.mediaProfile = profile
+                if profile.languages.contains(where: { $0.lcid == "0x0804" }) {
+                    self.selectedLanguageLcid = "0x0804"
+                } else if let first = profile.languages.first {
+                    self.selectedLanguageLcid = first.lcid
+                }
+                self.isInspectingMedia = false
+            }
+        }
+    }
+
+    // 执行极速定制组件与语言解包安装
+    func performCustomInstallation(progressHandler: @escaping (Double, String) -> Void, completion: @escaping (Bool) -> Void) {
+        guard let profile = self.mediaProfile else {
+            completion(false)
+            return
+        }
+        
+        var mediaDir = self.mountedVolumePath
+        if mediaDir == nil, let iso = self.selectedIsoPath {
+            if iso.pathExtension.lowercased() == "iso" {
+                mediaDir = IsoService.shared.mountIso(at: iso)
+                self.mountedVolumePath = mediaDir
+            } else {
+                mediaDir = iso.path
+            }
+        }
+        
+        guard let validMedia = mediaDir else {
+            completion(false)
+            return
+        }
+        
+        let winePrefix = self.bottlePath.path
+        let wineBin = WineService.shared.getWineBinary()
+        
+        InstallExtractorService.shared.performFullExtraction(
+            mediaPath: validMedia,
+            winePrefix: winePrefix,
+            selectedLanguageLcid: self.selectedLanguageLcid,
+            selectedComponents: profile.components,
+            wineBinPath: wineBin,
+            progressHandler: progressHandler,
+            completion: { ok, errorMsg in
+                DispatchQueue.main.async {
+                    self.checkInstallation()
+                    completion(ok)
+                }
+            }
+        )
     }
 
     // 唤起 SolidWorks 官方安装程序 setup.exe
