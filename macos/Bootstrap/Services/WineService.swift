@@ -28,8 +28,8 @@ final class WineService {
         env["LC_ALL"] = "zh_CN.UTF-8"
         env["WINEDEBUG"] = "-all"
         // The x86 Mono JIT hangs under the current Wine/Rosetta runtime.
-        // Keep installer children and maintenance tools on the validated interpreter path.
-        env["WINE_MONO_AOT"] = "interp"
+        // Keep setup and maintenance on the interpreter; the x64 application uses JIT.
+        env["WINE_MONO_AOT"] = solidWorks ? "none" : "interp"
         if solidWorks {
             env["WINEDLLOVERRIDES"] = (["atiadlxx=d"] + Self.vcLibraries.map { "\($0)=n,b" }).joined(separator: ";")
         }
