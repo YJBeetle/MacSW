@@ -539,7 +539,7 @@ class AppState: ObservableObject {
     }
 
     /// Official MSI deployment: prerequisites -> optional registry -> installer -> WPF.
-    func launchSetupExe() {
+    func launchSetupExe(cleanInstall: Bool = false) {
         guard !isOperating && !isSolidWorksRunning else { return }
         isOperating = true
         showDeploymentProgress = true
@@ -554,6 +554,9 @@ class AppState: ObservableObject {
                     throw NSError(domain: "MacSW", code: 3, userInfo: [NSLocalizedDescriptionKey: "介质中未找到 swwi/data/solidworks.msi。"])
                 }
                 let service = WineService.shared
+                if cleanInstall {
+                    try self.clearBottleForInstallation(media: media)
+                }
                 let boot = try service.run(service.makeProcess(arguments: ["wineboot", "-u"], prefix: self.bottlePath.path),
                     log: service.logDirectory(self.bottlePath.path).appendingPathComponent("wineboot.log"))
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
@@ -611,6 +614,45 @@ class AppState: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    /// Only the fixed application bottle may be removed; inputs must survive cleanup.
+    private func clearBottleForInstallation(media: URL) throws {
+        let expected = appSupportDir.appendingPathComponent("bottle").standardizedFileURL
+        let target = bottlePath.standardizedFileURL
+        func failure(_ message: String) -> NSError {
+            NSError(domain: "MacSW", code: 4, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        guard target == expected,
+              target.resolvingSymlinksInPath() == target else {
+            throw failure("容器路径异常或包含符号链接，已拒绝清理。")
+        }
+        for input in [selectedIsoPath, selectedRegPath, selectedLicenseDir, selectedPatchDir, media].compactMap({ $0 }) {
+            let path = input.resolvingSymlinksInPath().path
+            guard path != target.path && !path.hasPrefix(target.path + "/") else {
+                throw failure("安装输入位于待删除的容器内，请先移到容器外再进行全新安装。")
+            }
+        }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: target.path) else { return }
+        reportDeployment(.environment, .running, "正在停止当前容器并清理旧安装（不备份）…")
+        let service = WineService.shared
+        for argument in ["-k", "-w"] {
+            let process = service.makeProcess(arguments: [argument], prefix: target.path)
+            process.executableURL = service.runtimeURL.appendingPathComponent("bin/wineserver")
+            guard try service.run(process) == 0 else {
+                throw failure("未能停止容器进程，已取消清理。")
+            }
+        }
+        try fm.removeItem(at: target)
+        DispatchQueue.main.sync {
+            self.isInstalled = false
+            self.isLicenseRunning = false
+            self.isPatchApplied = false
+            self.isWpfThemeInjected = false
+            self.isVcRedistInjected = false
+            self.checkInstallation()
         }
     }
 

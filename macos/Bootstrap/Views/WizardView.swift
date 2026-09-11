@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 /// Official installation owns component, language and destination selection.
 struct WizardView: View {
     @ObservedObject var state: AppState
+    @State private var cleanInstall = false
+    @State private var confirmCleanInstall = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -24,6 +26,11 @@ struct WizardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         mediaCard
+                        Toggle("全新安装（清空现有容器）", isOn: $cleanInstall)
+                        if cleanInstall {
+                            Text("删除容器内的全部程序、设置和文件，不备份且无法撤销。保留 App 和日志；本次安装使用解释器模式。")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
                         HStack(alignment: .top, spacing: 10) {
                             resourceCard("序列号注册表", path: state.selectedRegPath, kind: .registry, icon: "doc.badge.gearshape",
                                 hint: "拖入序列号 .reg 文件") { state.selectedRegPath = nil }
@@ -48,13 +55,25 @@ struct WizardView: View {
                     if state.hasInstalledExecutable {
                         Button("返回控制台") { state.isInstalled = true }
                     }
-                    Button("开始部署") { state.launchSetupExe() }
+                    Button(cleanInstall ? "全新安装…" : "开始部署") {
+                        if cleanInstall { confirmCleanInstall = true }
+                        else { state.launchSetupExe() }
+                    }
                         .buttonStyle(.borderedProminent).tint(.purple)
                         .disabled(state.selectedIsoPath == nil || state.isOperating || state.isSolidWorksRunning)
                 }
             }
         }
         .padding(20)
+        .alert("清空容器并全新安装？", isPresented: $confirmCleanInstall) {
+            Button("取消", role: .cancel) {}
+            Button("删除并安装", role: .destructive) {
+                cleanInstall = false
+                state.launchSetupExe(cleanInstall: true)
+            }
+        } message: {
+            Text("将停止此容器的 Wine 进程，并永久删除以下目录内的全部内容，不创建备份：\n\(state.bottlePath.path)\n\n容器内保存的模型也会删除，请先移出需要保留的文件。")
+        }
     }
 
     private var mediaCard: some View {
