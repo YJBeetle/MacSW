@@ -27,6 +27,9 @@ final class WineService {
         env["LANG"] = "zh_CN.UTF-8"
         env["LC_ALL"] = "zh_CN.UTF-8"
         env["WINEDEBUG"] = "-all"
+        // The x86 Mono JIT hangs under the current Wine/Rosetta runtime.
+        // Keep installer children and maintenance tools on the validated interpreter path.
+        env["WINE_MONO_AOT"] = "interp"
         if solidWorks {
             env["WINEDLLOVERRIDES"] = (["atiadlxx=d"] + Self.vcLibraries.map { "\($0)=n,b" }).joined(separator: ";")
         }
@@ -36,7 +39,7 @@ final class WineService {
     func buildEnvironmentScript(winePrefix: String) -> String {
         let env = environment(winePrefix: winePrefix)
         return "unset WINEDLLPATH CX_ROOT CX_BOTTLE DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH WINEDLLOVERRIDES MONO_ENV_OPTIONS\n" +
-            ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG"].map {
+            ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG", "WINE_MONO_AOT"].map {
                 "export \($0)=\(Self.quote(env[$0]!))"
             }.joined(separator: "\n")
     }
