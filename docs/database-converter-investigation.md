@@ -137,3 +137,21 @@ https://github.com/Gcenx/macOS_Wine_builds/releases/tag/11.0_1
 解释默认 JIT 模式的启动卡死；两条路径不能混为一谈。未修改 SOLIDWORKS
 程序集或正式运行环境。新增 NativeArgumentProbe.cs 保存可复现对照，日志
 为 nativeaddress32.log、nativeargument32.log、nativereturn32.log。
+
+## 上游线索与调用桩证据
+
+Wine-Mono PR #226（2026-06-04 合并）删除 macOS 32 位 mscoree 测试步骤，
+并给 Mono 测试添加 -arch:x86_64。维护者提交说明怀疑 Rosetta 2 缺陷，
+但该 PR 没有运行时修复，也没有足够异常细节证明与本地故障相同：
+https://github.com/wine-mono/wine-mono/pull/226
+
+设置 WINE_MONO_AOT=interp、WINE_MONO_VERBOSE=1 运行原有 x86 探针，
+intptr-verbose.log 仍记录 interp_in / interp_in_static 包装器机器码生成，
+地址约 02310d48 至 023110a5；随后 CreateActCtx 的 execute fault 位于
+023C0080。两者不重合，尚不能将该异常地址标记为已识别的包装器。
+
+上游 mono/mini/interp/interp.c 的 init_jit_call_info 也存在明确调用
+mono_jit_compile_method_jit_only 的路径。这说明“解释器”并不等于全部
+运行路径完全没有生成机器码，但仅阅读 main 分支不证明本机执行了该函数。
+后续需要异常现场的内存属性/字节或精确版本源码映射；不能据此宣称已确定
+Rosetta、内存执行权限或某个 Mono 函数为根因。
