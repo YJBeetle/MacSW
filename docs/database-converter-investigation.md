@@ -337,3 +337,15 @@ mscorlib 的 GetFileAttributesExPrivate，返回 True、退出 0
 --interp=-all。该启动路径在 DirectoryProbe 的 Main 输出之前即崩溃
 （v3-direct-host-noopt.log），与 mscoree 宿主路径不同，不能用来判定
 目录故障是否与优化有关。测试宿主不是 App 的实现方案。
+
+第四版修复签名生命周期（Mono 50c8800d806）：第三版把归一化签名存入
+td->mempool，转换结束会销毁该池，但 data_items 仍保留指针。WineDbg
+观察到签名地址内容全为 0xFEEEFEEE。现改用所属映像分配的签名副本。
+CI 34605603341 成功，DLL SHA-256：
+1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562。
+
+隔离 prefix 第四版结果：DirectoryProbe32 输出 False 和 completed，退出 0；
+cdecl/stdcall 均返回 -1；FormsStartup32 完成 EnableVisualStyles 和初始化，
+退出 0。实际 DatabaseConverter 使用此前相同路径参数运行，日志为空，
+退出 0；这仅验证不再崩溃及进程正常结束，未验证数据库转换产物。
+日志为 scratch/mono-ci-runtime/v4-*.log。正式容器和 App 引擎未替换。
