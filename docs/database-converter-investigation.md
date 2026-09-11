@@ -253,3 +253,20 @@ https://github.com/YJBeetle/wine-mono/actions/runs/34594568831
 - baseline-cdecl.log：同一探针正常输出 RESULT=-1。
 
 因此 CI 产物复现了原有差异，可用于补丁前后比较。正式 App 和容器未修改。
+
+## 修复候选回归
+
+首版 568c710c2cb 同时把 DEFAULT 和 STDCALL 分派到 stdcall，虽然 CI 编译
+通过，本地字符串分配等内部 C 调用出现回归，不能使用。
+
+第二版 6eda363b409 只处理显式 STDCALL，CI run 34597231628 成功：
+https://github.com/YJBeetle/wine-mono/actions/runs/34597231628
+DLL SHA-256：55d2566ab1eefc2c5e3a10ae823a0fe34c195b4a34b7be5be90b24e4b7815569。
+
+- v2-stdcall.log：RESULT=-1，退出 0。
+- v2-cdecl.log：RESULT=-1，退出 0。
+- v2-forms.log：仍在 ThemingScope.CreateActCtx 执行异常。
+
+显式 stdcall 修复已通过最小对照，但默认 Winapi 路径尚未覆盖。下一步
+必须区分外部 P/Invoke 的默认约定和内部 C 调用，不能恢复首版的全局
+DEFAULT→stdcall 判断。正式 App 和正式容器仍未替换。
