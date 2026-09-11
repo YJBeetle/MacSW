@@ -117,7 +117,7 @@ class WineService {
             \(envHeader)
             export SOLIDWORKS_LICENSE_FILE="25734@127.0.0.1;25734@localhost"
             export SW_D_LICENSE_FILE="25734@127.0.0.1;25734@localhost"
-            export WINEDLLOVERRIDES="mscoree=n,b;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
+            export WINEDLLOVERRIDES="atiadlxx=d;mscoree=n,b;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
             if [ -f "\(daemonPath)" ]; then
                 nohup "\(wine)" "\(daemonPath)" --watch >/dev/null 2>&1 &
             fi
