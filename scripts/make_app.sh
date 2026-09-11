@@ -45,19 +45,41 @@ if [ -f "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" ]; then
     cp -p "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" "${RESOURCES_DIR}/"
 fi
 
-# 4. 集成定制版 Wine Runtime (如果本地有编译产物)
-WINE_TAR="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64.tar.gz"
-if [ ! -f "${WINE_TAR}" ]; then
-    WINE_TAR="$(ls -1 "${WORKSPACE_ROOT}/dist"/wine-crossover-macsw-*.tar.gz 2>/dev/null | head -n 1 || true)"
+# 4. 集成独立 Wine Runtime (优先使用 Game Porting Toolkit 官方二进制发布)
+GPTK_VERSION="3.0-3"
+GPTK_TAR="game-porting-toolkit-${GPTK_VERSION}.tar.xz"
+GPTK_PATH="${WORKSPACE_ROOT}/dist/${GPTK_TAR}"
+GPTK_SYS_CACHE="${HOME}/Library/Caches/wine/${GPTK_TAR}"
+
+if [ ! -f "${GPTK_PATH}" ] && [ -f "${GPTK_SYS_CACHE}" ]; then
+    echo "==> 从系统缓存同步 GPTK: ${GPTK_SYS_CACHE} -> ${GPTK_PATH}..."
+    cp -p "${GPTK_SYS_CACHE}" "${GPTK_PATH}"
 fi
 
-if [ -n "${WINE_TAR}" ] && [ -f "${WINE_TAR}" ]; then
-    echo "==> 正在解压并内置独立 Wine Runtime: ${WINE_TAR}..."
-    mkdir -p "${FRAMEWORKS_DIR}/wine"
-    tar -xzf "${WINE_TAR}" -C "${FRAMEWORKS_DIR}/wine"
+if [ ! -f "${GPTK_PATH}" ]; then
+    echo "==> 正在从 GitHub 官方 Releases 下载 Game Porting Toolkit (约 239MB)..."
+    mkdir -p "${WORKSPACE_ROOT}/dist"
+    curl -fSL --progress-bar "https://github.com/Gcenx/game-porting-toolkit/releases/download/Game-Porting-Toolkit-${GPTK_VERSION}/${GPTK_TAR}" -o "${GPTK_PATH}"
+    cp -p "${GPTK_PATH}" "${GPTK_SYS_CACHE}" 2>/dev/null || true
+fi
+
+if [ -f "${GPTK_PATH}" ]; then
+    echo "==> 正在解压并内置 Game Porting Toolkit Wine Runtime..."
+    mkdir -p "${FRAMEWORKS_DIR}"
+    rm -rf "${FRAMEWORKS_DIR}/wine" "${FRAMEWORKS_DIR}/Game Porting Toolkit.app"
+    tar -xf "${GPTK_PATH}" -C "${FRAMEWORKS_DIR}"
+    if [ -d "${FRAMEWORKS_DIR}/Game Porting Toolkit.app/Contents/Resources/wine" ]; then
+        mv "${FRAMEWORKS_DIR}/Game Porting Toolkit.app/Contents/Resources/wine" "${FRAMEWORKS_DIR}/wine"
+        rm -rf "${FRAMEWORKS_DIR}/Game Porting Toolkit.app"
+    fi
+
+    # 确保 wine 与 wineloader 符号链接存在 (指向 wine64)
+    if [ -f "${FRAMEWORKS_DIR}/wine/bin/wine64" ]; then
+        ln -sf wine64 "${FRAMEWORKS_DIR}/wine/bin/wine"
+        ln -sf wine64 "${FRAMEWORKS_DIR}/wine/bin/wineloader"
+    fi
 
     # 5. 确保内置修复版 mscoree.dll 与 wine-mono-10.4.1 就位 (解决 C++/CLI 虚表修复断言崩溃)
-    # mscoree.dll 存放于 dist/ (已加入 .gitignore，不污染 git)
     MSCOREE_CANDIDATE="${WORKSPACE_ROOT}/dist/mscoree_x64.dll"
     if [ -f "${MSCOREE_CANDIDATE}" ]; then
         echo "==> 正在集成修复版 mscoree.dll (支持 C++/CLI 虚表修复)..."
@@ -88,7 +110,7 @@ if [ -n "${WINE_TAR}" ] && [ -f "${WINE_TAR}" ]; then
         fi
     fi
 else
-    echo "==> [NOTICE] 未在 dist/ 发现编译好的 wine tar.gz，App 将在运行时智能检测系统环境或等待 CI 产物注入。"
+    echo "==> [NOTICE] 未在 dist/ 发现 wine 运行时包，App 将在运行时智能检测系统环境。"
 fi
 
 echo "======================================================================"
