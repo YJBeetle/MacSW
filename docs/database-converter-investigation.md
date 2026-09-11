@@ -284,3 +284,27 @@ bbe67c144f36e1fcf5fd2ef6e82c0b1cf979480014c79a45f5b2e52cd5c286dc。
 
 本轮仅从正式安装目录读取转换器，C 盘映射仍为 scratch/mono-ci-runtime/prefix，
 未将补丁应用正式运行时，也未重跑正式安装。仍需定位后续原生调用路径。
+
+DirectoryProbe32 最小复现仅调用 Directory.Exists（不存在的目录），无需
+SOLIDWORKS 或数据库。v3-directory.log 与转换器相同，在
+GetFileAttributesExPrivate 路径跳转至地址 0。弹窗返回地址 0x7a7c46e1
+对应引擎 RVA 0xe46e1；反汇编前一条为 call *%eax，EAX=0，后接
+add $0xc,%esp，是三参数 C 调用分支。尚不能确定目标指针为何为空。
+
+同一隔离 prefix 换回未修改的 CI 基线 DLL 后，baseline-directory.log
+更早在 PathInternal.GetIsCaseSensitive -> Guid.NewGuid -> BCryptGenRandom
+崩溃（执行地址 0x00e13f98）。因此基线也不能完成目录探针，但未到达相同
+调用，不能据此排除第三版补丁引入回归。需直接构造 GetFileAttributesEx
+探针以绕过 PathInternal 初始化，检查目标指针与参数布局。
+本次对照结束后隔离 runtime/bin 中暂为基线 DLL；正式容器不变。
+
+随后恢复第三版候选 DLL，新增 FileAttributesProbe32 直接调用
+GetFileAttributesExW，绕过 PathInternal 初始化。默认 Winapi 指针版本
+返回 1；string + out 顺序布局结构体 + BOOL 封送版本返回 True，目录
+属性为 16，均退出 0。对应 v3-attributes-default.log 和
+v3-attributes-marshaled.log。成功调用后的 GetLastWin32Error 非零值
+不作为失败依据（该 API 成功时无需清除旧错误）。
+
+因此暂未在直接调用或普通字符串/结构体封送上复现空指针；下一步应核对
+mscorlib 的 GetFileAttributesExPrivate 实际声明及其生成的包装器，而非
+仅凭相同 API 名推断原因。隔离运行时现为第三版，正式容器仍未更改。
