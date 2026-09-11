@@ -76,3 +76,20 @@ macos/Bootstrap/Tests/ConsoleProbe.cs 与 FormsStartupProbe.cs。
 
 下一步应独立对照 32 位托管到原生调用，以及不同 Wine/Mono 组合，避免将
 wineloader 的存在误当成所有 32 位运行时路径都兼容的证明。
+
+## 最小 P/Invoke 对照
+
+NativeCallProbe.cs 在解释器模式下依次调用 GetCurrentProcessId 和
+CreateActCtxW(NULL)，不依赖 WinForms，也不创建实际激活上下文。
+
+- x86 GetCurrentProcessId 正常返回，说明并非所有原生调用均失败。
+- x86 CreateActCtxW 出现 execute access 异常（023C0080）。移除
+  DllImport.SetLastError 后仍复现，不能归因于该选项。
+- 同源 x64 正常输出 PID，并从 CreateActCtxW(NULL) 返回 -1。
+- x86 直接导入 kernelbase.dll 的 CreateActCtxW 仍崩溃（023C0088），
+  不是仅换掉 kernel32 入口转发就能解决。
+
+以上定位到具体调用路径，但尚未区分 Mono 调用桩、Wine API 内部或
+Rosetta 执行权限处理。没有修改正式运行时或把失败调用替换为成功。
+本地日志为 nativecall32-interp.log、nativecall32-no-last-error.log、
+nativecall64-interp.log、nativecall32-kernelbase.log。
