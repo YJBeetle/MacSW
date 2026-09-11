@@ -78,7 +78,6 @@ struct WizardView: View {
                         Button("更换…") { chooseResource(.media) }
                         Button("清除") {
                             state.selectedIsoPath = nil
-                            UserDefaults.standard.removeObject(forKey: "installationMedia")
                         }
                     }.padding(18)
                 } else {
@@ -152,7 +151,6 @@ struct WizardView: View {
                 state.statusMessage = "安装介质仅支持 ISO 或目录。"; return
             }
             state.selectedIsoPath = url
-            UserDefaults.standard.set(url.path, forKey: "installationMedia")
         case .registry:
             guard !isDirectory.boolValue && url.pathExtension.lowercased() == "reg" else {
                 state.statusMessage = "序列号注册表区域请拖入 .reg 文件。"; return

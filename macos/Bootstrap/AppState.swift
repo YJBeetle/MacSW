@@ -66,9 +66,6 @@ class AppState: ObservableObject {
             self?.checkSolidWorksRunningStatus()
         }
 
-        if let path = UserDefaults.standard.string(forKey: "installationMedia") {
-            self.selectedIsoPath = URL(fileURLWithPath: path)
-        }
     }
 
     func checkSolidWorksRunningStatus() {
@@ -549,7 +546,6 @@ class AppState: ObservableObject {
         deploymentStates = [.environment: .running]
         deploymentDetails = [.environment: "正在挂载介质并初始化唯一 Wine 容器…"]
         statusMessage = "正在准备官方安装程序..."
-        if let media = selectedIsoPath { UserDefaults.standard.set(media.path, forKey: "installationMedia") }
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let media = try self.prepareMedia()
