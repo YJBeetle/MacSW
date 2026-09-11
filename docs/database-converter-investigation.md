@@ -270,3 +270,17 @@ DLL SHA-256：55d2566ab1eefc2c5e3a10ae823a0fe34c195b4a34b7be5be90b24e4b7815569�
 显式 stdcall 修复已通过最小对照，但默认 Winapi 路径尚未覆盖。下一步
 必须区分外部 P/Invoke 的默认约定和内部 C 调用，不能恢复首版的全局
 DEFAULT→stdcall 判断。正式 App 和正式容器仍未替换。
+
+第三版引擎 98e9f24ed64 在外部 P/Invoke 快速调用处识别默认 Winapi，
+CI run 34598167173 成功。产物 SHA-256：
+bbe67c144f36e1fcf5fd2ef6e82c0b1cf979480014c79a45f5b2e52cd5c286dc。
+
+- v3-stdcall.log、v3-cdecl.log 均返回 -1，退出 0。
+- v3-forms.log 输出 MAIN、EnableVisualStyles passed、WinForms initialization
+  passed，退出 0，原 WinForms 初始化阻塞已越过。
+- 实际 DatabaseConverter 在隔离 prefix 中以相同 C 盘参数启动，推进至
+  Directory.Exists，但在 Kernel32.GetFileAttributesExPrivate 路径崩溃。
+  日志 v3-database-converter.log 显示空地址读取异常；未完成数据库转换。
+
+本轮仅从正式安装目录读取转换器，C 盘映射仍为 scratch/mono-ci-runtime/prefix，
+未将补丁应用正式运行时，也未重跑正式安装。仍需定位后续原生调用路径。
