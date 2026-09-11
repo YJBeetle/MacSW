@@ -16,7 +16,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("SolidWorks for macOS")
                         .font(.system(size: 17, weight: .bold))
-                    Text("由 WineHQ 强力驱动")
+                    Text("Gcenx Wine 11.16 · App 内置运行时")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -106,7 +106,7 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(state.isSolidWorksRunning ? Color.gray : Color.purple)
-                    .disabled(state.isSolidWorksRunning)
+                    .disabled(state.isSolidWorksRunning || state.isOperating)
 
                     if state.isSolidWorksRunning {
                         Button(action: {
@@ -379,22 +379,6 @@ struct DashboardView: View {
     }
 
     private func launchApp() {
-        if !state.isVcRedistInjected {
-            state.extractAndInjectVcRedist { _ in
-                DispatchQueue.main.async {
-                    self.state.isSolidWorksRunning = true
-                    WineService.shared.launchSolidWorks(
-                        exePath: self.state.sldworksExePath.path,
-                        winePrefix: self.state.bottlePath.path
-                    )
-                }
-            }
-            return
-        }
-        state.isSolidWorksRunning = true
-        WineService.shared.launchSolidWorks(
-            exePath: state.sldworksExePath.path,
-            winePrefix: state.bottlePath.path
-        )
+        state.launchSolidWorks()
     }
 }

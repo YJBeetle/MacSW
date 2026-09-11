@@ -1,4 +1,18 @@
-# SolidWorks 2025 on macOS (Apple Silicon) 实战移植与调优方案
+# MacSW.app — Wine 11.16
+
+当前入口是独立 `MacSW.app`，不再使用 `run_sw.sh` 或 CAB 直接解包部署。构建：`bash scripts/make_app.sh`，产物：`build/app/MacSW.app`。
+
+- App 内置固定版本 Gcenx Wine 11.16、匹配的 Wine-Mono、wineloader、7zz 和 UI 守护程序。
+- Swift 统一管理启动环境；使用原生 VC++ DLL，保留 Wine 自带 mscoree/OpenGL，不注入 CrossOver DLL 或 D3DMetal。
+- 安装向导运行官方 MSI，安装前准备 VC++ 并导入用户选择的注册表，使用 `DISABLEROLLBACK=1`；退出后补齐 WPF 主题库。安装失败会明确显示，文件存在不代表完整安装成功。
+- App 固定使用唯一容器 `~/Library/Application Support/MacSW/bottle`，不提供容器切换。安装介质由用户选择。
+- Wine 11 下已验证主界面和新建零件；设计树避让、草图、保存/重开仍待验证。字体、Toolbox 数据库和安装末尾 .NET 注册问题尚未修复。
+
+本次 App 验证说明见 [app-wine11-migration.md](docs/app-wine11-migration.md)。下文是旧 CrossOver 阶段的历史记录，不代表当前配置或已经验证的能力。
+
+---
+
+# 历史记录：SolidWorks 2025 on macOS (Apple Silicon)
 
 本项目提供了一套在 **macOS (Apple Silicon M系列芯片, macOS 15 Sequoia)** 上，通过 **Wine / CrossOver 26.3.0** 原生转译模式高效运行 **SolidWorks 2025 SP5.0 Premium** 的完整技术方案与复现案例。
 
@@ -211,4 +225,3 @@ WineSW/
 
 4. **许可服务状态排查：**
    在 MacSW 控制台仪表盘中可直接查看「FlexNet 许可服务」实时指示灯，或在终端通过 `nc -z 127.0.0.1 25734` 快速检测端口连通性。
-

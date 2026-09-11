@@ -73,6 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         launchSwItem.target = self
         toolsMenu.addItem(launchSwItem)
 
+
         let termSwItem = NSMenuItem(title: "终止 SolidWorks", action: #selector(terminateSolidWorksAction), keyEquivalent: ".")
         termSwItem.keyEquivalentModifierMask = [.command]
         termSwItem.target = self
@@ -122,13 +123,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func launchSolidWorksAction() {
-        guard !appState.isSolidWorksRunning else { return }
-        appState.isSolidWorksRunning = true
-        WineService.shared.launchSolidWorks(
-            exePath: appState.sldworksExePath.path,
-            winePrefix: appState.bottlePath.path
-        )
+        appState.launchSolidWorks()
     }
+
 
     @objc func terminateSolidWorksAction() {
         appState.terminateSolidWorks()
