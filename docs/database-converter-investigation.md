@@ -201,3 +201,22 @@ NativeStackProbe.cs 在 API 调用前主动 DebugBreak；在模块加载后，�
 这确认了当前 x86 解释器 IntPtr 测试的直接故障机制：stdcall 调用错误地
 走入调用者清栈路径。它不证明默认 JIT 卡死有同一根因。正确修复应在调用
 约定/快速分派选择处区分处理，不能修改所有 API 返回声明或全局删清栈指令。
+
+## 发布版源码对应
+
+Wine-Mono wine-mono-11.3.0 标签的 mono 子模块指向
+73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc，已按该提交核对 transform.c，
+不是仅依据 main 分支：
+https://github.com/wine-mono/mono/blob/73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc/mono/mini/interp/transform.c
+
+- 2317 起 interp_type_as_ptr：按类型判定可走指针快速路径，包含 I4，
+  没有列出 U4；因此不能把 IntPtr/uint 对照推广为所有整型/指针差异。
+- 2341 起 interp_icall_op_for_sig：按参数数目和类型选择 ICALL 操作。
+- 2945–2947：native 且非 dynamic 时尝试快速路径，此处没有排除 stdcall。
+- 2965–2967：普通路径在 TARGET_X86 下断言只支持 DEFAULT/C 调用约定，
+  注释 Windows not tested/supported yet。
+
+结论：已定位到发布版源码中的快速分支选择与 x86 调用约定支持缺口。
+仅禁用快速路径不是完整修复：会进入具有明确支持限制的普通路径。
+后续若补 Mono，需要增加/正确选择 stdcall 桥接，并覆盖参数数目、返回类型
+及普通 C 调用回归；不能把未构建验证的源码改动直接放进正式 App。
