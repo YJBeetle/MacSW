@@ -44,3 +44,35 @@ OleDb 与本地 SQLite 依赖。下一步应以最小程序定位 32 位启动�
 及 updatedb.sldedb（18,605,056 字节）。因此不能认为介质只有待转换的旧 MDB；
 新容器可能应直接部署现成数据库。仍需核查 MSI 文件/组件映射和语言部署流程，
 解释为何这些资源没有落入正式容器；本轮仅列出 CAB 内容，未提取或写入容器。
+
+## 纯托管程序与解释器对照
+
+同一独立容器、同一 App 内 Wine/Mono 的进一步对照：
+
+| 程序 | 默认模式 | WINE_MONO_AOT=interp |
+| --- | --- | --- |
+| 32 位原生 cmd.exe | 正常退出 0 | 未测 |
+| ConsoleProbe x64 | 输出 pointer=8，退出 0 | 未测 |
+| ConsoleProbe x86 | 无 Main 输出，持续约一个核心 CPU | 输出 pointer=4，完成退出 |
+| FormsStartupProbe x86 | 无 Main 输出，持续高 CPU | 输出 MAIN，随后在 EnableVisualStyles 崩溃 |
+
+默认 x86 Console 的 +seh,+loaddll 日志已加载 libmono-2.0-x86.dll 和
+mscorlib.dll，随后记录 c0000005。按同一进程模块基址定位，异常地址
+7BF21135 对应 wow64cpu.dll +0x1135，访问地址 0x2ec5。这只是异常现场，
+不能据此认定缺陷一定在 wow64cpu；Mono、WoW64 与 Rosetta 的交互仍待定位。
+
+解释器模式下 WinForms 的托管栈为 Main → EnableVisualStyles →
+ThemingScope.CreateActivationContext → CreateActCtx，随后发生执行访问异常。
+因此解释器绕过了纯 Console 启动问题，但不能作为安装器的正式修复。
+尚未对实际 DatabaseConverter 使用该开关，也未改变正式安装进程的环境。
+
+Wine mscoree 源码通过 WINE_MONO_AOT=interp 选择 MONO_AOT_MODE_INTERP_ONLY：
+https://github.com/wine-mirror/wine/blob/master/dlls/mscoree/metahost.c
+此前试过 MONO_ENV_OPTIONS=--interp，仍停滞；不能把它当成已生效的解释器测试。
+
+本地日志：console32-seh-modules.log、console64.log、console32-wine-interp.log、
+forms32-wine-interp.log（均在 scratch/regasm-zero-logs）。复现源代码保存在
+macos/Bootstrap/Tests/ConsoleProbe.cs 与 FormsStartupProbe.cs。
+
+下一步应独立对照 32 位托管到原生调用，以及不同 Wine/Mono 组合，避免将
+wineloader 的存在误当成所有 32 位运行时路径都兼容的证明。
