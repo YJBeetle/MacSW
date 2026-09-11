@@ -37,14 +37,17 @@ Remote scripts and logs: `/home/YJBeetle/macsw-mono-repro/`.
 
 The fork adds pointer-return P/Invoke coverage to the existing `pinvoke2.cs`
 and `libtest.c` framework. It interleaves cdecl, explicit stdcall, and default
-Winapi calls repeatedly. This test has not yet been built or run in the
-upstream harness; the matrix above describes the independent native bridge
-probe, not the newly added test.
+Winapi calls repeatedly. CI 34614333278 ran the test successfully under
+both the candidate interpreter and JIT. CI 34615947382 then ran the same
+test binary and class libraries with the official 11.3.0 release engine
+and the candidate: the release interpreter crashed after entering the
+test, whereas release JIT and both candidate modes reported one test and
+zero failures. The matrix above remains the independent bridge result.
 
 Before opening a PR:
 
-- Run the new test against baseline and candidate via GitHub CI, including
-  x86 Windows interpreter mode and JIT controls.
+- Preserve the completed baseline/candidate CI evidence and rerun it after
+  any implementation changes.
 - Add broader argument-count and return-type coverage for the new dispatch.
 - Review normalized signature ownership and wrapper selection.
 - Consolidate exploratory implementation commits, excluding the transient
