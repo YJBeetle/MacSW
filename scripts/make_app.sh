@@ -42,7 +42,8 @@ if [ -f "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" ]; then
     cp "${WORKSPACE_ROOT}/macos/Resources/AppIcon.icns" "${RESOURCES_DIR}/"
 fi
 
-# 集成 SolidWorks UI 守护进程 (自动修复 3D 视口 Metal 与特征树 GDI 渲染遮挡闪避)
+# Build and bundle the native helper for dialogs, fonts and floating windows.
+"${WORKSPACE_ROOT}/scripts/build_ui_daemon.sh"
 if [ -f "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" ]; then
     echo "==> 正在集成 sw_ui_daemon.exe..."
     cp -p "${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe" "${RESOURCES_DIR}/"
@@ -84,6 +85,15 @@ ln -sf wine "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 test -x "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 test -x "${FRAMEWORKS_DIR}/wine/bin/wineserver"
 test -d "${FRAMEWORKS_DIR}/wine/share/wine/mono/wine-mono-11.3.0"
+
+# Build and overlay the small native macOS driver patch. The complete Wine
+# runtime still comes from the pinned Gcenx archive.
+"${WORKSPACE_ROOT}/scripts/build_winemac.sh"
+WINEMAC_PATCH="${WORKSPACE_ROOT}/dist/winemac-${WINE_VERSION}/winemac.so"
+WINEMAC_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/winemac.so"
+cp "${WINEMAC_PATCH}" "${WINEMAC_TARGET}"
+codesign --force --sign - "${WINEMAC_TARGET}"
+codesign --verify --verbose=2 "${WINEMAC_TARGET}"
 
 # GitHub CI run 34605603341; mono commit 50c8800d806195d7e55813d5cb59fd10b2fb4894.
 MONO_PATCH="${WORKSPACE_ROOT}/dist/mono-11.3.0-v4/libmono-2.0-x86.dll"

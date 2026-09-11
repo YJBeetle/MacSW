@@ -8,7 +8,10 @@ on:
     paths:
       - 'macos/**'
       - 'scripts/make_app.sh'
+      - 'scripts/build_winemac.sh'
+      - 'scripts/build_ui_daemon.sh'
       - 'scripts/sw_ui_daemon.*'
+      - 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch'
       - 'resources/**'
       - '.github/workflows/build-app.yml'
     tags:
@@ -30,8 +33,13 @@ jobs:
         with:
           path: |
             dist/wine-devel-11.16-osx64.tar.xz
+            dist/wine-11.16.tar.xz
+            dist/winemac-11.16
             dist/7zz
-          key: gcenx-wine-devel-11.16-7zz
+          key: gcenx-wine-devel-11.16-winemac-${{ hashFiles('scripts/build_winemac.sh', 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch') }}-7zz
+
+      - name: Install Wine build dependency
+        run: brew install bison mingw-w64
 
       - name: Ensure Dist Runtime
         run: |
@@ -41,7 +49,7 @@ jobs:
 
       - name: Build and Package MacSW.app
         run: |
-          chmod +x scripts/make_app.sh macos/Bootstrap/build_bootstrap.sh
+          chmod +x scripts/make_app.sh scripts/build_winemac.sh scripts/build_ui_daemon.sh macos/Bootstrap/build_bootstrap.sh
           ./scripts/make_app.sh
 
       - name: Archive App Bundle
