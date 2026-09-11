@@ -558,7 +558,7 @@ class AppState: ObservableObject {
                     log: service.logDirectory(self.bottlePath.path).appendingPathComponent("wineboot.log"))
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
                 try PrerequisiteService.prepareRegAsmCompatibility(runtime: service.runtimeURL, prefix: self.bottlePath)
-                self.reportDeployment(.environment, .warning, "Wine 已就绪；RegAsm 兼容模式将跳过托管 COM 注册")
+                self.reportDeployment(.environment, .completed, "Wine 已就绪；已配置 RegAsm 兼容模式（跳过托管 COM 注册）")
                 self.reportDeployment(.vc, .running, "正在运行官方 VC++ x64 安装包…")
                 try PrerequisiteService.shared.installVC(media: media, prefix: self.bottlePath)
                 self.reportDeployment(.vc, .completed, "VC++ 运行库已检查")
@@ -593,7 +593,7 @@ class AppState: ObservableObject {
                             self.isOperating = false
                             self.checkInstallation()
                             let ready = installerOK && ok && self.isVcRedistInjected
-                            self.deploymentStates[.validation] = .warning
+                            self.deploymentStates[.validation] = ready ? .completed : .warning
                             self.deploymentDetails[.validation] = ready ? "基础文件检查通过；托管 COM 注册已跳过，相关功能仍需验证" : "文件已保留；托管 COM 注册已跳过，安装/依赖仍需检查"
                             self.statusMessage = "安装器退出码 \(code)；WPF \(ok ? "已补齐" : "补齐失败")。" +
                                 ([0, 3010, 194].contains(code) ? "可继续验证启动；托管 COM 注册已跳过，不代表完整部署成功。" : "文件已保留，但安装未完整完成，请查看日志。")
