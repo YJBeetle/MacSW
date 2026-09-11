@@ -109,9 +109,7 @@ test -f "${RESOURCES_DIR}/sw_ui_daemon.exe"
 # Preserve matching mscoree and Mono; never inject the old CrossOver DLL.
 "${FRAMEWORKS_DIR}/wine/bin/wineloader" --version
 if [ -d "${FINAL_APP_DIR}" ]; then
-    PREVIOUS_APP="${WORKSPACE_ROOT}/build/app/MacSW.previous.$(date +%Y%m%d-%H%M%S).app"
-    mv "${FINAL_APP_DIR}" "${PREVIOUS_APP}"
-    echo "Previous App retained at: ${PREVIOUS_APP}"
+    rm -rf -- "${FINAL_APP_DIR}"
 fi
 mv "${APP_DIR}" "${FINAL_APP_DIR}"
 

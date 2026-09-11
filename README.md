@@ -50,6 +50,8 @@ brew install bison mingw-w64
 - 覆盖经过验证的 Wine-Mono x86 修复模块；
 - 对最终原生模块进行临时签名和校验。
 
+每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
+
 `build_winemac.sh` 会按 Wine 版本、源码校验值、补丁和构建脚本内容缓存产物。GitHub Actions
 使用同一条构建链路。
 
