@@ -15,16 +15,17 @@ LOG_DIR="${HOME}/Library/Application Support/MacSW/logs"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/sw_launch.log"
 
-# 优先使用 MacSW 内置定制 Wine，其次使用 CrossOver wineloader，最后回退系统 wine
-if [ -x "${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine" ]; then
-    WINE="${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine"
-elif [ -x "${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64/bin/wine" ]; then
-    WINE="${WORKSPACE_ROOT}/dist/wine-crossover-macsw-x86_64/bin/wine"
-elif [ -x "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader" ]; then
-    WINE="/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader"
-else
-    WINE="wine"
+# 核心：使用 MacSW.app 独立内置 Wine Runtime (GPTK 1.1 / Wine-7.7)，与商业软件 CrossOver 彻底解耦
+APP_WINE="${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine"
+if [ ! -x "${APP_WINE}" ]; then
+    echo "==> 检测到 MacSW.app 独立 Wine 运行库尚未就绪，正在自动执行封包..."
+    "${WORKSPACE_ROOT}/scripts/make_app.sh"
 fi
+
+WINE="${APP_WINE}"
+WINE_FRAMEWORK="${WORKSPACE_ROOT}/build/app/MacSW.app/Contents/Frameworks/wine"
+export DYLD_FALLBACK_LIBRARY_PATH="${WINE_FRAMEWORK}/lib":${DYLD_FALLBACK_LIBRARY_PATH:-}
+export WINEDLLPATH="${WINE_FRAMEWORK}/lib/wine"
 
 # 自动防 version mismatch 自愈：确保当前运行的 wineserver 与选定的 WINE 运行库版本 100% 匹配
 WINE_DIR="$(dirname "${WINE}")"
@@ -108,8 +109,8 @@ if [ -f "${MSCOREE_SOURCE}" ]; then
     fi
 fi
 
-# 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++ / Native mscoree)
-export WINEDLLOVERRIDES="mscoree=n,b;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
+# 2. 图形与运行库转译环境配置 (CrossOver D3DMetal / DXVK / Native VC++ / Native mscoree / 屏蔽无用显卡专有扩展)
+export WINEDLLOVERRIDES="atiadlxx=d;mscoree=n,b;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b;d3dcompiler_47=n,b;d3d11=n,b;dxgi=n,b"
 export DXVK_LOG_LEVEL="info"
 export MVK_CONFIG_LOG_LEVEL="2"
 

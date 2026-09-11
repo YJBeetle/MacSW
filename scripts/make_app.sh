@@ -52,22 +52,20 @@ if [ ! -f "${WINE_TAR}" ]; then
 fi
 
 if [ -n "${WINE_TAR}" ] && [ -f "${WINE_TAR}" ]; then
-    echo "==> 正在解压并内置 Wine Runtime: ${WINE_TAR}..."
+    echo "==> 正在解压并内置独立 Wine Runtime: ${WINE_TAR}..."
     mkdir -p "${FRAMEWORKS_DIR}/wine"
+    tar -xzf "${WINE_TAR}" -C "${FRAMEWORKS_DIR}/wine"
+
     # 5. 确保内置修复版 mscoree.dll 与 wine-mono-10.4.1 就位 (解决 C++/CLI 虚表修复断言崩溃)
     # mscoree.dll 存放于 dist/ (已加入 .gitignore，不污染 git)
     MSCOREE_CANDIDATE="${WORKSPACE_ROOT}/dist/mscoree_x64.dll"
-    if [ ! -f "${MSCOREE_CANDIDATE}" ] && [ -f "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows/mscoree.dll" ]; then
-        echo "==> 检测到本地可用 mscoree PE 模块，提取至 dist/ 缓存..."
-        cp -p "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows/mscoree.dll" "${MSCOREE_CANDIDATE}"
-    fi
     if [ -f "${MSCOREE_CANDIDATE}" ]; then
         echo "==> 正在集成修复版 mscoree.dll (支持 C++/CLI 虚表修复)..."
         mkdir -p "${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows"
         cp -p "${MSCOREE_CANDIDATE}" "${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows/mscoree.dll"
     fi
 
-    # wine-mono-10.4.1 官方标准包优雅获取与集成
+    # wine-mono-10.4.1 官方标准包优雅获取与集成（纯独立，不依赖外部商业软件）
     MONO_TARGET_DIR="${FRAMEWORKS_DIR}/wine/share/wine/mono/wine-mono-10.4.1"
     if [ ! -d "${MONO_TARGET_DIR}" ]; then
         echo "==> 正在准备 wine-mono-10.4.1 运行时..."
@@ -82,9 +80,6 @@ if [ -n "${WINE_TAR}" ] && [ -f "${WINE_TAR}" ]; then
         elif [ -f "${MONO_SYS_CACHE}" ]; then
             echo "==> 使用系统级缓存的 wine-mono-10.4.1-x86.tar.xz..."
             tar -xf "${MONO_SYS_CACHE}" -C "${FRAMEWORKS_DIR}/wine/share/wine/mono/"
-        elif [ -d "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/share/wine/mono/wine-mono-10.4.1" ]; then
-            echo "==> 检测到本地 CrossOver 环境，同步内置 wine-mono-10.4.1..."
-            cp -Rp "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/share/wine/mono/wine-mono-10.4.1" "${FRAMEWORKS_DIR}/wine/share/wine/mono/"
         else
             echo "==> 正在从 WineHQ 官方下载标准 wine-mono-10.4.1-x86.tar.xz (约 38MB)..."
             mkdir -p "${WORKSPACE_ROOT}/dist"

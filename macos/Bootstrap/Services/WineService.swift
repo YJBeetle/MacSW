@@ -14,12 +14,12 @@ class WineService {
     }
 
     func getWineBinary() -> String {
-        // 1. 最高优先级：检查 App Bundle 内置的定制 Wine Runtime (Contents/Frameworks/wine)
+        // 1. 唯一合法源：当前独立 App 内置的 Wine Runtime (Contents/Frameworks/wine)
         let bundleFrameworks = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine")
         let candidates = [
+            bundleFrameworks.appendingPathComponent("bin/wine").path,
             bundleFrameworks.appendingPathComponent("bin/wine64").path,
-            bundleFrameworks.appendingPathComponent("bin/wineloader").path,
-            bundleFrameworks.appendingPathComponent("bin/wine").path
+            bundleFrameworks.appendingPathComponent("bin/wineloader").path
         ]
         for c in candidates {
             if FileManager.default.isExecutableFile(atPath: c) {
@@ -27,40 +27,28 @@ class WineService {
             }
         }
 
-        // 2. 次优：CrossOver 官方环境 (系统安装，作为备用)
-        let cxLoader = "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wineloader"
-        if FileManager.default.isExecutableFile(atPath: cxLoader) {
-            return cxLoader
+        // 开发工作区独立路径 (当在 IDE/源码环境下测试调试 Mach-O 时)
+        let localBuildWine = "/Volumes/Data/Workspace/WineSW/build/app/MacSW.app/Contents/Frameworks/wine/bin/wine"
+        if FileManager.default.isExecutableFile(atPath: localBuildWine) {
+            return localBuildWine
         }
 
-        // 3. 检查系统其他 x86_64/WoW64 Wine
-        for sysWine in ["/opt/homebrew/bin/wine64", "/usr/local/bin/wine", "/opt/homebrew/bin/wine"] {
-            if FileManager.default.isExecutableFile(atPath: sysWine) {
-                return sysWine
-            }
-        }
-
-        if FileManager.default.isExecutableFile(atPath: "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine") {
-            return "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine"
-        }
-        return "/usr/local/bin/wine"
+        return bundleFrameworks.appendingPathComponent("bin/wine").path
     }
 
     private func buildEnvironmentScript(winePrefix: String) -> String {
         let wineBin = self.getWineBinary()
         let wineDir = URL(fileURLWithPath: wineBin).deletingLastPathComponent().deletingLastPathComponent().path
         let wineLib = "\(wineDir)/lib"
-        let isBundleWine = wineBin.contains("Contents/Frameworks/wine")
-        let cxRoot = isBundleWine ? wineDir : "/Applications/CrossOver.app/Contents/SharedSupport/CrossOver"
+        let cxRoot = wineDir // 彻底与 CrossOver 分割，以自身 Frameworks/wine 为唯一根目录
         
         return """
         export WINEPREFIX='\(winePrefix)'
         export LANG='zh_CN.UTF-8'
         export LC_ALL='zh_CN.UTF-8'
         export WINEDEBUG='-all'
-        if [ -d '\(cxRoot)' ]; then
-            export CX_ROOT='\(cxRoot)'
-        fi
+        export CX_ROOT='\(cxRoot)'
+        export WINEDLLPATH='\(wineLib)/wine'
         if [ -d '\(wineLib)' ]; then
             export DYLD_FALLBACK_LIBRARY_PATH='\(wineLib)':$DYLD_FALLBACK_LIBRARY_PATH
         fi
