@@ -10,6 +10,16 @@ class AppState: ObservableObject {
     @Published var isSolidWorksRunning: Bool = false
     @Published var statusMessage: String = ""
     @Published var selectedTab: Int = 0
+    @Published var showDeploymentProgress = false
+    @Published var deploymentStates: [DeploymentStep: DeploymentStatus] = [:]
+    @Published var deploymentDetails: [DeploymentStep: String] = [:]
+
+    func reportDeployment(_ step: DeploymentStep, _ status: DeploymentStatus, _ detail: String) {
+        DispatchQueue.main.async {
+            self.deploymentStates[step] = status
+            self.deploymentDetails[step] = detail
+        }
+    }
 
     private var runningMonitorTimer: Timer?
 
@@ -535,6 +545,9 @@ class AppState: ObservableObject {
     func launchSetupExe() {
         guard !isOperating && !isSolidWorksRunning else { return }
         isOperating = true
+        showDeploymentProgress = true
+        deploymentStates = [.environment: .running]
+        deploymentDetails = [.environment: "正在挂载介质并初始化唯一 Wine 容器…"]
         statusMessage = "正在准备官方安装程序..."
         if let media = selectedIsoPath { UserDefaults.standard.set(media.path, forKey: "installationMedia") }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -548,7 +561,11 @@ class AppState: ObservableObject {
                 let boot = try service.run(service.makeProcess(arguments: ["wineboot", "-u"], prefix: self.bottlePath.path),
                     log: service.logDirectory(self.bottlePath.path).appendingPathComponent("wineboot.log"))
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
+                self.reportDeployment(.environment, .completed, "介质与 Wine 环境已就绪")
+                self.reportDeployment(.vc, .running, "正在运行官方 VC++ x64 安装包…")
                 try PrerequisiteService.shared.installVC(media: media, prefix: self.bottlePath)
+                self.reportDeployment(.vc, .completed, "VC++ 运行库已检查")
+                self.reportDeployment(.registry, .running, "正在准备安装序列号…")
                 if let registry = self.selectedRegPath {
                     let code = try service.run(service.makeProcess(arguments: ["regedit", "/S", registry.path], prefix: self.bottlePath.path),
                         log: service.logDirectory(self.bottlePath.path).appendingPathComponent("registry-import.log"))
@@ -556,23 +573,45 @@ class AppState: ObservableObject {
                 }
                 DispatchQueue.main.async {
                     self.statusMessage = "官方安装器已启动（DISABLEROLLBACK=1），请在安装窗口操作。"
+                    self.deploymentStates[.registry] = self.selectedRegPath == nil ? .skipped : .completed
+                    self.deploymentDetails[.registry] = self.selectedRegPath == nil ? "未选择 .reg，请在官方安装器中填写" : "已导入所选序列号注册表"
+                    self.deploymentStates[.installer] = .running
+                    self.deploymentDetails[.installer] = "请在官方安装窗口操作；已禁用回退"
                     service.launchInstaller(setupExe: msi.path, winePrefix: self.bottlePath.path) { code in
+                        let installerOK = [Int32(0), 3010, 194].contains(code)
+                        self.deploymentStates[.installer] = installerOK ? .completed : .warning
+                        self.deploymentDetails[.installer] = "安装器退出码 \(code)" + (installerOK ? "" : "；安装未完整完成，请查看日志")
                         self.checkInstallation()
                         guard self.hasInstalledExecutable else {
+                            self.deploymentStates[.installer] = .failed
                             self.isOperating = false
                             self.statusMessage = "安装器退出（\(code)），未找到主程序。请检查安装日志。"
                             return
                         }
+                        self.deploymentStates[.wpf] = .running
+                        self.deploymentDetails[.wpf] = "正在从微软安装包提取五个主题库…"
                         self.extractAndInjectWpfThemes { ok in
+                            self.deploymentStates[.wpf] = ok ? .completed : .failed
+                            self.deploymentDetails[.wpf] = ok ? "五个 WPF 主题库已补齐" : self.statusMessage
                             self.isOperating = false
                             self.checkInstallation()
+                            let ready = installerOK && ok && self.isVcRedistInjected
+                            self.deploymentStates[.validation] = ready ? .completed : .warning
+                            self.deploymentDetails[.validation] = ready ? "基础文件检查通过，仍需验证启动与建模" : "文件已保留；安装/依赖仍有问题，不代表完整部署成功"
                             self.statusMessage = "安装器退出码 \(code)；WPF \(ok ? "已补齐" : "补齐失败")。" +
                                 ([0, 3010, 194].contains(code) ? "可继续验证启动。" : "文件已保留，但安装未完整完成，请查看日志。")
                         }
                     }
                 }
             } catch {
-                DispatchQueue.main.async { self.isOperating = false; self.statusMessage = error.localizedDescription }
+                DispatchQueue.main.async {
+                    self.isOperating = false
+                    self.statusMessage = error.localizedDescription
+                    if let step = DeploymentStep.allCases.first(where: { self.deploymentStates[$0] == .running }) {
+                        self.deploymentStates[step] = .failed
+                        self.deploymentDetails[step] = error.localizedDescription
+                    }
+                }
             }
         }
     }

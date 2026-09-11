@@ -5,7 +5,7 @@ struct MainView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if state.isInstalled {
+            if state.isInstalled && !state.showDeploymentProgress {
                 DashboardView(state: state)
             } else {
                 WizardView(state: state)

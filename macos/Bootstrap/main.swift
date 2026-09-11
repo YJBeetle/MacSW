@@ -114,6 +114,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func rerunSetupWizard() {
+        guard !appState.isOperating else { return }
+        appState.showDeploymentProgress = false
         appState.isInstalled = false
     }
 
