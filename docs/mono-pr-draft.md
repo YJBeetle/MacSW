@@ -22,57 +22,21 @@ this is not a claim that every Mono platform is affected.
 
 ### Discovery context: SOLIDWORKS installation
 
-The issue was discovered while running the SOLIDWORKS 2025 SP05 Windows
-installer under Wine on macOS/Apple Silicon. The installer invokes a
-32-bit managed Toolbox database utility, so a 64-bit product installation
-can still exercise the x86 Mono runtime.
+This was discovered during SOLIDWORKS 2025 SP05 installation under Wine on
+macOS/Apple Silicon. Its `UpdateBrowserData` MSI action launches a 32-bit
+managed database helper and waits for it synchronously, so a failure in
+that helper can leave the 64-bit product's installation waiting.
 
-The MSI log shows the following sequence inside its `UpdateBrowserData`
-custom action:
+Using the interpreter to work around a separate x86 JIT startup hang
+exposed a crash during WinForms initialization, through
+`Application.EnableVisualStyles` and `CreateActCtxW`. This was reduced to
+the standalone P/Invoke reproducer below and reproduced on Linux without
+SOLIDWORKS or its data files.
 
-1. Read the application/data directories from `CustomActionData`, determine
-   the language-specific Toolbox database directory, and check whether it
-   is writable and the database is not locked.
-2. Launch `DatabaseConverter.exe` with the path to `SWBrowser.mdb` and wait
-   synchronously for the child process to finish.
-3. Launch `UpdateBrowserDatabase.exe` with the target `.sldedb`, update
-   database and template database paths, again waiting for completion.
-4. Return from the custom action so the MSI sequence can continue.
-
-For example, the first child command was:
-
-```text
-"C:\Program Files\SOLIDWORKS\toolbox\data utilities\DatabaseConverter.exe"
-    "C:\SOLIDWORKS Data\lang\english\SWBrowser.mdb"
-```
-
-Because this is a synchronous child-process operation, the installer can
-appear stuck while the helper is hung or its crash debugger remains open.
-This is not evidence that the entire MSI installer is managed code.
-
-On the original macOS setup, x86 JIT startup exhibited a separate hang.
-Selecting Wine-Mono's interpreter allowed managed execution to proceed,
-but exposed a crash in the WinForms activation-context initialization path:
-
-```text
-Application.EnableVisualStyles
-  -> ThemingScope.CreateActivationContext
-  -> CreateActCtx / CreateActCtxW
-  -> interpreter native call
-```
-
-The WinForms initialization failure was reproduced without any database
-access, and then reduced further to the standalone native-call reproducer
-below. The Linux reproduction does not require SOLIDWORKS, its installer,
-or its data files.
-
-After the runtime correction, the observed installer log recorded both
-database helper processes exiting `0x0` and `UpdateBrowserData` ending with
-MSI `Return value 1` (action success). A subsequent installation reached
-`SetupCompleteSuccess`. This is application-level corroboration, not a
-claim that all database contents, managed COM registration, or SOLIDWORKS
-features have been validated. The independent regression test is the
-primary evidence for this runtime fix.
+With the fix, the database action completed and a subsequent installation
+reached `SetupCompleteSuccess`. This is supporting application-level
+evidence; the independent reproducer and regression test establish the
+runtime defect and fix, not full SOLIDWORKS compatibility.
 
 ### Implementation
 
