@@ -220,3 +220,20 @@ https://github.com/wine-mono/mono/blob/73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc/
 仅禁用快速路径不是完整修复：会进入具有明确支持限制的普通路径。
 后续若补 Mono，需要增加/正确选择 stdcall 桥接，并覆盖参数数目、返回类型
 及普通 C 调用回归；不能把未构建验证的源码改动直接放进正式 App。
+
+## 原生桥接双向对照
+
+安装 mingw-w64 后，用 GCC 16.2.0 编译 NativeBridge.c 为 x86 DLL：
+两个导出均调用真实 CreateActCtxW，一个使用 cdecl，一个使用 stdcall。
+NativeBridgeProbe.cs 按各自正确调用约定声明，均返回 IntPtr。
+
+Wine 11.16 / Mono 11.3.0，WINE_MONO_AOT=interp：
+
+- cdecl 桥接：RESULT=-1，退出码 0。
+- stdcall 桥接：同样在 023C0080 发生执行异常，复现原问题。
+
+桥接没有伪造 API 结果。此对照说明 IntPtr 本身并非必然失败，正确桥接
+调用约定即可使该最小 API 调用工作。尚未改造 Mono 通用分派，也未解决
+WinForms 全部 P/Invoke 或默认 JIT 启动问题，不能直接作为 App 修复交付。
+本地构建：i686-w64-mingw32-gcc -shared -O2 -Wl,--kill-at；日志为
+scratch/regasm-zero-logs/bridge-cdecl.log 和 bridge-stdcall.log。
