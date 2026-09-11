@@ -120,3 +120,20 @@ https://github.com/Gcenx/macOS_Wine_builds/releases/tag/11.0_1
 它们只是解释器原生调用对照，不代表所有组合的默认 JIT、WinForms 或实际
 安装器均已测试。旧 Wine 主版本仍未完成：查询时 Gcenx 官方发布与标签清单
 仅列出 11 系列，需另找可核实的历史构建来源。
+
+## 返回类型对照：IntPtr 与 uint
+
+在 Wine 11.16 / Mono 11.3.0 的 x86 解释器模式下进一步测试：
+
+- GetFileType(NULL)（返回 uint，参数 IntPtr）正常返回 0，排除所有单参数
+  调用或所有 IntPtr 参数均异常的推断。
+- GetModuleHandleW（返回 IntPtr）在查询导出地址前就崩溃，无法通过该探针
+  得到 CreateActCtx 的真实入口地址。
+- 同一个 CreateActCtxW(NULL) 将托管返回声明从 IntPtr 改为 uint 后，正常
+  返回 0xffffffff，进程退出 0；这只在 x86 等宽返回值诊断中使用。
+
+因此前述“CreateActCtx 调用异常”并不等于 API 实现缺陷，当前证据更指向
+32 位解释器的指针返回值调用桩/封送路径。尚未定位到具体源码函数，也不
+解释默认 JIT 模式的启动卡死；两条路径不能混为一谈。未修改 SOLIDWORKS
+程序集或正式运行环境。新增 NativeArgumentProbe.cs 保存可复现对照，日志
+为 nativeaddress32.log、nativeargument32.log、nativereturn32.log。
