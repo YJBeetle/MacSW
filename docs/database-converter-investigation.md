@@ -319,3 +319,14 @@ FileAttributesProbe 新增 enum 模式，使用枚举与 ref 结构体匹配上�
 第三版下返回 True、属性 16、退出 0（v3-attributes-enum.log）。因此
 枚举与 ref/out 差异本身仍未复现崩溃；尚不能归因于普通 P/Invoke 声明。
 下一步应直接调用框架内部方法并检查实际包装器，隔离调用上下文差异。
+
+FileAttributesMetadataProbe32 invoke 在第三版解释器中通过反射直接调用
+mscorlib 的 GetFileAttributesExPrivate，返回 True、退出 0
+（v3-attributes-internal.log）。directory 模式在同一进程先完成相同调用，
+随后 Directory.Exists 仍在 PathInternal 初始化的嵌套目录检查中崩溃，
+仍为 GetFileAttributesExPrivate 路径的空地址调用
+（v3-attributes-warm-directory.log）。提前解析/调用该入口不足以规避故障。
+
+当前证据不支持将问题简单归因为 API 缺失或声明不兼容；需进一步检查
+嵌套调用上下文的解释器实参布局、目标函数指针和优化路径。未修改运行时
+补丁或正式容器，也未启动正式安装器。
