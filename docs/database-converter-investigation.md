@@ -330,3 +330,10 @@ mscorlib 的 GetFileAttributesExPrivate，返回 True、退出 0
 当前证据不支持将问题简单归因为 API 缺失或声明不兼容；需进一步检查
 嵌套调用上下文的解释器实参布局、目标函数指针和优化路径。未修改运行时
 补丁或正式容器，也未启动正式安装器。
+
+关闭优化的对照尚未成立：MONO_DEBUG=mdb-optimizations 被运行时明确
+拒绝；MONO_ENV_OPTIONS=--interp=-all 下仍崩溃，但未证明宿主读取该变量。
+新增 MonoInterpreterHost.c 直接调用现有 DLL 的 mono_main，显式传入
+--interp=-all。该启动路径在 DirectoryProbe 的 Main 输出之前即崩溃
+（v3-direct-host-noopt.log），与 mscoree 宿主路径不同，不能用来判定
+目录故障是否与优化有关。测试宿主不是 App 的实现方案。
