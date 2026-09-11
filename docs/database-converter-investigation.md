@@ -308,3 +308,14 @@ v3-attributes-marshaled.log。成功调用后的 GetLastWin32Error 非零值
 因此暂未在直接调用或普通字符串/结构体封送上复现空指针；下一步应核对
 mscorlib 的 GetFileAttributesExPrivate 实际声明及其生成的包装器，而非
 仅凭相同 API 名推断原因。隔离运行时现为第三版，正式容器仍未更改。
+
+FileAttributesMetadataProbe 使用 x64 反射读取实际 mscorlib：内部方法为
+Interop+Kernel32.GetFileAttributesExPrivate(string, GET_FILEEX_INFO_LEVELS,
+ref WIN32_FILE_ATTRIBUTE_DATA)，返回 bool；DLL=kernel32.dll，入口
+GetFileAttributesExW，Winapi/Unicode/SetLastError=true/ExactSpelling=false。
+参数属性均为 None。记录见 attributes-metadata.log。
+
+FileAttributesProbe 新增 enum 模式，使用枚举与 ref 结构体匹配上述差异，
+第三版下返回 True、属性 16、退出 0（v3-attributes-enum.log）。因此
+枚举与 ref/out 差异本身仍未复现崩溃；尚不能归因于普通 P/Invoke 声明。
+下一步应直接调用框架内部方法并检查实际包装器，隔离调用上下文差异。

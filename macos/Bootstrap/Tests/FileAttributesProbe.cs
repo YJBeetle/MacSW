@@ -3,6 +3,12 @@ using System.Runtime.InteropServices;
 
 class FileAttributesProbe
 {
+    enum InfoLevel { Standard = 0 }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFileAttributesExW", CharSet = CharSet.Unicode,
+        SetLastError = true)]
+    static extern bool EnumCall(string path, InfoLevel level, ref AttributeData data);
+
     [StructLayout(LayoutKind.Sequential)]
     struct AttributeData
     {
@@ -25,6 +31,16 @@ class FileAttributesProbe
 
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "enum")
+        {
+            Console.WriteLine("Before enum/ref GetFileAttributesExW");
+            Console.Out.Flush();
+            AttributeData attributes = new AttributeData();
+            bool success = EnumCall(@"C:\windows", InfoLevel.Standard, ref attributes);
+            Console.WriteLine("RESULT=" + success);
+            Console.WriteLine("ATTRIBUTES=" + attributes.Attributes);
+            return;
+        }
         if (args.Length > 0 && args[0] == "marshaled")
         {
             Console.WriteLine("Before marshaled GetFileAttributesExW");
