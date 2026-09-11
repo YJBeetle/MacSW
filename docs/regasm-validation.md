@@ -57,3 +57,29 @@ Wine 自带的 regasm.exe 也不是替代方案：上游
 下一轮应在干净测试容器按完整的 4.0 安装再升级 4.8 顺序验证，不能以本轮
 手工补入口替代完整安装，也不能把它合入 App 默认链路。
 参考 [Winetricks dotnet40/dotnet48 安装流程](https://github.com/Winetricks/winetricks/blob/master/src/winetricks)。
+
+## 返回零的安装对照：已确认继续后续步骤
+
+复制既有官方安装测试容器到 `scratch/sw-regasm-zero`，不修改正式容器。
+在 Framework/Framework64 的 v4.0.30319 下分别放入当前 Wine 自带的
+x86/x64 regasm.exe 占位实现；先用安装器相同的参数验证 x64 工具退出码为 0。
+然后对原版 MSI 运行静默修复：`REINSTALL=ALL REINSTALLMODE=vomus DISABLEROLLBACK=1`。
+这是已有容器副本的修复对照，不是全新安装验证。
+
+证据保留在 `scratch/regasm-zero-logs/`：
+
+- `probe.log` 确认指定路径的占位工具被调用。
+- `wine.log` 记录安装期间 21 次 regasm stub 调用。
+- `install.log` 的 ExecuteRegAsm 逐项记录 Returned:0x0、IgnoreExitCode:0，
+  随后明确输出 SUCCESS。
+- `SWRegistration` 结束时 Return value 1（MSI 动作成功），不再在原来的
+  gdtanalysis.net.dll 注册位置退出。
+- 后续 WriteToolboxStandardsXML 成功，再进入 UpdateBrowserData，运行
+  Toolbox 的 DatabaseConverter.exe。
+- 数据库转换约两分钟仍未结束、CPU 约 100%；未确定是正常耗时还是循环。
+  为限制独立实验资源占用，主动停止该容器。没有拿到整场 MSI 的自然结束结果，
+  不将主动终止结果当作 MSI 自身安装失败。
+
+结论：对于本轮 MSI 的 ExecuteRegAsm 路径，正常启动并返回 0 足以让安装器
+接受结果、继续后续步骤。21 次托管注册实际均未执行，不能把安装器接受结果
+视为 COM 组件注册成功；正式 App 仍未应用这一策略。
