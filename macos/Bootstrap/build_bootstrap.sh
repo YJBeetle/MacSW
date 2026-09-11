@@ -14,6 +14,7 @@ SWIFT_FILES=(
     "${BOOTSTRAP_DIR}/Services/IsoService.swift"
     "${BOOTSTRAP_DIR}/Services/LicenseService.swift"
     "${BOOTSTRAP_DIR}/Services/WineService.swift"
+    "${BOOTSTRAP_DIR}/Services/MediaInspectorService.swift"
     "${BOOTSTRAP_DIR}/Views/WizardView.swift"
     "${BOOTSTRAP_DIR}/Views/DashboardView.swift"
     "${BOOTSTRAP_DIR}/Views/MainView.swift"
