@@ -49,4 +49,4 @@ XCTest 覆盖同级维护文件发现、RegAsm 兼容逻辑、bundle-only 路径
 - 修复后的 Wine-Mono x86 模块配合安装阶段解释器模式，使官方 SOLIDWORKS 2025 SP5 安装向导正常到达成功页面。
 - SOLIDWORKS 主界面及新建 Part 已在唯一正式容器中启动。
 - Wine `winemac.drv` 现在把 Win32 `SYSRGN` 转为视口 Core Animation 图层遮罩。实测 3D 窗口保持 SOLIDWORKS 原始几何，遮罩可见区从 FeatureManager 右缘开始，左侧树不再被视口覆盖。
-- 原 C# 守护程序已替换为原生 x64 Win32 辅助程序，不再经过 Wine-Mono；它只保留登录管理器隐藏、CommandLink 字体、浮动窗口和主题兼容职责。
+- 原 C# 守护程序已替换为原生 x64 Win32 辅助程序，不再经过 Wine-Mono；它只保留登录管理器隐藏、普通对话框与浮动窗口层级，以及离屏窗口找回职责。

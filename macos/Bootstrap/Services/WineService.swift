@@ -99,7 +99,7 @@ final class WineService {
         stateLock.unlock()
         DispatchQueue.global(qos: .userInitiated).async {
             let daemon = self.makeProcess(arguments: [
-                Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path, "--watch"
+                Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path
             ], prefix: winePrefix, solidWorks: true)
             defer {
                 if daemon.isRunning { daemon.terminate() }

@@ -28,8 +28,8 @@ SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.d
 
 这保留了 SOLIDWORKS 自己的窗口几何和硬件加速，不再由守护程序移动或缩放 3D 视口。
 
-[`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理登录管理器、
-CommandLink 字体、浮动工具窗口以及少量 Wine 主题兼容问题。它不依赖 .NET/Wine-Mono，也不改写
+[`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理登录管理器隐藏、
+普通对话框与浮动工具窗口层级，以及离屏窗口找回。它不依赖 .NET/Wine-Mono，也不改写
 FeatureManager 或视口尺寸。
 
 ## 构建

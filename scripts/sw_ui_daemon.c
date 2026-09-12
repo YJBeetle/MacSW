@@ -1,5 +1,4 @@
 #include <windows.h>
-#include <uxtheme.h>
 #include <wchar.h>
 
 #define MAX_SW_WINDOWS 256
@@ -17,8 +16,6 @@ struct scan_context
     struct window_list windows;
     struct window_list document_windows;
 };
-
-static HFONT dialog_font;
 
 static BOOL contains_ci(const WCHAR *text, const WCHAR *value)
 {
@@ -114,28 +111,6 @@ static BOOL is_login_manager_dialog(HWND window)
     return found;
 }
 
-static BOOL CALLBACK fix_command_link_font(HWND window, LPARAM unused)
-{
-    WCHAR class_name[256] = {0};
-    LONG_PTR style;
-    unsigned int type;
-
-    (void)unused;
-    GetClassNameW(window, class_name, ARRAY_SIZE(class_name));
-    if (wcscmp(class_name, L"Button")) return TRUE;
-    style = GetWindowLongPtrW(window, GWL_STYLE);
-    type = (unsigned int)style & BS_TYPEMASK;
-    if (type != BS_COMMANDLINK && type != BS_DEFCOMMANDLINK) return TRUE;
-
-    if (!dialog_font)
-        dialog_font = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                  CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI Semibold");
-    SetWindowTheme(window, L" ", L" ");
-    if (dialog_font) SendMessageW(window, WM_SETFONT, (WPARAM)dialog_font, TRUE);
-    return TRUE;
-}
-
 static BOOL is_ignored_popup(const WCHAR *class_name)
 {
     return !wcscmp(class_name, L"#32768") || contains_ci(class_name, L"Menu") ||
@@ -161,7 +136,6 @@ static void elevate_dialog(HWND window)
         return;
     }
 
-    EnumChildWindows(window, fix_command_link_font, 0);
     ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
     if (!(ex_style & WS_EX_TOPMOST))
     {
@@ -201,7 +175,7 @@ static void elevate_floating_window(HWND window)
                      SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 }
 
-static BOOL CALLBACK fix_child_window(HWND window, LPARAM unused)
+static BOOL CALLBACK elevate_child_floating_tool(HWND window, LPARAM unused)
 {
     WCHAR class_name[256], title[512];
     LONG_PTR ex_style;
@@ -209,17 +183,6 @@ static BOOL CALLBACK fix_child_window(HWND window, LPARAM unused)
     (void)unused;
     get_window_strings(window, class_name, title);
     ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
-    if (ex_style & WS_EX_COMPOSITED)
-    {
-        SetWindowLongPtrW(window, GWL_EXSTYLE, ex_style & ~WS_EX_COMPOSITED);
-        RedrawWindow(window, NULL, NULL,
-                     RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_UPDATENOW);
-        ex_style &= ~WS_EX_COMPOSITED;
-    }
-
-    if (!wcscmp(class_name, L"SysTreeView32") || !wcscmp(class_name, L"SysTabControl32"))
-        SetWindowTheme(window, L" ", L" ");
-
     if (is_floating_tool(class_name, title) &&
         (!(ex_style & WS_EX_TOOLWINDOW) || !(ex_style & WS_EX_TOPMOST)))
     {
@@ -240,7 +203,7 @@ static void scan_solidworks_windows(void)
     EnumWindows(collect_process_windows, (LPARAM)&context);
 
     for (i = 0; i < context.document_windows.count; ++i)
-        EnumChildWindows(context.document_windows.items[i], fix_child_window, 0);
+        EnumChildWindows(context.document_windows.items[i], elevate_child_floating_tool, 0);
 
     for (i = 0; i < context.windows.count; ++i)
     {
@@ -257,18 +220,15 @@ static void scan_solidworks_windows(void)
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command_line, int show_command)
 {
-    BOOL watch;
-
     (void)instance;
     (void)previous;
+    (void)command_line;
     (void)show_command;
-    watch = contains_ci(command_line, L"--watch") || contains_ci(command_line, L"-w");
-    do
+    for (;;)
     {
         scan_solidworks_windows();
-        if (watch) Sleep(200);
-    } while (watch);
+        Sleep(200);
+    }
 
-    if (dialog_font) DeleteObject(dialog_font);
     return 0;
 }

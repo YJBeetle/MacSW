@@ -24,8 +24,6 @@ mkdir -p "${OUTPUT_DIR}"
     -Wl,--no-insert-timestamp \
     -o "${OUTPUT_FILE}.new" \
     "${SOURCE_FILE}" \
-    -luxtheme \
-    -lgdi32 \
     -luser32
 
 file "${OUTPUT_FILE}.new" | grep -q 'PE32+ executable.*x86-64'
