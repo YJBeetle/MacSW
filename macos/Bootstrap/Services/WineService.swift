@@ -109,12 +109,6 @@ final class WineService {
             }
             do {
                 let log = self.logDirectory(winePrefix).appendingPathComponent("sw_launch.log")
-                for hive in ["HKCU", "HKLM"] {
-                    _ = try self.run(self.makeProcess(arguments: ["reg", "add",
-                        "\(hive)\\Software\\SolidWorks\\SOLIDWORKS 2025\\General",
-                        "/v", "EnableSldLoginManager", "/t", "REG_DWORD", "/d", "0", "/f"],
-                        prefix: winePrefix), log: log)
-                }
                 // No native mscoree/D3DMetal overrides: use the tested Wine 11 stack.
                 let daemonLog = self.logDirectory(winePrefix).appendingPathComponent("ui-daemon.log")
                 if !FileManager.default.fileExists(atPath: daemonLog.path) { FileManager.default.createFile(atPath: daemonLog.path, contents: nil) }

@@ -17,6 +17,9 @@
   - 检测主显示器、虚拟桌面范围或缩放变化，并让 Wine 重新枚举显示器，避免全屏窗口被限制在左上角的旧区域以及模态对话框出现在画面外。
 - [ ] 解耦 MacSW 与固定的 SOLIDWORKS 大版本。
   - 盘点 Swift、VBS 和 REG 文件中的版本化注册表路径、快捷方式及显示文本；实施时再结合安装介质和已安装信息，确定自动识别或产品配置方式。
+- [ ] 正式处理 SOLIDWORKS Login Manager 缺失弹窗。
+  - 当前 Wine 环境会提示 `SOLIDWORKS Login Manager is not installed`，确认按钮会导致 SOLIDWORKS 退出；UI 守护程序暂时按窗口内容隐藏该弹窗。
+  - 已实测 HKCU 与 HKLM 下的 `EnableSldLoginManager=0` 均不能阻止弹窗，不能作为解决方案。后续应确认安装介质是否漏装 Login Manager 组件，或寻找受支持的禁用入口，并移除隐藏兜底。
 
 ## 构建系统迁移
 
