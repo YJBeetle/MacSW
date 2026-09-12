@@ -6,7 +6,7 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 ## 当前实现
 
 - 固定使用唯一容器 `~/Library/Application Support/MacSW/bottle`，不提供容器切换。
-- 使用经过安装验证的 Gcenx Wine 11.16，并校验下载归档的 SHA-256。
+- 使用 [`config/versions.env`](config/versions.env) 固定的 Gcenx Wine，并校验下载归档的 SHA-256。
 - 使用官方安装程序；支持拖入 ISO、已挂载介质或包含 `setup.exe` 的目录。
 - 拖入安装介质、序列号注册表、许可服务目录或组件补丁目录中的任意一项时，自动在同级查找
   `sw*_network_serials_licensing.reg`、`SolidWorks_Flexnet_Server` 和 `SOLIDWORKS Corp`。
@@ -34,7 +34,7 @@ FeatureManager 或视口尺寸。
 
 ## 构建
 
-开发机需要 Xcode Command Line Tools、Rosetta 2，以及两个 Homebrew 构建依赖：
+开发机需要 Xcode Command Line Tools，以及两个 Homebrew 构建依赖：
 
 ```bash
 brew install bison mingw-w64
@@ -42,6 +42,8 @@ make app
 ```
 
 产物位于 `build/app/MacSW.app`。`scripts/make_app.sh` 仍作为 `make app` 的兼容入口。
+首次构建需要联网下载固定依赖；校验通过的下载和 `winemac.so` 构建结果缓存在 `dist/`，
+相同配置再次构建时会复用。
 
 Builder 分为三层：
 
@@ -84,7 +86,8 @@ GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.pl
 open build/app/MacSW.app
 ```
 
-在 App 中选择或拖入安装介质，按向导完成部署。干净安装会直接清空唯一容器，请确认其中没有需要保留的文件。
+Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。在 App 中选择或拖入安装介质，按向导完成部署。
+干净安装会直接清空唯一容器，请确认其中没有需要保留的文件。
 
 图形回归至少应覆盖：
 
