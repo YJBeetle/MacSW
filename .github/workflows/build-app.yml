@@ -7,10 +7,9 @@ on:
       - master
     paths:
       - 'macos/**'
-      - 'scripts/make_app.sh'
-      - 'scripts/build_winemac.sh'
-      - 'scripts/build_ui_daemon.sh'
-      - 'scripts/sw_ui_daemon.*'
+      - 'scripts/**'
+      - 'config/**'
+      - 'Makefile'
       - 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch'
       - 'resources/**'
       - '.github/workflows/build-app.yml'
@@ -28,15 +27,27 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Load build configuration
+        id: build-config
+        run: |
+          source scripts/lib/config.sh
+          echo "wine_runtime_asset=${WINE_RUNTIME_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "wine_source_asset=${WINE_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "winemac_output_name=${WINEMAC_OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "mono_patch_release=${MONO_PATCH_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
+
       - name: Cache pinned Wine runtime and 7zz
         uses: actions/cache@v4
         with:
           path: |
-            dist/wine-devel-11.16-osx64.tar.xz
-            dist/wine-11.16.tar.xz
-            dist/winemac-11.16
+            dist/${{ steps.build-config.outputs.wine_runtime_asset }}
+            dist/${{ steps.build-config.outputs.wine_source_asset }}
+            dist/${{ steps.build-config.outputs.winemac_output_name }}
+            dist/${{ steps.build-config.outputs.mono_patch_release }}
+            dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
             dist/7zz
-          key: gcenx-wine-devel-11.16-winemac-${{ hashFiles('scripts/build_winemac.sh', 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch') }}-7zz
+          key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch') }}
 
       - name: Install Wine build dependency
         run: brew install bison mingw-w64
@@ -47,29 +58,23 @@ jobs:
           echo "==> 检查 Wine 运行时状态..."
           ls -lh dist/ || true
 
-      - name: Build and Package MacSW.app
+      - name: Test, build, verify and archive MacSW.app
         run: |
-          chmod +x scripts/make_app.sh scripts/build_winemac.sh scripts/build_ui_daemon.sh macos/Bootstrap/build_bootstrap.sh
-          ./scripts/make_app.sh
-
-      - name: Archive App Bundle
-        run: |
-          cd build/app
-          ditto -c -k --sequesterRsrc --keepParent "MacSW.app" "MacSW-macOS.zip"
-          ls -lh "MacSW-macOS.zip"
+          make ci
+          ls -lh build/archive/*.zip
 
       - name: Upload MacSW App Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MacSW-macOS-App
-          path: build/app/MacSW-macOS.zip
+          path: build/archive/MacSW-*-macOS.zip
           retention-days: 14
 
       - name: Publish Release Assets (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/MacSW-macOS.zip
+          files: build/archive/MacSW-*-macOS.zip
           draft: false
           prerelease: false
         env:

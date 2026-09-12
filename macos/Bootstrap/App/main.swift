@@ -1,0 +1,3 @@
+import MacSWCore
+
+runMacSW()

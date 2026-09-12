@@ -14,8 +14,10 @@ let scriptURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinks
 let scriptDir = scriptURL.deletingLastPathComponent().path
 let rootDir = (scriptDir as NSString).deletingLastPathComponent
 
-// 输出路径设定
-let resourcesDir = "\(rootDir)/macos/Resources"
+// Output to the build tree by default; an explicit directory may be supplied.
+let resourcesDir = CommandLine.arguments.count > 1
+    ? URL(fileURLWithPath: CommandLine.arguments[1]).standardizedFileURL.path
+    : "\(rootDir)/build/resources"
 let masterPngPath = "\(resourcesDir)/AppIcon_1024.png"
 let icnsPath = "\(resourcesDir)/AppIcon.icns"
 let tempIconsetDir = "/tmp/MacSW.iconset"

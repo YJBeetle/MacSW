@@ -3,13 +3,16 @@ set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_FILE="${WORKSPACE_ROOT}/scripts/sw_ui_daemon.c"
-OUTPUT_FILE="${WORKSPACE_ROOT}/scripts/sw_ui_daemon.exe"
+OUTPUT_DIR="${WORKSPACE_ROOT}/build/native"
+OUTPUT_FILE="${OUTPUT_DIR}/sw_ui_daemon.exe"
 COMPILER="${MINGW_CC:-x86_64-w64-mingw32-gcc}"
 
 if ! command -v "${COMPILER}" >/dev/null 2>&1; then
     echo "The x86_64 MinGW compiler is required. Install it with: brew install mingw-w64" >&2
     exit 1
 fi
+
+mkdir -p "${OUTPUT_DIR}"
 
 "${COMPILER}" \
     -municode \

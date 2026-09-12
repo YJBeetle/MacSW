@@ -16,7 +16,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("SolidWorks for macOS")
                         .font(.system(size: 17, weight: .bold))
-                    Text("Gcenx Wine 11.16 · App 内置运行时")
+                    Text("Gcenx Wine \(BuildInfo.wineVersion) · App 内置运行时")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }

@@ -8,10 +8,10 @@ final class PrerequisiteService {
 
     static func configureMono(prefix: URL) throws {
         let service = WineService.shared
-        let mono = service.runtimeURL.appendingPathComponent("share/wine/mono/wine-mono-11.3.0")
+        let mono = service.runtimeURL.appendingPathComponent("share/wine/mono/wine-mono-\(BuildInfo.monoVersion)")
         let data = try Data(contentsOf: mono.appendingPathComponent("bin/libmono-2.0-x86.dll"))
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        guard hash == "1541b5f189664e7f3d09d7e5ee5c3ae9e1c19534b79e8331fb9a51f9c1c21562" else {
+        guard hash == BuildInfo.monoPatchSHA256 else {
             throw NSError(domain: "MacSW.Prerequisites", code: 4,
                 userInfo: [NSLocalizedDescriptionKey: "App 内 Mono 修复版本校验失败，请使用重新打包的 App。"])
         }

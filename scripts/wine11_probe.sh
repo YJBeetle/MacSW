@@ -2,7 +2,8 @@
 # Isolated Wine 11.16 diagnostics. Does not use the production launcher.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNTIME="$ROOT/dist/wine-devel-11.16/Wine Devel.app/Contents/Resources/wine"
+source "${ROOT}/scripts/lib/config.sh"
+RUNTIME="$ROOT/dist/wine-devel-${WINE_VERSION}/Wine Devel.app/Contents/Resources/wine"
 export WINELOADER="$RUNTIME/bin/wineloader"
 export WINESERVER="$RUNTIME/bin/wineserver"
 unset WINEDLLPATH CX_ROOT DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH

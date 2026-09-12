@@ -175,7 +175,7 @@ class AppState: ObservableObject {
         let start = {
             self.isOperating = false
             self.isSolidWorksRunning = true
-            self.statusMessage = "正在启动 SolidWorks（Wine 11.16，UI 避让已启用）..."
+            self.statusMessage = "正在启动 SolidWorks（Wine \(BuildInfo.wineVersion)，UI 避让已启用）..."
             WineService.shared.launchSolidWorks(exePath: self.sldworksExePath.path, winePrefix: self.bottlePath.path) { _, message in
                 self.isSolidWorksRunning = false
                 self.statusMessage = message

@@ -2,12 +2,10 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WINE_VERSION="11.16"
-SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/wine-${WINE_VERSION}.tar.xz"
-SOURCE_URL="https://dl.winehq.org/wine/source/11.x/wine-${WINE_VERSION}.tar.xz"
-SOURCE_SHA256="c66e2090343dcd727f7f7fd2f87ee0bfb0b118790c1d745ab7b8a4c3a4197f2f"
+source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
+SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch"
-OUTPUT_DIR="${WORKSPACE_ROOT}/dist/winemac-${WINE_VERSION}"
+OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 OUTPUT_FILE="${OUTPUT_DIR}/winemac.so"
 STAMP_FILE="${OUTPUT_DIR}/build-key"
 
@@ -23,20 +21,21 @@ fi
 mkdir -p "${WORKSPACE_ROOT}/dist" "${WORKSPACE_ROOT}/build"
 
 if [ ! -f "${SOURCE_ARCHIVE}" ]; then
-    echo "==> Downloading Wine ${WINE_VERSION} source..."
-    curl -fL --retry 3 "${SOURCE_URL}" -o "${SOURCE_ARCHIVE}.download"
-    mv "${SOURCE_ARCHIVE}.download" "${SOURCE_ARCHIVE}"
+    echo "Missing Wine source archive. Run: make fetch-wine-source" >&2
+    exit 1
 fi
 
 ACTUAL_SOURCE_SHA256="$(shasum -a 256 "${SOURCE_ARCHIVE}" | awk '{print $1}')"
-if [ "${ACTUAL_SOURCE_SHA256}" != "${SOURCE_SHA256}" ]; then
+if [ "${ACTUAL_SOURCE_SHA256}" != "${WINE_SOURCE_SHA256}" ]; then
     echo "Wine source archive SHA-256 mismatch; refusing to build." >&2
     exit 1
 fi
 
 PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${SOURCE_SHA256}:${PATCH_SHA256}:${SCRIPT_SHA256}"
+VERSIONS_SHA256="$(shasum -a 256 "${MACSW_VERSIONS_FILE}" | awk '{print $1}')"
+CONFIG_LOADER_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/scripts/lib/config.sh" | awk '{print $1}')"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
 if [ -f "${OUTPUT_FILE}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched winemac.so is up to date."
@@ -54,7 +53,7 @@ git -C "${SOURCE_DIR}" init -q
 git -C "${SOURCE_DIR}" apply --check "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply "${DRIVER_PATCH}"
 
-export MACOSX_DEPLOYMENT_TARGET=10.15
+export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
 "${SOURCE_DIR}/configure" \
     --build=x86_64-apple-darwin \
@@ -93,10 +92,10 @@ pushd "${BUILD_DIR}" >/dev/null
     --with-vulkan \
     --without-wayland \
     --without-x \
-    CC="/usr/bin/clang -arch x86_64 -mmacosx-version-min=10.15" \
-    CXX="/usr/bin/clang++ -arch x86_64 -mmacosx-version-min=10.15" \
+    CC="/usr/bin/clang -arch x86_64 -mmacosx-version-min=${WINE_DRIVER_DEPLOYMENT_TARGET}" \
+    CXX="/usr/bin/clang++ -arch x86_64 -mmacosx-version-min=${WINE_DRIVER_DEPLOYMENT_TARGET}" \
     CFLAGS="-O2" \
-    LDFLAGS="-arch x86_64 -mmacosx-version-min=10.15 -Wl,-rpath,@loader_path" \
+    LDFLAGS="-arch x86_64 -mmacosx-version-min=${WINE_DRIVER_DEPLOYMENT_TARGET} -Wl,-rpath,@loader_path" \
     BISON="${BISON_BIN}" \
     ac_cv_lib_soname_vulkan=libvulkan.1.dylib
 popd >/dev/null
