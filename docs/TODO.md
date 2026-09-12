@@ -20,6 +20,7 @@
 - [ ] 正式处理 SOLIDWORKS Login Manager 缺失弹窗。
   - 当前 Wine 环境会提示 `SOLIDWORKS Login Manager is not installed`，确认按钮会导致 SOLIDWORKS 退出；UI 守护程序暂时按窗口内容隐藏该弹窗。
   - 已实测 HKCU 与 HKLM 下的 `EnableSldLoginManager=0` 均不能阻止弹窗，不能作为解决方案。后续应确认安装介质是否漏装 Login Manager 组件，或寻找受支持的禁用入口，并移除隐藏兜底。
+  - 已确认当前流程直接运行 `swwi/data/solidworks.msi`，绕过根目录 `setup.exe` 对 `swloginmgr/SOLIDWORKS Login Manager.msi` 的前置组件编排。单独安装该 MSI 会复制 `sldLoginManager.dll`，但其托管 COM 注册被当前只返回成功的 Wine RegAsm 兼容程序跳过，因此 SOLIDWORKS 仍判定组件未安装。暂不扩大 RegAsm 改动，继续保留守护程序隐藏兜底。
 
 ## 构建系统迁移
 
