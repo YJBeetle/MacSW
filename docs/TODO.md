@@ -15,8 +15,9 @@
   - [ ] 按钮风格、字体和 Toolbox 数据库。
 - [ ] 处理 macOS 显示器热插拔后的 Wine 显示拓扑刷新。
   - 检测主显示器、虚拟桌面范围或缩放变化，并让 Wine 重新枚举显示器，避免全屏窗口被限制在左上角的旧区域以及模态对话框出现在画面外。
-- [ ] 解耦 MacSW 与固定的 SOLIDWORKS 大版本。
-  - 盘点 Swift、VBS 和 REG 文件中的版本化注册表路径、快捷方式及显示文本；实施时再结合安装介质和已安装信息，确定自动识别或产品配置方式。
+- [x] 解耦 MacSW Builder 和正式运行路径与固定的 SOLIDWORKS 大版本。
+  - App 版本和 Wine 运行时版本独立管理；SOLIDWORKS 版本不参与 Builder 配置，验证结果统一记录在 [兼容性报告](compatibility.md)。
+  - 面向特定版本的诊断脚本和历史验证文档继续保留，但不进入正式运行路径。
 - [ ] 正式处理 SOLIDWORKS Login Manager 缺失弹窗。
   - 当前 Wine 环境会提示 `SOLIDWORKS Login Manager is not installed`，确认按钮会导致 SOLIDWORKS 退出；UI 守护程序暂时按窗口内容隐藏该弹窗。
   - 已实测 HKCU 与 HKLM 下的 `EnableSldLoginManager=0` 均不能阻止弹窗，不能作为解决方案。后续应确认安装介质是否漏装 Login Manager 组件，或寻找受支持的禁用入口，并移除隐藏兜底。
@@ -24,10 +25,12 @@
 
 ## 构建系统迁移
 
-- [ ] 将手工 swiftc 编译与 App 拼装迁移到 Xcode 工程 + xcodebuild。
-  - 统一管理 Swift 源文件、App 资源、版本及 Debug/Release 配置。
-  - 接入测试 target，并在 CI 中执行构建、测试和归档。
-  - 保留小型 Shell 脚本负责 Wine/7zz 下载、校验、缓存与嵌入，避免每次修改 UI 都重新解压运行时。
-  - [x] UI 守护程序从原生 C 源码做可重复的 x64 构建，并验证包内产物一致性。
-  - 配置签名与发布流程；Developer ID 签名、公证所需账号及凭据另行确认。
-  - 保持最终只交付独立 MacSW.app、固定单容器的目标，不引入用户运行时对源码目录或外部脚本的依赖。
+- [x] 使用 SwiftPM 管理 Swift 模块、启动程序和 XCTest。
+- [x] 使用顶层 Makefile 统一编排依赖获取、构建、打包、校验和 CI 归档。
+- [x] 将 App、Wine、Wine-Mono、7-Zip 版本及依赖校验值集中到单一配置文件。
+- [x] 保留小型 Shell 脚本负责 Wine/7zz 下载、校验、缓存与嵌入，避免每次修改 UI 都重新编译 Wine。
+- [x] UI 守护程序从原生 C 源码做可重复的 x64 构建，不再提交生成的 PE 文件。
+- [ ] 配置 Developer ID 签名与公证；所需账号及凭据另行确认。
+- [ ] 在 GitHub Actions 新 Builder 首次运行后核对缓存命中、归档和 Release 上传。
+
+最终仍只交付独立 `MacSW.app`，固定使用单容器，不引入用户运行时对源码目录或外部脚本的依赖。

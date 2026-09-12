@@ -1,7 +1,7 @@
 # MacSW
 
-MacSW 是面向 Apple Silicon Mac 的独立 SwiftUI 应用，用固定版本 Wine 运行和维护
-SOLIDWORKS 2025。最终用户只需要 `MacSW.app`，不需要源码目录、Homebrew 或外部启动脚本。
+MacSW 是面向 Apple Silicon Mac 的独立 SwiftUI 应用，用固定、可校验的 Wine 运行和维护
+SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebrew 或外部启动脚本。
 
 ## 当前实现
 
@@ -18,7 +18,7 @@ SOLIDWORKS 2025。最终用户只需要 `MacSW.app`，不需要源码目录、Ho
 SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.drv` 没有把 Win32
 子窗口的可见区域同步给该图层，因此视口会盖住 FeatureManager 等停靠控件。
 
-本项目在 Wine 11.16 源码上应用
+本项目在 Builder 当前固定的 Wine 源码上应用
 [`0002-winemac-metal-layer-clipping.patch`](patches/wine-crossover/0002-winemac-metal-layer-clipping.patch)：
 
 1. 从视口 HDC 读取 `SYSRGN`；
@@ -38,22 +38,45 @@ FeatureManager 或视口尺寸。
 
 ```bash
 brew install bison mingw-w64
-./scripts/make_app.sh
+make app
 ```
 
-产物位于 `build/app/MacSW.app`。打包流程会：
+产物位于 `build/app/MacSW.app`。`scripts/make_app.sh` 仍作为 `make app` 的兼容入口。
+
+Builder 分为三层：
+
+- SwiftPM 管理 Swift 模块、原生启动程序和 XCTest；
+- 顶层 Makefile 编排依赖获取、原生构建、打包、校验与归档；
+- Shell 脚本处理固定依赖下载、Wine autotools 构建和 `.app` 目录装配。
+
+应用、Wine、Wine-Mono 和 7-Zip 版本及 SHA-256 只在
+[`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
+SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
+
+常用目标：
+
+```bash
+make test                 # SwiftPM XCTest
+make app                  # 构建、打包并校验 MacSW.app
+make verify               # 校验已有 MacSW.app
+make archive              # 生成可上传的 zip（会占用额外磁盘空间）
+make ci                   # 测试并生成归档
+```
+
+完整打包流程会：
 
 - 编译 SwiftUI 启动程序；
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
-- 从 Wine 11.16 官方源码重建打过补丁的 `winemac.so`；
+- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`；
 - 覆盖经过验证的 Wine-Mono x86 修复模块；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
-`build_winemac.sh` 会按 Wine 版本、源码校验值、补丁和构建脚本内容缓存产物。GitHub Actions
-使用同一条构建链路。
+`build_winemac.sh` 会按 Wine 版本、源码校验值、补丁、配置和构建脚本内容缓存产物。
+GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、
+来源提交和校验值。
 
 ## 使用与验证
 
@@ -72,7 +95,8 @@ open build/app/MacSW.app
 - 保存、退出并重新打开零件。
 
 更详细的安装链路和已验证边界见
-[`docs/app-wine11-migration.md`](docs/app-wine11-migration.md)。
+[`docs/app-wine11-migration.md`](docs/app-wine11-migration.md)，兼容性报告见
+[`docs/compatibility.md`](docs/compatibility.md)。
 
 ## 日志
 
