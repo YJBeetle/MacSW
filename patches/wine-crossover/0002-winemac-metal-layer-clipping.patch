@@ -2,7 +2,7 @@ diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
 index 8ca5dd7..31e782a 100644
 --- a/dlls/winemac.drv/cocoa_window.m
 +++ b/dlls/winemac.drv/cocoa_window.m
-@@ -3872,6 +3872,56 @@ void macdrv_set_view_frame(macdrv_view v, CGRect rect)
+@@ -3872,6 +3872,52 @@ void macdrv_set_view_frame(macdrv_view v, CGRect rect)
  }
  }
 
@@ -26,14 +26,10 @@ index 8ca5dd7..31e782a 100644
 +
 +        if (rects)
 +        {
-+            CGFloat height = CGRectGetHeight([layer bounds]);
-+
 +            path = CGPathCreateMutable();
 +            for (i = 0; i < count; i++)
 +            {
 +                CGRect rect = cgrect_mac_from_win(rects[i]);
-+
-+                rect.origin.y = height - CGRectGetMaxY(rect);
 +                CGPathAddRect(path, NULL, rect);
 +            }
 +        }
@@ -98,15 +94,13 @@ index c23142d..9c01226 100644
  }
 
  static void macdrv_client_surface_detach(struct client_surface *client)
-@@ -1100,14 +1101,56 @@ static void macdrv_client_surface_detach(struct client_surface *client)
+@@ -1100,14 +1101,52 @@ static void macdrv_client_surface_detach(struct client_surface *client)
      }
  }
 
 +static void macdrv_client_surface_update_clip(struct macdrv_client_surface *surface, HDC hdc)
 +{
 +    struct client_surface *client = &surface->client;
-+    HWND hwnd = surface->client.hwnd;
-+    POINT origin = {0};
 +    HRGN clip_region;
 +    RGNDATA *clip_data;
 +
@@ -124,8 +118,6 @@ index c23142d..9c01226 100644
 +        }
 +        else
 +        {
-+            NtUserMapWindowPoints(hwnd, 0, &origin, 1, NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI));
-+            NtGdiOffsetRgn(clip_region, -origin.x, -origin.y);
 +            if ((!surface->clip_region_valid || !NtGdiEqualRgn(clip_region, surface->clip_region) ||
 +                 !surface->clip_rect_valid || !EqualRect(&client->monitor_rect, &surface->clip_rect)) &&
 +                (clip_data = get_region_data(clip_region, 0)))
