@@ -1,5 +1,5 @@
 diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
-index 8ca5dd7..31e782a 100644
+index 8ca5dd7..d543665 100644
 --- a/dlls/winemac.drv/cocoa_window.m
 +++ b/dlls/winemac.drv/cocoa_window.m
 @@ -3872,6 +3872,52 @@ void macdrv_set_view_frame(macdrv_view v, CGRect rect)
@@ -83,7 +83,7 @@ index 9a91edb..c96a1d3 100644
  extern void macdrv_set_view_hidden(macdrv_view v, bool hidden);
  extern void macdrv_add_view_opengl_context(macdrv_view v, macdrv_opengl_context c);
 diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
-index c23142d..9c01226 100644
+index c23142d..634bdf0 100644
 --- a/dlls/winemac.drv/window.c
 +++ b/dlls/winemac.drv/window.c
 @@ -1077,6 +1077,7 @@ static void macdrv_client_surface_destroy(struct client_surface *client)
@@ -94,7 +94,7 @@ index c23142d..9c01226 100644
  }
 
  static void macdrv_client_surface_detach(struct client_surface *client)
-@@ -1100,14 +1101,52 @@ static void macdrv_client_surface_detach(struct client_surface *client)
+@@ -1100,18 +1101,63 @@ static void macdrv_client_surface_detach(struct client_surface *client)
      }
  }
 
@@ -140,23 +140,26 @@ index c23142d..9c01226 100644
 -    HWND hwnd = client->hwnd, toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
 +    HWND hwnd = client->hwnd, toplevel = client->toplevel;
      struct macdrv_win_data *data;
++    BOOL offscreen;
++    HDC hdc;
 
      TRACE("%s\n", debugstr_client_surface(client));
 
-+    InterlockedExchange(&client->offscreen,
-+                        NtUserGetAncestor(hwnd, GA_PARENT) != NtUserGetDesktopWindow());
++    offscreen = NtUserGetAncestor(hwnd, GA_PARENT) != NtUserGetDesktopWindow();
++    InterlockedExchange(&client->offscreen, offscreen);
      if (!(data = get_win_data(toplevel))) return;
      macdrv_set_view_frame(surface->cocoa_view, cgrect_from_rect(client->monitor_rect));
      macdrv_set_view_superview(surface->cocoa_view, toplevel == hwnd ? NULL : data->client_view, data->cocoa_window, NULL, NULL);
-@@ -1129,6 +1172,7 @@ static void macdrv_client_surface_present(struct client_surface *client, HDC hdc
-         data->client_view = surface->cocoa_view;
-     }
      release_win_data(data);
-+    macdrv_client_surface_update_clip(surface, hdc);
++    if (offscreen && (hdc = NtUserGetDCEx(hwnd, 0, DCX_CACHE | DCX_USESTYLE)))
++    {
++        macdrv_client_surface_update_clip(surface, hdc);
++        NtUserReleaseDC(hwnd, hdc);
++    }
  }
 
- static const struct client_surface_funcs macdrv_client_surface_funcs =
-@@ -1151,6 +1195,7 @@ struct client_surface *macdrv_CreateClientSurface(HWND hwnd, int pixel_format)
+ static void macdrv_client_surface_present(struct client_surface *client, HDC hdc)
+@@ -1151,6 +1197,7 @@ struct client_surface *macdrv_CreateClientSurface(HWND hwnd, int pixel_format)
 
      surface = client_surface_create(sizeof(*surface), &macdrv_client_surface_funcs, hwnd, pixel_format);
      surface->cocoa_view = macdrv_create_view(cgrect_from_rect(surface->client.monitor_rect));
