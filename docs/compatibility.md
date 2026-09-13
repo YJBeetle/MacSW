@@ -8,7 +8,7 @@ Builder 的版本选择。
 
 | SOLIDWORKS | MacSW | Wine / Mono | Host | Result | Remaining coverage |
 | --- | --- | --- | --- | --- | --- |
-| 2025 SP5.0 | `f2ca082`, `0.1.0` (1) | Wine 11.16 / Wine-Mono 11.3.0 | Apple Silicon, macOS 15.6 | Clean install through the App completed; the automatic Login Manager/COM registration path removed the startup error; main window launched; Part document created; FeatureManager clipping, CommandManager expand/collapse, Task Pane redraw, composite context-menu commands, and mouse gestures verified | Save/reopen, Toolbox, display hot-plug, and mouse-gesture transparency |
+| 2025 SP5.0 | `e7c705a`, `0.1.0` (1) | Wine 11.16 / Wine-Mono 11.3.0 | Apple Silicon, macOS 15.6 | Clean install through the App completed; automatic Login Manager/COM registration removed the startup error; main window and Part document verified; FeatureManager clipping, CommandManager expand/collapse, Task Pane redraw, composite context-menu commands, mouse gestures, and PropertyManager confirmation verified; the same-binary AppCompat A/B isolated and fixed Wine's same-window capture resend | Save/reopen after a fresh launch, Toolbox, display hot-plug, and mouse-gesture transparency |
 
 This table records observed behavior, not a promise that every component or workflow is supported.
 
