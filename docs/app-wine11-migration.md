@@ -15,8 +15,8 @@
 - WineService 仅解析 App 包内的 wine/bin/wineloader 与 wineserver；所有启动入口调用 AppState.launchSolidWorks，统一 WPF/VC 前置检查与重复启动保护。
 - 运行时固定 Gcenx wine-devel 11.16，SHA-256 校验归档；在其上覆盖由 Wine 11.16 官方源码和仓库补丁重建的 `winemac.so`。
 - 安装阶段使用 Mono 11.3.0 x86 修复模块和解释器模式，避免 32 位托管辅助程序在 Rosetta 下进入不稳定的 JIT 路径；64 位 SOLIDWORKS 使用 JIT。
-- 启动启用 atiadlxx=d 和微软 VC++ native-first overrides；启动 App 内原生 x64 UI 辅助程序，SW 退出后终止本次辅助程序。登录管理器弹窗当前由辅助程序隐藏，注册表禁用值已确认无效并移除。
-- 官方安装：用户选择介质 → wineboot → 官方 VC x64 安装包 → 可选注册表导入 → 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
+- 启动启用 atiadlxx=d 和微软 VC++ native-first overrides；启动 App 内原生 x64 UI 辅助程序，SW 退出后终止本次辅助程序。辅助程序不隐藏 Login Manager 致命弹窗，注册表禁用值已确认无效并移除。
+- 官方安装：用户选择介质 → wineboot → 校验 Wine-Mono COM 注册运行时并安装托管 RegAsm/stdole → 官方 VC x64 安装包 → 后台安装官方 Login Manager MSI → 可选注册表导入 → 可见的 SOLIDWORKS 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
 - 保留用户显式操作的许可及组件维护入口，未把第三方许可或组件文件打入 App。
 - 安装失败仍会报告非零退出码；尚未实现失败自定义动作的完整恢复。Toolbox 数据库和剩余字体问题仍需单独验证。
 - 删除 CAB 直接部署服务、介质组件扫描服务、相关测试、旧 run_sw.sh 和未使用的重复 LicenseService；历史可从 Git 恢复。开发诊断脚本仅留在源码，不随 App 运行。
@@ -30,7 +30,7 @@ make bootstrap
 make test
 ```
 
-XCTest 覆盖同级维护文件发现、RegAsm 兼容逻辑、bundle-only 路径、环境隔离、原生 VC 加载策略、含空格/单引号路径的 shell 转义和进程启动错误。SW GUI 由用户验证，以上检查不能替代建模验收。
+XCTest 覆盖同级维护文件发现、Wine-Mono COM 注册运行时哈希校验与 RegAsm 原子放置、stdole 校验与原子放置、bundle-only 路径、环境隔离、原生 VC 加载策略、含空格/单引号路径的 shell 转义和进程启动错误。SW GUI 由用户验证，以上检查不能替代建模验收。
 
 ## 正式单容器首次安装反馈（2026-09-11）
 

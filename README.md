@@ -11,6 +11,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 - 拖入安装介质、序列号注册表、许可服务目录或组件补丁目录中的任意一项时，自动在同级查找
   `sw*_network_serials_licensing.reg`、`SolidWorks_Flexnet_Server` 和 `SOLIDWORKS Corp`。
 - 安装阶段的 32 位托管辅助程序使用 Wine-Mono 解释器；64 位 SOLIDWORKS 正常使用 JIT。
+- App 在主安装器前校验并放置固定版本 `stdole`，随后静默安装介质中的官方 Login Manager；
+  SOLIDWORKS 主 MSI 仍显示官方交互窗口。
 - App 负责环境初始化、VC++ 前置组件、安装、维护操作、FlexNet 状态和 SOLIDWORKS 启动。
 
 ## 图形窗口修复
@@ -52,7 +54,7 @@ Builder 分为三层：
 - 顶层 Makefile 编排依赖获取、原生构建、打包、校验与归档；
 - Shell 脚本处理固定依赖下载、Wine autotools 构建和 `.app` 目录装配。
 
-应用、Wine、Wine-Mono 和 7-Zip 版本及 SHA-256 只在
+应用、Wine、Wine-Mono、stdole 和 7-Zip 版本及 SHA-256 只在
 [`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
 SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
 
@@ -72,7 +74,8 @@ make ci                   # 测试并生成归档
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
 - 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`；
-- 覆盖经过验证的 Wine-Mono x86 修复模块；
+- 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
+- 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
@@ -108,6 +111,8 @@ Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。在 App 中选择或�
 
 - `install_msi.log`
 - `installer-wine.log`
+- `login-manager-install.log`
+- `login-manager-wine.log`
 - `prerequisites.log`
 - `sw_launch.log`
 - `ui-daemon.log`

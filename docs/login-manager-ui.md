@@ -44,9 +44,13 @@ sldappu.dll
 - 官方 2025 安装编排在选择 SOLIDWORKS 时会同时安装 `SWLoginMgr`。当前 App 直接执行
   `swwi/data/solidworks.msi`，因此绕过了该前置组件。
 
-## 后续工作
+## App 集成
 
-- 将 Login Manager MSI 安装和 Wine-Mono 托管 COM 注册修复接入 App 安装流程；当前只有
-  手工验证结果，正式 App 尚未集成。
+- Builder 从微软官方 NuGet 包下载并校验 `stdole 7.0.3300`，并下载匹配的 Wine-Mono
+  `mscorlib.dll` 与 x86/x64 托管 RegAsm。App 在安装前校验整套运行时，把依赖放到
+  `SOLIDWORKS Shared`，安装 RegAsm 入口，并静默运行介质中的 Login Manager MSI。
+  主 SOLIDWORKS MSI 继续使用官方交互窗口。2026-09-13 使用重新打包的 App 清理旧 bottle
+  并完成干净安装端到端回归，新 bottle 生成真实 COM 注册项，随后启动 SOLIDWORKS 未再
+  出现缺失弹窗；该结果不依赖此前手工注册残留。
 - UI 守护程序不再隐藏 Login Manager 致命对话框，避免把阻塞状态伪装成成功启动。
 - 鼠标手势轮盘的黑色背景是独立的合成/透明度问题，继续按 TODO 跟踪。

@@ -20,9 +20,10 @@
 - [x] 解耦 MacSW Builder 和正式运行路径与固定的 SOLIDWORKS 大版本。
   - App 版本和 Wine 运行时版本独立管理；SOLIDWORKS 版本不参与 Builder 配置，验证结果统一记录在 [兼容性报告](compatibility.md)。
   - 面向特定版本的诊断脚本和历史验证文档继续保留，但不进入正式运行路径。
-- [ ] 将 SOLIDWORKS Login Manager 安装与托管 COM 注册修复接入 App。
-  - 当前流程直接运行 `swwi/data/solidworks.msi`，绕过根目录 `setup.exe` 对 `swloginmgr/SOLIDWORKS Login Manager.msi` 的前置组件编排；App 内 RegAsm 仍是只返回成功的兼容程序。
-  - 已在全新干净安装的正式 bottle 中手工安装 Login Manager，并用修复后的 Wine-Mono 完成 `sldLoginManager.dll` 注册；缺失弹窗消失，右键菜单与鼠标手势恢复正常。该结果尚未接入 App 自动安装流程。
+- [x] 将 SOLIDWORKS Login Manager 安装与托管 COM 注册修复接入 App。
+  - Builder 从固定版本、固定校验值的微软 NuGet 包提取 `stdole.dll`，并从固定 Wine-Mono prerelease 获取匹配的 `mscorlib.dll` 与 x86/x64 托管 RegAsm；App 在共享组件目录放置依赖并安装已校验的注册入口。
+  - App 在 SOLIDWORKS 主 MSI 前静默安装 `swloginmgr/SOLIDWORKS Login Manager.msi`，保留独立详细日志；修复后的 Wine-Mono 完成 `sldLoginManager.dll` 托管 COM 注册。
+  - 2026-09-13 使用重新打包的 App 清理旧 bottle 并执行干净安装端到端回归：新 bottle 生成了 Login Manager 的 CLSID、`mscoree.dll` 承载项与真实 CodeBase，SOLIDWORKS 启动时不再出现 Login Manager 缺失弹窗，可排除此前手工注册残留。
   - `EnableSldLoginManager=0` 和 `SW_Login_Disable=True` 均不能绕过组件检查。UI 守护程序的隐藏兜底已删除，避免让隐藏模态循环继续阻塞主线程。见 [调查记录](login-manager-ui.md)。
 
 ## 构建系统迁移
@@ -31,6 +32,7 @@
 - [x] 使用顶层 Makefile 统一编排依赖获取、构建、打包、校验和 CI 归档。
 - [x] 将 App、Wine、Wine-Mono、7-Zip 版本及依赖校验值集中到单一配置文件。
 - [x] 保留小型 Shell 脚本负责 Wine/7zz 下载、校验、缓存与嵌入，避免每次修改 UI 都重新编译 Wine。
+- [x] 将官方 `stdole` NuGet 包作为构建时依赖下载、校验并嵌入 App，不在仓库提交 DLL。
 - [x] UI 守护程序从原生 C 源码做可重复的 x64 构建，不再提交生成的 PE 文件。
 - [ ] 配置 Developer ID 签名与公证；所需账号及凭据另行确认。
 - [ ] 在 GitHub Actions 新 Builder 首次运行后核对缓存命中、归档和 Release 上传。
