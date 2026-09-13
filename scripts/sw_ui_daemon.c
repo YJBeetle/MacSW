@@ -89,28 +89,6 @@ static BOOL window_list_contains(const struct window_list *list, HWND window)
     return FALSE;
 }
 
-static BOOL CALLBACK detect_login_manager(HWND window, LPARAM parameter)
-{
-    BOOL *found = (BOOL *)parameter;
-    WCHAR title[512] = {0};
-
-    GetWindowTextW(window, title, ARRAY_SIZE(title));
-    if (contains_ci(title, L"SOLIDWORKS Login Manager") || contains_ci(title, L"Login Manager"))
-    {
-        *found = TRUE;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-static BOOL is_login_manager_dialog(HWND window)
-{
-    BOOL found = FALSE;
-
-    EnumChildWindows(window, detect_login_manager, (LPARAM)&found);
-    return found;
-}
-
 static BOOL is_ignored_popup(const WCHAR *class_name)
 {
     return !wcscmp(class_name, L"#32768") || contains_ci(class_name, L"Menu") ||
@@ -129,12 +107,6 @@ static BOOL is_floating_tool(const WCHAR *class_name, const WCHAR *title)
 static void elevate_dialog(HWND window)
 {
     LONG_PTR ex_style;
-
-    if (is_login_manager_dialog(window))
-    {
-        ShowWindow(window, SW_HIDE);
-        return;
-    }
 
     ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
     if (!(ex_style & WS_EX_TOPMOST))
