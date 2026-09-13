@@ -4,6 +4,8 @@ import AppKit
 import Darwin
 
 class AppState: ObservableObject {
+    private static let licenseDirectoryDefaultsKey = "MacSW.selectedLicenseDirectory"
+
     @Published var isInstalled: Bool = false
     @Published var isLicenseRunning: Bool = false
     @Published var isOperating: Bool = false
@@ -31,7 +33,15 @@ class AppState: ObservableObject {
     @Published var selectedRegPath: URL? = nil
     @Published var selectedIsoPath: URL? = nil
     @Published var selectedPatchDir: URL? = nil
-    @Published var selectedLicenseDir: URL? = nil
+    @Published var selectedLicenseDir: URL? = nil {
+        didSet {
+            if let path = selectedLicenseDir?.standardizedFileURL.path {
+                UserDefaults.standard.set(path, forKey: Self.licenseDirectoryDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.licenseDirectoryDefaultsKey)
+            }
+        }
+    }
     @Published var isPatchApplied: Bool = false
     @Published var isWpfThemeInjected: Bool = false
     @Published var isVcRedistInjected: Bool = false
@@ -53,6 +63,14 @@ class AppState: ObservableObject {
         let initialBottle = AppState.resolveBottlePath(appSupportDir: self.appSupportDir)
         self.bottlePath = initialBottle
         self.sldworksExePath = AppState.resolveSldworksPath(bottlePath: initialBottle)
+        if let savedPath = UserDefaults.standard.string(forKey: Self.licenseDirectoryDefaultsKey) {
+            let savedDirectory = URL(fileURLWithPath: savedPath, isDirectory: true)
+            if Self.isValidLicenseDirectory(savedDirectory) {
+                self.selectedLicenseDir = savedDirectory
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.licenseDirectoryDefaultsKey)
+            }
+        }
 
         if ProcessInfo.processInfo.environment["MACSW_FORCE_WIZARD"] == "1" {
             self.isInstalled = false
@@ -251,17 +269,35 @@ class AppState: ObservableObject {
         }
     }
 
+    static func isValidLicenseDirectory(_ directory: URL, fileManager: FileManager = .default) -> Bool {
+        guard fileManager.fileExists(atPath: directory.appendingPathComponent("lmgrd.exe").path),
+              let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return false
+        }
+        return files.contains { $0.pathExtension.lowercased() == "lic" }
+    }
+
+    private func resolvedLicenseDirectory() -> URL? {
+        let bundled = bottlePath.appendingPathComponent("drive_c/opt/SolidWorks_Flexnet_Server", isDirectory: true)
+        return [selectedLicenseDir, bundled].compactMap { $0 }.first { Self.isValidLicenseDirectory($0) }
+    }
+
     func startLicenseServer() {
         isOperating = true
         statusMessage = "正在启动 FlexNet 许可服务..."
         DispatchQueue.global(qos: .userInitiated).async {
             let wine = WineService.shared.getWineBinary()
-            let flexDir: String
-            if let customLic = self.selectedLicenseDir?.path, FileManager.default.fileExists(atPath: "\(customLic)/lmgrd.exe") {
-                flexDir = customLic
-            } else {
-                flexDir = self.bottlePath.appendingPathComponent("drive_c/opt/SolidWorks_Flexnet_Server").path
+            guard let flexURL = self.resolvedLicenseDirectory(),
+                  let licenseURL = try? FileManager.default.contentsOfDirectory(at: flexURL, includingPropertiesForKeys: nil)
+                    .first(where: { $0.pathExtension.lowercased() == "lic" }) else {
+                DispatchQueue.main.async {
+                    self.isOperating = false
+                    self.isLicenseRunning = false
+                    self.statusMessage = "未找到有效的 FlexNet 目录（需要 lmgrd.exe 和 .lic）；请在安装维护页重新选择许可服务目录。"
+                }
+                return
             }
+            let flexDir = flexURL.path
 
             let logDir = self.appSupportDir.appendingPathComponent("logs").path
             let logPath = "\(logDir)/flexnet.log"
@@ -272,8 +308,7 @@ class AppState: ObservableObject {
             if nc -z -w 1 127.0.0.1 25734; then exit 0; fi
             \(envHeader)
             cd '\(flexDir)'
-            LIC_FILE="$(ls *.lic 2>/dev/null | head -n 1 || echo 'sw_d.lic')"
-            nohup "\(wine)" '\(flexDir)/lmgrd.exe' -c "\(flexDir)/$LIC_FILE" -l '\(logPath)' >/dev/null 2>&1 &
+            nohup "\(wine)" '\(flexDir)/lmgrd.exe' -c '\(licenseURL.path)' -l '\(logPath)' >/dev/null 2>&1 &
             sleep 2
             nc -z -w 2 127.0.0.1 25734
             """
@@ -282,12 +317,16 @@ class AppState: ObservableObject {
             task.arguments = ["-c", script]
             task.launch()
             task.waitUntilExit()
-            _ = (task.terminationStatus == 0)
+            let startStatus = task.terminationStatus
 
             DispatchQueue.main.async {
                 self.isOperating = false
                 self.checkLicenseStatus { running in
-                    self.statusMessage = running ? "FlexNet 许可服务已启动 (端口 25734)" : "启动完成，等待端口监听..."
+                    if running {
+                        self.statusMessage = "FlexNet 许可服务已启动 (端口 25734)"
+                    } else {
+                        self.statusMessage = "FlexNet 许可服务启动失败（退出码 \(startStatus)），请查看 flexnet.log。"
+                    }
                 }
             }
         }

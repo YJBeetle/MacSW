@@ -3,6 +3,19 @@ import XCTest
 @testable import MacSWCore
 
 final class CompanionFileTests: XCTestCase {
+    func testLicenseDirectoryRequiresExecutableAndLicenseFile() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("MacSW-license-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        XCTAssertFalse(AppState.isValidLicenseDirectory(root))
+        try Data().write(to: root.appendingPathComponent("lmgrd.exe"))
+        XCTAssertFalse(AppState.isValidLicenseDirectory(root))
+        try Data().write(to: root.appendingPathComponent("sw_d_SSQ.LIC"))
+        XCTAssertTrue(AppState.isValidLicenseDirectory(root))
+    }
+
     func testSiblingDiscoveryRejectsNestedAmbiguousAndDirectoryMatches() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("MacSW-companion-\(UUID().uuidString)")
