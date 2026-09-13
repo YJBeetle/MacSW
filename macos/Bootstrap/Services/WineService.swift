@@ -12,6 +12,10 @@ final class WineService {
     }
     static let vcLibraries = ["concrt140", "msvcp140", "msvcp140_1", "msvcp140_2",
         "msvcp140_atomic_wait", "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"]
+    static let solidWorksCompatibilityArguments = [
+        "reg", "add", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
+        "/v", "sldworks.exe", "/t", "REG_SZ", "/d", "WINE_NOCAPTURERESEND", "/f"
+    ]
     static func isSuccessfulPrerequisiteStatus(_ code: Int32) -> Bool {
         // Windows 3010 and 1638 are truncated to 194 and 102 through the Unix process status.
         [Int32(0), 3010, 194, 1638, 102].contains(code)
@@ -98,6 +102,16 @@ final class WineService {
         return Self.isSuccessfulCleanupStop(killStatus: killStatus, waitStatus: waitStatus)
     }
 
+    func configureSolidWorksCompatibility(winePrefix: String) throws {
+        let log = logDirectory(winePrefix).appendingPathComponent("solidworks-compatibility.log")
+        let status = try run(makeProcess(arguments: Self.solidWorksCompatibilityArguments, prefix: winePrefix), log: log)
+        guard status == 0 else {
+            throw NSError(domain: "MacSW", code: Int(status), userInfo: [
+                NSLocalizedDescriptionKey: "SOLIDWORKS 输入兼容设置失败，请查看 solidworks-compatibility.log。"
+            ])
+        }
+    }
+
     func launchInstaller(setupExe: String, winePrefix: String, completion: @escaping (Int32) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let logs = self.logDirectory(winePrefix)
@@ -128,6 +142,7 @@ final class WineService {
             }
             do {
                 let log = self.logDirectory(winePrefix).appendingPathComponent("sw_launch.log")
+                try self.configureSolidWorksCompatibility(winePrefix: winePrefix)
                 // No native mscoree/D3DMetal overrides: use the tested Wine 11 stack.
                 let daemonLog = self.logDirectory(winePrefix).appendingPathComponent("ui-daemon.log")
                 if !FileManager.default.fileExists(atPath: daemonLog.path) { FileManager.default.createFile(atPath: daemonLog.path, contents: nil) }

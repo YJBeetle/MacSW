@@ -45,7 +45,7 @@ make app
 ```
 
 产物位于 `build/app/MacSW.app`。`scripts/make_app.sh` 仍作为 `make app` 的兼容入口。
-首次构建需要联网下载固定依赖；校验通过的下载和 `winemac.so` 构建结果缓存在 `dist/`，
+首次构建需要联网下载固定依赖；校验通过的下载和 Wine 原生模块构建结果缓存在 `dist/`，
 相同配置再次构建时会复用。
 
 Builder 分为三层：
@@ -73,14 +73,17 @@ make ci                   # 测试并生成归档
 - 编译 SwiftUI 启动程序；
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
-- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`；
+- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so` 与 `win32u.so`；前者修复原生
+  图层裁剪，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
-`build_winemac.sh` 会按 Wine 版本、源码校验值、补丁、配置和构建脚本内容缓存产物。
+`build_winemac.sh` 会按 Wine 版本、源码校验值、两份补丁、配置和构建脚本内容缓存产物。
+重建 `win32u.so` 需要 Homebrew 的 Bison 与 FreeType 头文件；打包后的运行时仍使用包内固定的
+x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
 GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、
 来源提交和校验值。
 

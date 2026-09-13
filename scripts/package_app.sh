@@ -12,6 +12,7 @@ UI_DAEMON_BIN="${BUILD_ROOT}/native/sw_ui_daemon.exe"
 APP_ICON="${BUILD_ROOT}/resources/AppIcon.icns"
 WINE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_RUNTIME_ASSET}"
 WINEMAC_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/winemac.so"
+WIN32U_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/win32u.so"
 MONO_PATCH="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86.dll"
 MONO_MSCORLIB="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/mscorlib.dll"
 MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
@@ -27,7 +28,7 @@ require_file() {
 }
 
 for PACKAGE_INPUT in "${BOOTSTRAP_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
-    "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
+    "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}"; do
     require_file "${PACKAGE_INPUT}"
 done
@@ -79,8 +80,11 @@ mv "${WINE_UNPACK}/Wine Devel.app/Contents/Resources/wine" "${FRAMEWORKS_DIR}/wi
 ln -sf wine "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 
 WINEMAC_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/winemac.so"
+WIN32U_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/win32u.so"
 cp "${WINEMAC_PATCH}" "${WINEMAC_TARGET}"
+cp "${WIN32U_PATCH}" "${WIN32U_TARGET}"
 codesign --force --sign - "${WINEMAC_TARGET}"
+codesign --force --sign - "${WIN32U_TARGET}"
 cp "${MONO_PATCH}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-x86.dll"
 cp "${MONO_MSCORLIB}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/mono/4.5/mscorlib.dll"
 cp "${MONO_REGASM_X86}" "${FRAMEWORKS_DIR}/wine/lib/wine/i386-windows/regasm.exe"
@@ -88,13 +92,19 @@ cp "${MONO_REGASM_X64}" "${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows/regasm.e
 
 BUILD_MANIFEST="${RESOURCES_DIR}/BuildManifest.plist"
 plutil -create xml1 "${BUILD_MANIFEST}"
-PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch" | awk '{print $1}')"
+WINEMAC_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch" | awk '{print $1}')"
+WIN32U_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch" | awk '{print $1}')"
+WINEMAC_MODULE_SHA256="$(shasum -a 256 "${WINEMAC_TARGET}" | awk '{print $1}')"
+WIN32U_MODULE_SHA256="$(shasum -a 256 "${WIN32U_TARGET}" | awk '{print $1}')"
 /usr/libexec/PlistBuddy -c "Add :AppVersion string ${APP_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :AppBuild string ${APP_BUILD}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineVersion string ${WINE_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineRuntimeSHA256 string ${WINE_RUNTIME_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineSourceSHA256 string ${WINE_SOURCE_SHA256}" "${BUILD_MANIFEST}"
-/usr/libexec/PlistBuddy -c "Add :WineMacPatchSHA256 string ${PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineMacPatchSHA256 string ${WINEMAC_PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineInputPatchSHA256 string ${WIN32U_PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineMacModuleSHA256 string ${WINEMAC_MODULE_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineInputModuleSHA256 string ${WIN32U_MODULE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoVersion string ${WINE_MONO_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoPatchRelease string ${MONO_PATCH_RELEASE}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoPatchSourceCommit string ${MONO_PATCH_SOURCE_COMMIT}" "${BUILD_MANIFEST}"

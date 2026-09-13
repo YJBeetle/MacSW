@@ -5,8 +5,10 @@ WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
 SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch"
+INPUT_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
-OUTPUT_FILE="${OUTPUT_DIR}/winemac.so"
+WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
+WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
 STAMP_FILE="${OUTPUT_DIR}/build-key"
 
 if [ -x /opt/homebrew/opt/bison/bin/bison ]; then
@@ -15,6 +17,15 @@ elif [ -x /usr/local/opt/bison/bin/bison ]; then
     BISON_BIN=/usr/local/opt/bison/bin/bison
 else
     echo "GNU Bison is required. Install it with: brew install bison" >&2
+    exit 1
+fi
+
+if [ -f /opt/homebrew/opt/freetype/include/freetype2/ft2build.h ]; then
+    FREETYPE_INCLUDE=/opt/homebrew/opt/freetype/include/freetype2
+elif [ -f /usr/local/opt/freetype/include/freetype2/ft2build.h ]; then
+    FREETYPE_INCLUDE=/usr/local/opt/freetype/include/freetype2
+else
+    echo "FreeType headers are required to build win32u.so. Install them with: brew install freetype" >&2
     exit 1
 fi
 
@@ -31,14 +42,15 @@ if [ "${ACTUAL_SOURCE_SHA256}" != "${WINE_SOURCE_SHA256}" ]; then
     exit 1
 fi
 
-PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
+DRIVER_PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
+INPUT_PATCH_SHA256="$(shasum -a 256 "${INPUT_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
 VERSIONS_SHA256="$(shasum -a 256 "${MACSW_VERSIONS_FILE}" | awk '{print $1}')"
 CONFIG_LOADER_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/scripts/lib/config.sh" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
-if [ -f "${OUTPUT_FILE}" ] && [ -f "${STAMP_FILE}" ] &&
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
+if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
-    echo "==> Patched winemac.so is up to date."
+    echo "==> Patched Wine modules are up to date."
     exit 0
 fi
 
@@ -52,9 +64,14 @@ tar -xf "${SOURCE_ARCHIVE}" -C "${SOURCE_DIR}" --strip-components=1
 git -C "${SOURCE_DIR}" init -q
 git -C "${SOURCE_DIR}" apply --check "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply "${DRIVER_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${INPUT_PATCH}"
+git -C "${SOURCE_DIR}" apply "${INPUT_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
+FREETYPE_CFLAGS="-I${FREETYPE_INCLUDE}" \
+FREETYPE_LIBS=" " \
+ac_cv_lib_soname_freetype=libfreetype.6.dylib \
 "${SOURCE_DIR}/configure" \
     --build=x86_64-apple-darwin \
     --enable-archs=i386,x86_64 \
@@ -67,7 +84,7 @@ pushd "${BUILD_DIR}" >/dev/null
     --without-dbus \
     --without-ffmpeg \
     --without-fontconfig \
-    --without-freetype \
+    --with-freetype \
     --without-gettext \
     --without-gettextpo \
     --without-gphoto \
@@ -101,15 +118,24 @@ pushd "${BUILD_DIR}" >/dev/null
 popd >/dev/null
 
 MAKE_JOBS="${MAKE_JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || printf '4')}"
-make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" dlls/winemac.drv/winemac.so
+make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
+    dlls/winemac.drv/winemac.so \
+    dlls/win32u/win32u.so
 
 mkdir -p "${OUTPUT_DIR}"
-cp "${BUILD_DIR}/dlls/winemac.drv/winemac.so" "${OUTPUT_FILE}.new"
-install_name_tool -id winemac.so "${OUTPUT_FILE}.new"
-codesign --force --sign - "${OUTPUT_FILE}.new"
-file "${OUTPUT_FILE}.new" | grep -q 'x86_64'
-codesign --verify --verbose=2 "${OUTPUT_FILE}.new"
-mv "${OUTPUT_FILE}.new" "${OUTPUT_FILE}"
+cp "${BUILD_DIR}/dlls/winemac.drv/winemac.so" "${WINEMAC_OUTPUT}.new"
+cp "${BUILD_DIR}/dlls/win32u/win32u.so" "${WIN32U_OUTPUT}.new"
+install_name_tool -id winemac.so "${WINEMAC_OUTPUT}.new"
+install_name_tool -id win32u.so "${WIN32U_OUTPUT}.new"
+install_name_tool -add_rpath '@loader_path/../../' "${WIN32U_OUTPUT}.new"
+for MODULE in "${WINEMAC_OUTPUT}.new" "${WIN32U_OUTPUT}.new"; do
+    codesign --force --sign - "${MODULE}"
+    file "${MODULE}" | grep -q 'x86_64'
+    codesign --verify --verbose=2 "${MODULE}"
+done
+unset MODULE
+mv "${WINEMAC_OUTPUT}.new" "${WINEMAC_OUTPUT}"
+mv "${WIN32U_OUTPUT}.new" "${WIN32U_OUTPUT}"
 printf '%s' "${BUILD_KEY}" > "${STAMP_FILE}"
 
-echo "==> Patched Wine macOS driver built: ${OUTPUT_FILE}"
+echo "==> Patched Wine modules built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}"

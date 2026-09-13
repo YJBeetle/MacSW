@@ -11,8 +11,9 @@
 - [x] 核查正式单容器的许可证服务。`lmgrd`、`SW_D` 日志及 25734 监听均已确认，SOLIDWORKS 主界面可启动。
 - [ ] 完成剩余 GUI 验证。
   - [x] 新建 Part 后 FeatureManager 避让：已由 `winemac.drv` 原生图层裁剪修复。
-  - [x] 复合右键菜单与鼠标手势输入：安装 Login Manager 并完成托管 COM 注册后，缺失提示不再创建，一级/二级菜单和轮盘操作均恢复正常。根因是 UI 守护程序只隐藏了致命模态对话框，主线程仍困在 `TaskDialogIndirect` 消息循环内；不是 Wine 鼠标捕获缺陷。见 [调查记录](login-manager-ui.md)。
-  - [ ] PropertyManager、草图、拉伸、旋转、保存和重开。
+  - [x] 清除 Login Manager 隐藏模态循环：安装 Login Manager 并完成托管 COM 注册后，缺失提示不再创建，一级/二级菜单和轮盘不再被 `TaskDialogIndirect` 消息循环整体阻塞。
+  - [x] 修复 SOLIDWORKS 的同窗口鼠标捕获重入：`win32u` 在显式启用 `WINE_NOCAPTURERESEND` 时不再向重复取得自身捕获的窗口发送 `WM_CAPTURECHANGED`。同一二进制开关前后 A/B 验证表明，PropertyManager 左上角确认按钮由释放后仍捕获、状态 `0x0c`，恢复为释放捕获、状态 `0x00` 并执行命令。见 [调查记录](login-manager-ui.md)。
+  - [ ] 继续覆盖 PropertyManager、草图、拉伸、旋转、保存和重开；创建/编辑拉伸的左上角确认按钮及模型保存已经通过本轮回归。
   - [ ] 修复鼠标手势轮盘的透明背景。`swGestureTarget` 是独立 Afx 顶层窗口；轮盘可响应，但本应透明的圆环外侧和中心当前显示为黑色。已采样到窗口扩展样式为 `0x88`（未含 `WS_EX_LAYERED`），后续单独核查 `SetWindowRgn`、`UpdateLayeredWindow` 与 Windows DWM 到 `winemac.drv` 的合成路径，不与右键菜单捕获问题混为一项。
   - [ ] 按钮风格、字体和 Toolbox 数据库。
 - [ ] 处理 macOS 显示器热插拔后的 Wine 显示拓扑刷新。
