@@ -6,6 +6,7 @@ source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
 SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch"
 INPUT_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch"
+OPENGL_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
@@ -44,10 +45,11 @@ fi
 
 DRIVER_PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
 INPUT_PATCH_SHA256="$(shasum -a 256 "${INPUT_PATCH}" | awk '{print $1}')"
+OPENGL_PATCH_SHA256="$(shasum -a 256 "${OPENGL_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
 VERSIONS_SHA256="$(shasum -a 256 "${MACSW_VERSIONS_FILE}" | awk '{print $1}')"
 CONFIG_LOADER_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/scripts/lib/config.sh" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
 if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
@@ -66,6 +68,8 @@ git -C "${SOURCE_DIR}" apply --check "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${INPUT_PATCH}"
 git -C "${SOURCE_DIR}" apply "${INPUT_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${OPENGL_PATCH}"
+git -C "${SOURCE_DIR}" apply "${OPENGL_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null

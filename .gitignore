@@ -10,6 +10,7 @@ prefixes/
 
 # Temporary logs, captures and artifacts
 scratch/
+macos/Bootstrap/.build/
 *.png
 *.icns
 macos/Resources/*.icns

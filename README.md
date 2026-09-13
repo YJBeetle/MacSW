@@ -30,6 +30,13 @@ SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.d
 
 这保留了 SOLIDWORKS 自己的窗口几何和硬件加速，不再由守护程序移动或缩放 3D 视口。
 
+同一驱动中的前缓冲刷新还有一处独立问题：Wine 会在应用已经执行 `glFlush`/`glFinish` 后，
+再次调用会交换双缓冲的 `NSOpenGLContext.flushBuffer`。SOLIDWORKS 用前缓冲绘制选择、预选和
+局部界面状态，因此空白点击或窗口失焦会把完整模型画面换走，边线橙色预选也只会闪现。
+[`0004-winemac-preserve-front-buffer-flush.patch`](patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch)
+让真正的缓冲交换只发生在 SwapBuffers 路径；调查与回归证据见
+[`docs/opengl-front-buffer.md`](docs/opengl-front-buffer.md)。
+
 [`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理
 普通对话框与浮动工具窗口层级，以及离屏窗口找回。它不依赖 .NET/Wine-Mono，也不改写
 FeatureManager 或视口尺寸，并且不会隐藏致命的前置组件错误。Login Manager 相关根因见
@@ -74,14 +81,14 @@ make ci                   # 测试并生成归档
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
 - 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so` 与 `win32u.so`；前者修复原生
-  图层裁剪，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
+  图层裁剪和前缓冲刷新，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
-`build_winemac.sh` 会按 Wine 版本、源码校验值、两份补丁、配置和构建脚本内容缓存产物。
+`build_winemac.sh` 会按 Wine 版本、源码校验值、三份补丁、配置和构建脚本内容缓存产物。
 重建 `win32u.so` 需要 Homebrew 的 Bison 与 FreeType 头文件；打包后的运行时仍使用包内固定的
 x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
 GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、
@@ -101,6 +108,8 @@ Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。在 App 中选择或�
 - 新建 Part 后 FeatureManager 完整可见；
 - 切换 FeatureManager/PropertyManager 时视口不遮挡左侧面板；
 - 进入和退出草图、拉伸、旋转；
+- 完整重绘后连续点击空白画布、切换到其他 macOS 窗口，模型仍保持可见；
+- 鼠标停在模型边线上时，橙色预选轮廓持续显示到鼠标移开；
 - 浮动工具条和对话框显示在视口上方；
 - 保存、退出并重新打开零件。
 
