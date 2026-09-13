@@ -26,6 +26,16 @@
     <string>@WINE_MONO_VERSION@</string>
     <key>MacSWMonoPatchSHA256</key>
     <string>@MONO_PATCH_SHA256@</string>
+    <key>MacSWMonoMscorlibSHA256</key>
+    <string>@MONO_MSCORLIB_SHA256@</string>
+    <key>MacSWMonoRegAsmX86SHA256</key>
+    <string>@MONO_REGASM_X86_SHA256@</string>
+    <key>MacSWMonoRegAsmX64SHA256</key>
+    <string>@MONO_REGASM_X64_SHA256@</string>
+    <key>MacSWStdoleVersion</key>
+    <string>@STDOLE_VERSION@</string>
+    <key>MacSWStdoleSHA256</key>
+    <string>@STDOLE_DLL_SHA256@</string>
     <key>LSMinimumSystemVersion</key>
     <string>@MACOS_DEPLOYMENT_TARGET@</string>
     <key>NSHighResolutionCapable</key>

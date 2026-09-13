@@ -47,6 +47,37 @@ fetch_mono_patch() {
     mkdir -p "${mono_dir}"
     download_verified "Wine-Mono ${WINE_MONO_VERSION} x86 patch" "${MONO_PATCH_URL}" \
         "${mono_dir}/libmono-2.0-x86.dll" "${MONO_PATCH_SHA256}"
+    download_verified "Wine-Mono ${WINE_MONO_VERSION} registration mscorlib" "${MONO_MSCORLIB_URL}" \
+        "${mono_dir}/mscorlib.dll" "${MONO_MSCORLIB_SHA256}"
+    download_verified "Wine-Mono ${WINE_MONO_VERSION} x86 RegAsm" "${MONO_REGASM_X86_URL}" \
+        "${mono_dir}/regasm-x86.exe" "${MONO_REGASM_X86_SHA256}"
+    download_verified "Wine-Mono ${WINE_MONO_VERSION} x64 RegAsm" "${MONO_REGASM_X64_URL}" \
+        "${mono_dir}/regasm-x86_64.exe" "${MONO_REGASM_X64_SHA256}"
+}
+
+fetch_stdole() {
+    local archive="${DIST_DIR}/${STDOLE_PACKAGE_ASSET}"
+    local output_dir="${DIST_DIR}/${STDOLE_OUTPUT_DIRECTORY}"
+    local output="${output_dir}/stdole.dll"
+    local actual_sha256
+    download_verified "Microsoft stdole ${STDOLE_VERSION}" "${STDOLE_PACKAGE_URL}" \
+        "${archive}" "${STDOLE_PACKAGE_SHA256}"
+    mkdir -p "${output_dir}"
+    if [ ! -f "${output}" ]; then
+        unzip -p "${archive}" "${STDOLE_PACKAGE_MEMBER}" > "${output}.download"
+        actual_sha256="$(shasum -a 256 "${output}.download" | awk '{print $1}')"
+        if [ "${actual_sha256}" != "${STDOLE_DLL_SHA256}" ]; then
+            echo "Microsoft stdole DLL checksum mismatch" >&2
+            rm -f -- "${output}.download"
+            exit 1
+        fi
+        mv "${output}.download" "${output}"
+    fi
+    actual_sha256="$(shasum -a 256 "${output}" | awk '{print $1}')"
+    if [ "${actual_sha256}" != "${STDOLE_DLL_SHA256}" ]; then
+        echo "Microsoft stdole DLL checksum mismatch: ${output}" >&2
+        exit 1
+    fi
 }
 
 fetch_seven_zip() {
@@ -64,14 +95,16 @@ case "${1:-all}" in
         fetch_runtime
         fetch_wine_source
         fetch_mono_patch
+        fetch_stdole
         fetch_seven_zip
         ;;
     runtime) fetch_runtime ;;
     wine-source) fetch_wine_source ;;
     mono) fetch_mono_patch ;;
+    stdole) fetch_stdole ;;
     seven-zip) fetch_seven_zip ;;
     *)
-        echo "Usage: $0 [all|runtime|wine-source|mono|seven-zip]" >&2
+        echo "Usage: $0 [all|runtime|wine-source|mono|stdole|seven-zip]" >&2
         exit 2
         ;;
 esac

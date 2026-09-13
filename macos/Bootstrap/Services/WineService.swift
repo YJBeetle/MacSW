@@ -12,6 +12,14 @@ final class WineService {
     }
     static let vcLibraries = ["concrt140", "msvcp140", "msvcp140_1", "msvcp140_2",
         "msvcp140_atomic_wait", "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"]
+    static func isSuccessfulPrerequisiteStatus(_ code: Int32) -> Bool {
+        // Windows 3010 and 1638 are truncated to 194 and 102 through the Unix process status.
+        [Int32(0), 3010, 194, 1638, 102].contains(code)
+    }
+    static func isSuccessfulCleanupStop(killStatus: Int32, waitStatus: Int32) -> Bool {
+        // wineserver -k returns 1 when the prefix has no running server; that is already stopped.
+        [Int32(0), 1].contains(killStatus) && waitStatus == 0
+    }
     var runtimeURL: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine") }
     func getWineBinary() -> String { runtimeURL.appendingPathComponent("bin/wineloader").path }
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -77,6 +85,17 @@ final class WineService {
         let process = makeProcess(arguments: ["-k"], prefix: winePrefix)
         process.executableURL = runtimeURL.appendingPathComponent("bin/wineserver")
         _ = try? run(process)
+    }
+
+    func stopWineServerForCleanup(winePrefix: String) throws -> Bool {
+        let log = logDirectory(winePrefix).appendingPathComponent("clean-install-wineserver.log")
+        let kill = makeProcess(arguments: ["-k"], prefix: winePrefix)
+        kill.executableURL = runtimeURL.appendingPathComponent("bin/wineserver")
+        let killStatus = try run(kill, log: log)
+        let wait = makeProcess(arguments: ["-w"], prefix: winePrefix)
+        wait.executableURL = runtimeURL.appendingPathComponent("bin/wineserver")
+        let waitStatus = try run(wait, log: log)
+        return Self.isSuccessfulCleanupStop(killStatus: killStatus, waitStatus: waitStatus)
     }
 
     func launchInstaller(setupExe: String, winePrefix: String, completion: @escaping (Int32) -> Void) {

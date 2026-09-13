@@ -258,12 +258,13 @@ private struct FileDropArea: ViewModifier {
 }
 
 enum DeploymentStep: Int, CaseIterable, Identifiable {
-    case environment = 1, vc, registry, installer, wpf, validation
+    case environment = 1, vc, loginManager, registry, installer, wpf, validation
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .environment: return "准备运行环境与挂载介质"
         case .vc: return "安装微软 VC++ 运行库"
+        case .loginManager: return "安装 SOLIDWORKS Login Manager"
         case .registry: return "预置安装序列号"
         case .installer: return "运行 SOLIDWORKS 官方安装器"
         case .wpf: return "抽取微软官方 WPF 主题库"
@@ -274,6 +275,7 @@ enum DeploymentStep: Int, CaseIterable, Identifiable {
         switch self {
         case .environment: return "定位官方安装包，初始化唯一 Wine 容器"
         case .vc: return "运行介质中的 VC++ x64 安装包"
+        case .loginManager: return "后台安装官方 MSI 并完成托管 COM 注册"
         case .registry: return "导入所选 .reg 文件；未选择时由安装器填写"
         case .installer: return "在官方窗口完成安装，禁用失败回退"
         case .wpf: return "补齐 Luna、Aero 等五个 WPF 主题库"
@@ -304,15 +306,16 @@ private struct DeploymentProgressView: View {
             ?? DeploymentStep.allCases.last { state.deploymentStates[$0] != nil } ?? .environment
     }
     var body: some View {
+        let total = DeploymentStep.allCases.count
         VStack(spacing: 14) {
             VStack(spacing: 8) {
                 HStack {
-                    Text(state.isOperating ? "步骤 \(current.rawValue) / 6：\(current.title)" : "部署流程已结束，请检查各步骤结果")
+                    Text(state.isOperating ? "步骤 \(current.rawValue) / \(total)：\(current.title)" : "部署流程已结束，请检查各步骤结果")
                         .font(.system(size: 12, weight: .bold))
                     Spacer()
-                    Text("\(finished) / 6").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+                    Text("\(finished) / \(total)").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
                 }
-                ProgressView(value: Double(finished), total: 6).tint(.purple)
+                ProgressView(value: Double(finished), total: Double(total)).tint(.purple)
                 Text("步骤进度，不代表官方安装器内部百分比").font(.system(size: 9)).foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.padding(12).background(Color.secondary.opacity(0.08)).cornerRadius(8)

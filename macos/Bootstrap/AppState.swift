@@ -561,11 +561,15 @@ class AppState: ObservableObject {
                     log: service.logDirectory(self.bottlePath.path).appendingPathComponent("wineboot.log"))
                 guard boot == 0 else { throw NSError(domain: "MacSW", code: Int(boot), userInfo: [NSLocalizedDescriptionKey: "Wine 初始化失败，请查看 wineboot.log。"]) }
                 try PrerequisiteService.configureMono(prefix: self.bottlePath)
-                try PrerequisiteService.prepareRegAsmCompatibility(runtime: service.runtimeURL, prefix: self.bottlePath)
-                self.reportDeployment(.environment, .completed, "运行环境已就绪")
+                try PrerequisiteService.prepareManagedCOMRegistration(runtime: service.runtimeURL, prefix: self.bottlePath)
+                try PrerequisiteService.prepareManagedCOMDependencies(prefix: self.bottlePath)
+                self.reportDeployment(.environment, .completed, "Mono、RegAsm 与 stdole 已就绪")
                 self.reportDeployment(.vc, .running, "正在运行官方 VC++ x64 安装包…")
                 try PrerequisiteService.shared.installVC(media: media, prefix: self.bottlePath)
                 self.reportDeployment(.vc, .completed, "VC++ 运行库已检查")
+                self.reportDeployment(.loginManager, .running, "正在后台安装 SOLIDWORKS Login Manager…")
+                try PrerequisiteService.shared.installLoginManager(media: media, prefix: self.bottlePath)
+                self.reportDeployment(.loginManager, .completed, "Login Manager 与托管 COM 注册已完成")
                 self.reportDeployment(.registry, .running, "正在准备安装序列号…")
                 if let registry = self.selectedRegPath {
                     let code = try service.run(service.makeProcess(arguments: ["regedit", "/S", registry.path], prefix: self.bottlePath.path),
@@ -638,12 +642,8 @@ class AppState: ObservableObject {
         guard fm.fileExists(atPath: target.path) else { return }
         reportDeployment(.environment, .running, "正在停止当前容器并清理旧安装（不备份）…")
         let service = WineService.shared
-        for argument in ["-k", "-w"] {
-            let process = service.makeProcess(arguments: [argument], prefix: target.path)
-            process.executableURL = service.runtimeURL.appendingPathComponent("bin/wineserver")
-            guard try service.run(process) == 0 else {
-                throw failure("未能停止容器进程，已取消清理。")
-            }
+        guard try service.stopWineServerForCleanup(winePrefix: target.path) else {
+            throw failure("未能停止容器进程，已取消清理。")
         }
         try fm.removeItem(at: target)
         DispatchQueue.main.sync {

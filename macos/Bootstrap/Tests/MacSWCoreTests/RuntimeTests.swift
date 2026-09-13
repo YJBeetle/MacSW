@@ -22,6 +22,11 @@ final class RuntimeTests: XCTestCase {
         XCTAssertFalse(overrides.contains("d3d11"))
         XCTAssertNil(wine.environment(winePrefix: prefix)["WINEDLLOVERRIDES"])
         XCTAssertEqual(PrerequisiteService.themes.count, 5)
+        XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(0))
+        XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(194))
+        XCTAssertTrue(WineService.isSuccessfulCleanupStop(killStatus: 1, waitStatus: 0))
+        XCTAssertFalse(WineService.isSuccessfulCleanupStop(killStatus: 2, waitStatus: 0))
+        XCTAssertFalse(WineService.isSuccessfulCleanupStop(killStatus: 0, waitStatus: 1))
 
         let shell = Process()
         shell.executableURL = URL(fileURLWithPath: "/bin/bash")

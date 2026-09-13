@@ -6,13 +6,17 @@ source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
 
 APP_NAME="MacSW"
 BUILD_ROOT="${WORKSPACE_ROOT}/build"
-FINAL_APP_DIR="${BUILD_ROOT}/app/${APP_NAME}.app"
+FINAL_APP_DIR="${MACSW_APP_OUTPUT:-${BUILD_ROOT}/app/${APP_NAME}.app}"
 BOOTSTRAP_BIN="${BUILD_ROOT}/bootstrap/MacSW_Bootstrap"
 UI_DAEMON_BIN="${BUILD_ROOT}/native/sw_ui_daemon.exe"
 APP_ICON="${BUILD_ROOT}/resources/AppIcon.icns"
 WINE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_RUNTIME_ASSET}"
 WINEMAC_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/winemac.so"
 MONO_PATCH="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86.dll"
+MONO_MSCORLIB="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/mscorlib.dll"
+MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
+MONO_REGASM_X64="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86_64.exe"
+STDOLE_DLL="${WORKSPACE_ROOT}/dist/${STDOLE_OUTPUT_DIRECTORY}/stdole.dll"
 SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
 
 require_file() {
@@ -23,13 +27,18 @@ require_file() {
 }
 
 for PACKAGE_INPUT in "${BOOTSTRAP_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
-    "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${MONO_PATCH}" "${SEVEN_Z_BIN}"; do
+    "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
+    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}"; do
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
 
 test "$(shasum -a 256 "${WINE_ARCHIVE}" | awk '{print $1}')" = "${WINE_RUNTIME_SHA256}" || { echo "Wine runtime checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_PATCH}" | awk '{print $1}')" = "${MONO_PATCH_SHA256}" || { echo "Mono patch checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB_SHA256}" || { echo "Mono mscorlib checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}" || { echo "x86 RegAsm checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM_X64_SHA256}" || { echo "x64 RegAsm checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}" || { echo "stdole DLL checksum mismatch" >&2; exit 1; }
 
 mkdir -p "${BUILD_ROOT}/app"
 STAGING_ROOT="$(mktemp -d "${BUILD_ROOT}/app/.package.XXXXXX")"
@@ -46,6 +55,8 @@ cp "${BOOTSTRAP_BIN}" "${MAC_OS_DIR}/MacSW_Bootstrap"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
 cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 cp -p "${UI_DAEMON_BIN}" "${RESOURCES_DIR}/sw_ui_daemon.exe"
+mkdir -p "${RESOURCES_DIR}/managed"
+cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
 ln -sf 7zz "${MAC_OS_DIR}/7z"
 
@@ -54,6 +65,11 @@ ln -sf 7zz "${MAC_OS_DIR}/7z"
 /usr/libexec/PlistBuddy -c "Set :MacSWWineVersion ${WINE_VERSION}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :MacSWMonoVersion ${WINE_MONO_VERSION}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :MacSWMonoPatchSHA256 ${MONO_PATCH_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWMonoMscorlibSHA256 ${MONO_MSCORLIB_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWMonoRegAsmX86SHA256 ${MONO_REGASM_X86_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWMonoRegAsmX64SHA256 ${MONO_REGASM_X64_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWStdoleVersion ${STDOLE_VERSION}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWStdoleSHA256 ${STDOLE_DLL_SHA256}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${MACOS_DEPLOYMENT_TARGET}" "${CONTENTS_DIR}/Info.plist"
 
 WINE_UNPACK="${STAGING_ROOT}/runtime"
@@ -66,6 +82,9 @@ WINEMAC_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/winemac.so"
 cp "${WINEMAC_PATCH}" "${WINEMAC_TARGET}"
 codesign --force --sign - "${WINEMAC_TARGET}"
 cp "${MONO_PATCH}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-x86.dll"
+cp "${MONO_MSCORLIB}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/mono/4.5/mscorlib.dll"
+cp "${MONO_REGASM_X86}" "${FRAMEWORKS_DIR}/wine/lib/wine/i386-windows/regasm.exe"
+cp "${MONO_REGASM_X64}" "${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows/regasm.exe"
 
 BUILD_MANIFEST="${RESOURCES_DIR}/BuildManifest.plist"
 plutil -create xml1 "${BUILD_MANIFEST}"
@@ -80,8 +99,15 @@ PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-win
 /usr/libexec/PlistBuddy -c "Add :MonoPatchRelease string ${MONO_PATCH_RELEASE}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoPatchSourceCommit string ${MONO_PATCH_SOURCE_COMMIT}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoPatchSHA256 string ${MONO_PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoMscorlibSHA256 string ${MONO_MSCORLIB_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoRegAsmX86SHA256 string ${MONO_REGASM_X86_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoRegAsmX64SHA256 string ${MONO_REGASM_X64_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :StdoleVersion string ${STDOLE_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :StdolePackageSHA256 string ${STDOLE_PACKAGE_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :StdoleDLLSHA256 string ${STDOLE_DLL_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SevenZipVersion string ${SEVEN_Z_VERSION}" "${BUILD_MANIFEST}"
 
+mkdir -p "$(dirname "${FINAL_APP_DIR}")"
 if [ -d "${FINAL_APP_DIR}" ]; then
     rm -rf -- "${FINAL_APP_DIR}"
 fi

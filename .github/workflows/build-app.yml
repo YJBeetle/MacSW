@@ -35,6 +35,8 @@ jobs:
           echo "wine_source_asset=${WINE_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "winemac_output_name=${WINEMAC_OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
           echo "mono_patch_release=${MONO_PATCH_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "stdole_package_asset=${STDOLE_PACKAGE_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "stdole_output_directory=${STDOLE_OUTPUT_DIRECTORY}" >> "$GITHUB_OUTPUT"
           echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
 
       - name: Cache pinned Wine runtime and 7zz
@@ -45,6 +47,8 @@ jobs:
             dist/${{ steps.build-config.outputs.wine_source_asset }}
             dist/${{ steps.build-config.outputs.winemac_output_name }}
             dist/${{ steps.build-config.outputs.mono_patch_release }}
+            dist/${{ steps.build-config.outputs.stdole_package_asset }}
+            dist/${{ steps.build-config.outputs.stdole_output_directory }}
             dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
             dist/7zz
           key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch') }}
