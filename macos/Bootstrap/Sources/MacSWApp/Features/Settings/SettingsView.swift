@@ -68,12 +68,15 @@ struct SettingsView: View {
                 Text("优先使用 port@host；也接受 host:port 与 [IPv6]:port，多个服务器以分号分隔。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("将写入 Wine 注册表，下次启动 SOLIDWORKS 时生效。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if !licenseServer.addressNotice.isEmpty {
                     Text(licenseServer.addressNotice)
                         .font(.caption)
                         .foregroundStyle(licenseServer.addressHasError ? .red : .secondary)
                 }
-                Button("保存到 Wine 注册表") { licenseServer.saveAddress() }
+                Button("保存") { licenseServer.saveAddress() }
                     .disabled(licenseServer.isOperating)
             }
 
