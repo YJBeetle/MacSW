@@ -1,11 +1,13 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := app
 
-.PHONY: app archive bootstrap ci daemon fetch fetch-mono fetch-runtime \
+.PHONY: app archive bootstrap ci daemon fetch fetch-mono fetch-runtime launcher \
 	fetch-seven-zip fetch-stdole fetch-wine-source icon package test verify winemac
 
-bootstrap:
+launcher:
 	./macos/Bootstrap/build_bootstrap.sh
+
+bootstrap: launcher
 
 test:
 	./scripts/test_bootstrap.sh
@@ -38,7 +40,7 @@ icon:
 winemac: fetch-wine-source
 	./scripts/build_winemac.sh
 
-package: bootstrap daemon winemac icon fetch-runtime fetch-mono fetch-stdole fetch-seven-zip
+package: launcher daemon winemac icon fetch-runtime fetch-mono fetch-stdole fetch-seven-zip
 	./scripts/package_app.sh
 
 verify:

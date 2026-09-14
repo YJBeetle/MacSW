@@ -4,7 +4,7 @@
 
 构建：`make app`。输出 `build/app/MacSW.app`，可移动到其他目录；不依赖源码工作区、Homebrew、Python 或外部启动脚本。Apple Silicon 仍需 Rosetta 2。当前是本地测试包，未做 Developer ID 签名与公证。
 
-先正常关闭旧 MacSW App，再打开新 App，拖入或选择官方 ISO 或安装介质目录，完成安装并验证启动。注册表和两个维护目录同样支持拖入。最终固定使用一个容器，不提供选择/切换容器功能。
+先正常关闭旧 MacSW App，再打开新 App，在 Bootstrap 窗口选择官方 ISO 或安装介质目录，完成安装并验证启动。最终固定使用一个容器，不提供选择/切换容器功能。
 
 唯一容器为 `~/Library/Application Support/MacSW/bottle`，日志位于同级 logs，含 sw_launch.log、ui-daemon.log、install_msi.log、installer-wine.log、prerequisites.log 等。本轮按用户要求将旧正式容器备份后从空环境验证，不复制诊断容器作为安装结果。
 
@@ -12,13 +12,14 @@
 
 ## 实现边界
 
-- WineService 仅解析 App 包内的 wine/bin/wineloader 与 wineserver；所有启动入口调用 AppState.launchSolidWorks，统一 WPF/VC 前置检查与重复启动保护。
+- WineService 仅解析 App 包内的 wine/bin/wineloader 与 wineserver；所有启动入口通过 RuntimeStore 统一执行本地许可服务前置检查与重复启动保护。
 - 运行时固定 Gcenx wine-devel 11.16，SHA-256 校验归档；在其上覆盖由 Wine 11.16 官方源码和仓库补丁重建的 `winemac.so` 与 `win32u.so`。App 为 `sldworks.exe` 幂等启用 `WINE_NOCAPTURERESEND`，只抑制同一窗口重复取得捕获时多余的 `WM_CAPTURECHANGED`。
 - 安装阶段使用 Mono 11.3.0 x86 修复模块和解释器模式，避免 32 位托管辅助程序在 Rosetta 下进入不稳定的 JIT 路径；64 位 SOLIDWORKS 使用 JIT。
 - 启动启用 atiadlxx=d 和微软 VC++ native-first overrides；启动 App 内原生 x64 UI 辅助程序，SW 退出后终止本次辅助程序。辅助程序不隐藏 Login Manager 致命弹窗，注册表禁用值已确认无效并移除。
-- 官方安装：用户选择介质 → wineboot → 校验 Wine-Mono COM 注册运行时并安装托管 RegAsm/stdole → 官方 VC x64 安装包 → 后台安装官方 Login Manager MSI → 可选注册表导入 → 可见的 SOLIDWORKS 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
-- 保留用户显式操作的许可及组件维护入口，未把第三方许可或组件文件打入 App。
-- 安装失败仍会报告非零退出码；尚未实现失败自定义动作的完整恢复。Toolbox 数据库和剩余字体问题仍需单独验证。
+- 官方安装：用户选择介质 → 预先校验可选序列号输入 → wineboot → 校验 Wine-Mono COM 注册运行时并安装托管 RegAsm/stdole → 官方 VC x64 安装包 → 后台安装官方 Login Manager MSI → 可选写入文本序列号或原样导入已确认的注册表 → 可见的 SOLIDWORKS 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
+- 安装任务可取消；取消只终止当前受管子进程，不默认终止整个 Wine server，且不会写入完成标记。全新安装在删除容器前验证所有输入都位于容器外。
+- App 不提供替换 SOLIDWORKS 官方文件的功能。托管 FlexNet 只从设置页显式安装，验证后原子复制到 `C:\\opt\\FlexNet`；服务器列表以官方 `port@host` 保存，并保留用户配置的其他服务器。
+- 安装失败仍会报告非零退出码并可显式清理不完整容器。Toolbox 数据库和剩余字体问题仍需单独验证。
 - 删除 CAB 直接部署服务、介质组件扫描服务、相关测试、旧 run_sw.sh 和未使用的重复 LicenseService；历史可从 Git 恢复。开发诊断脚本仅留在源码，不随 App 运行。
 
 ## 本地检查
@@ -26,11 +27,12 @@
 SwiftPM 编译与测试：
 
 ```bash
-make bootstrap
+make launcher
 make test
+./script/build_and_run.sh --verify
 ```
 
-XCTest 覆盖同级维护文件发现、Wine-Mono COM 注册运行时哈希校验与 RegAsm 原子放置、stdole 校验与原子放置、bundle-only 路径、环境隔离、原生 VC 加载策略、含空格/单引号路径的 shell 转义和进程启动错误。SW GUI 由用户验证，以上检查不能替代建模验收。
+XCTest 覆盖序列号分区解析与 Security 拆分写入、介质同级及向下一层文件发现、多服务器规范化和本地地址合并/移除、FlexNet 包结构、安装子进程取消、Wine-Mono COM 注册运行时哈希校验与 RegAsm/stdole 原子放置、环境隔离、原生 VC 加载策略、含空格/单引号路径的 shell 转义和进程启动错误。SW GUI 由用户验证，以上检查不能替代建模验收。
 
 ## 正式单容器首次安装反馈（2026-09-11）
 

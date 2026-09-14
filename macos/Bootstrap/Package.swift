@@ -28,22 +28,20 @@ func supportedMacOSVersion(_ value: String) -> SupportedPlatform.MacOSVersion {
 let minimumMacOS = supportedMacOSVersion(versionValue("MACOS_DEPLOYMENT_TARGET"))
 
 let package = Package(
-    name: "MacSWBootstrap",
+    name: "MacSW",
     platforms: [.macOS(minimumMacOS)],
     products: [
-        .executable(name: "MacSW_Bootstrap", targets: ["MacSWApp"])
+        .executable(name: "MacSW", targets: ["MacSWApp"])
     ],
     targets: [
         .target(
             name: "MacSWCore",
-            path: ".",
-            exclude: ["App", "Tests", "build_bootstrap.sh", "Package.swift"],
-            sources: ["Application.swift", "AppState.swift", "BuildInfo.swift", "Services", "Views"]
+            path: "Sources/MacSWCore"
         ),
         .executableTarget(
             name: "MacSWApp",
             dependencies: ["MacSWCore"],
-            path: "App"
+            path: "Sources/MacSWApp"
         ),
         .testTarget(
             name: "MacSWCoreTests",

@@ -5,10 +5,10 @@ import XCTest
 final class RuntimeTests: XCTestCase {
     func testEnvironmentIsolationOverridesAndShellQuoting() throws {
         let wine = WineService.shared
-        let prefix = "/tmp/MacSW test's bottle"
+        let prefix = URL(fileURLWithPath: "/tmp/MacSW test's bottle")
         let env = wine.environment(winePrefix: prefix, solidWorks: true)
 
-        XCTAssertEqual(env["WINEPREFIX"], prefix)
+        XCTAssertEqual(env["WINEPREFIX"], prefix.path)
         XCTAssertTrue(env["WINELOADER"]?.hasSuffix("/Contents/Frameworks/wine/bin/wineloader") == true)
         XCTAssertTrue(env["WINESERVER"]?.hasSuffix("/Contents/Frameworks/wine/bin/wineserver") == true)
         for key in ["CX_ROOT", "CX_BOTTLE", "WINEDLLPATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "MONO_ENV_OPTIONS"] {
@@ -34,11 +34,26 @@ final class RuntimeTests: XCTestCase {
 
         let shell = Process()
         shell.executableURL = URL(fileURLWithPath: "/bin/bash")
-        shell.arguments = ["-c", wine.buildEnvironmentScript(winePrefix: prefix) + "\n[ \"$WINEPREFIX\" = " + WineService.quote(prefix) + " ]"]
+        shell.arguments = ["-c", wine.buildEnvironmentScript(winePrefix: prefix) + "\n[ \"$WINEPREFIX\" = " + WineService.quote(prefix.path) + " ]"]
         XCTAssertEqual(try wine.run(shell), 0)
 
         let missing = Process()
         missing.executableURL = URL(fileURLWithPath: "/nonexistent/macsw-test")
         XCTAssertThrowsError(try wine.run(missing))
+    }
+
+    func testCancellableProcessIsTerminatedPromptly() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["10"]
+        let task = Task { try await WineService.shared.runCancellable(process) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled process unexpectedly completed successfully")
+        } catch is CancellationError {
+            XCTAssertFalse(process.isRunning)
+        }
     }
 }

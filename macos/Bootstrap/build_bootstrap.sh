@@ -16,7 +16,7 @@ mkdir -p "${OUTPUT_DIR}" "${MODULE_CACHE_DIR}" "${SWIFT_BUILD_DIR}" \
 export CLANG_MODULE_CACHE_PATH="${MODULE_CACHE_DIR}"
 export SWIFT_MODULECACHE_PATH="${MODULE_CACHE_DIR}"
 
-echo "==> [MacSW] 正在使用 SwiftPM 编译原生 macOS Bootstrap UI..."
+echo "==> [MacSW] 正在使用 SwiftPM 编译原生 macOS 启动器..."
 
 swift build \
     --package-path "${BOOTSTRAP_DIR}" \
@@ -25,7 +25,7 @@ swift build \
     --config-path "${SWIFT_CONFIG_DIR}" \
     --security-path "${SWIFT_SECURITY_DIR}" \
     --configuration release \
-    --product MacSW_Bootstrap
+    --product MacSW
 
 SWIFT_BIN_DIR="$(swift build \
     --package-path "${BOOTSTRAP_DIR}" \
@@ -35,7 +35,7 @@ SWIFT_BIN_DIR="$(swift build \
     --security-path "${SWIFT_SECURITY_DIR}" \
     --configuration release \
     --show-bin-path)"
-cp "${SWIFT_BIN_DIR}/MacSW_Bootstrap" "${OUTPUT_DIR}/MacSW_Bootstrap"
+cp "${SWIFT_BIN_DIR}/MacSW" "${OUTPUT_DIR}/MacSW"
 
-echo "==> [SUCCESS] 原生 Mach-O 二进制构建成功: ${OUTPUT_DIR}/MacSW_Bootstrap"
-file "${OUTPUT_DIR}/MacSW_Bootstrap"
+echo "==> [SUCCESS] 原生 Mach-O 二进制构建成功: ${OUTPUT_DIR}/MacSW"
+file "${OUTPUT_DIR}/MacSW"

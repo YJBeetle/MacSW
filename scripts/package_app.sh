@@ -7,7 +7,7 @@ source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
 APP_NAME="MacSW"
 BUILD_ROOT="${WORKSPACE_ROOT}/build"
 FINAL_APP_DIR="${MACSW_APP_OUTPUT:-${BUILD_ROOT}/app/${APP_NAME}.app}"
-BOOTSTRAP_BIN="${BUILD_ROOT}/bootstrap/MacSW_Bootstrap"
+LAUNCHER_BIN="${BUILD_ROOT}/bootstrap/MacSW"
 UI_DAEMON_BIN="${BUILD_ROOT}/native/sw_ui_daemon.exe"
 APP_ICON="${BUILD_ROOT}/resources/AppIcon.icns"
 WINE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_RUNTIME_ASSET}"
@@ -27,7 +27,7 @@ require_file() {
     fi
 }
 
-for PACKAGE_INPUT in "${BOOTSTRAP_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
+for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
     "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}"; do
     require_file "${PACKAGE_INPUT}"
@@ -52,7 +52,7 @@ FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 
 echo "==> Assembling ${APP_NAME}.app..."
 mkdir -p "${MAC_OS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
-cp "${BOOTSTRAP_BIN}" "${MAC_OS_DIR}/MacSW_Bootstrap"
+cp "${LAUNCHER_BIN}" "${MAC_OS_DIR}/MacSW"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
 cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 cp -p "${UI_DAEMON_BIN}" "${RESOURCES_DIR}/sw_ui_daemon.exe"

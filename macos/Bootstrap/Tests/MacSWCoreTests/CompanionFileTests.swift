@@ -3,50 +3,65 @@ import XCTest
 @testable import MacSWCore
 
 final class CompanionFileTests: XCTestCase {
-    func testLicenseDirectoryRequiresExecutableAndLicenseFile() throws {
-        let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("MacSW-license-\(UUID().uuidString)")
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: root) }
+    func testScansDirectFilesAndExactlyOneSubdirectoryLevel() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let media = root.appendingPathComponent("SOLIDWORKS.iso")
+        try Data().write(to: media)
+        let direct = root.appendingPathComponent("serials.txt")
+        try serialText().write(to: direct, atomically: true, encoding: .utf8)
+        let child = root.appendingPathComponent("extras")
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        let nested = child.appendingPathComponent("serials.reg")
+        try registryText().write(to: nested, atomically: true, encoding: .utf8)
+        let grandchild = child.appendingPathComponent("deeper")
+        try FileManager.default.createDirectory(at: grandchild, withIntermediateDirectories: true)
+        try serialText().write(
+            to: grandchild.appendingPathComponent("ignored.txt"), atomically: true, encoding: .utf8
+        )
 
-        XCTAssertFalse(AppState.isValidLicenseDirectory(root))
-        try Data().write(to: root.appendingPathComponent("lmgrd.exe"))
-        XCTAssertFalse(AppState.isValidLicenseDirectory(root))
-        try Data().write(to: root.appendingPathComponent("sw_d_SSQ.LIC"))
-        XCTAssertTrue(AppState.isValidLicenseDirectory(root))
+        let results = CompanionFileService.findSerialInputs(nextTo: media)
+        XCTAssertEqual(results.map(\.url.lastPathComponent), ["serials.txt", "serials.reg"])
+        XCTAssertEqual(results.map(\.depth), [0, 1])
     }
 
-    func testSiblingDiscoveryRejectsNestedAmbiguousAndDirectoryMatches() throws {
-        let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("MacSW-companion-\(UUID().uuidString)")
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: root) }
+    func testAutomaticSelectionPrefersOneDirectCandidateAndRejectsAmbiguity() {
+        let direct = SerialInputFile(url: URL(fileURLWithPath: "/direct.txt"), kind: .text, depth: 0)
+        let nested = SerialInputFile(url: URL(fileURLWithPath: "/nested.reg"), kind: .registry, depth: 1)
+        XCTAssertEqual(CompanionFileService.preferredAutomaticSelection(from: [direct, nested]), direct)
+        XCTAssertEqual(CompanionFileService.preferredAutomaticSelection(from: [nested]), nested)
+        XCTAssertNil(CompanionFileService.preferredAutomaticSelection(from: [direct, direct]))
+    }
 
-        let patch = root.appendingPathComponent("SOLIDWORKS Corp")
-        let license = root.appendingPathComponent("SolidWorks_Flexnet_Server")
-        let registry = root.appendingPathComponent("sw2025_network_serials_licensing.reg")
-        try fm.createDirectory(at: patch, withIntermediateDirectories: true)
-        try fm.createDirectory(at: license, withIntermediateDirectories: true)
-        try Data().write(to: registry)
+    func testRejectsUnrelatedRegistryFilesAndOversizedText() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let media = root.appendingPathComponent("SOLIDWORKS.iso")
+        try Data().write(to: media)
+        try "Windows Registry Editor Version 5.00".write(
+            to: root.appendingPathComponent("unrelated.reg"), atomically: true, encoding: .utf8
+        )
+        try Data(repeating: 65, count: CompanionFileService.maximumTextFileSize + 1)
+            .write(to: root.appendingPathComponent("large.txt"))
+        XCTAssertTrue(CompanionFileService.findSerialInputs(nextTo: media).isEmpty)
+    }
 
-        for selected in [patch, license, registry] {
-            let match = CompanionFileService.findSiblings(of: selected)
-            XCTAssertEqual(match.patch?.lastPathComponent, patch.lastPathComponent)
-            XCTAssertEqual(match.license?.lastPathComponent, license.lastPathComponent)
-            XCTAssertEqual(match.registry?.lastPathComponent, registry.lastPathComponent)
-        }
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacSW-companion-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
 
-        let nested = root.appendingPathComponent("nested")
-        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
-        try Data().write(to: nested.appendingPathComponent("sw2030_network_serials_licensing.reg"))
-        XCTAssertNotNil(CompanionFileService.findSiblings(of: patch).registry)
+    private func serialText() -> String {
+        "SolidWorks 0018 0000 0010 9647 NKHW WBH3"
+    }
 
-        let second = root.appendingPathComponent("sw2024_network_serials_licensing.reg")
-        try Data().write(to: second)
-        XCTAssertNil(CompanionFileService.findSiblings(of: patch).registry)
-        try fm.removeItem(at: second)
-        try fm.removeItem(at: registry)
-        try fm.createDirectory(at: registry, withIntermediateDirectories: true)
-        XCTAssertNil(CompanionFileService.findSiblings(of: patch).registry)
+    private func registryText() -> String {
+        """
+        Windows Registry Editor Version 5.00
+        [HKEY_LOCAL_MACHINE\\SOFTWARE\\SolidWorks\\Licenses\\Serial Numbers]
+        "SolidWorks"="0018 0000 0010 9647 NKHW WBH3"
+        """
     }
 }

@@ -29,7 +29,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :MacSWStdoleVersion' "${INFO_PLIST}")"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MacSWStdoleSHA256' "${INFO_PLIST}")" = "${STDOLE_DLL_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${INFO_PLIST}")" = "${MACOS_DEPLOYMENT_TARGET}"
 
-test -x "${CONTENTS_DIR}/MacOS/MacSW_Bootstrap"
+test -x "${CONTENTS_DIR}/MacOS/MacSW"
 test -x "${CONTENTS_DIR}/MacOS/7zz"
 test -L "${CONTENTS_DIR}/MacOS/7z"
 test -f "${CONTENTS_DIR}/Resources/AppIcon.icns"
