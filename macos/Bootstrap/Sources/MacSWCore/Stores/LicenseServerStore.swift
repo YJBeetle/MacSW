@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 public final class LicenseServerStore: ObservableObject {
     @Published public private(set) var state: FlexNetRuntimeState = .notInstalled
+    @Published public private(set) var installation: ManagedFlexNetInstallation?
     @Published public var addressInput = ""
     @Published public private(set) var addressNotice = ""
     @Published public private(set) var addressHasError = false
@@ -21,16 +22,13 @@ public final class LicenseServerStore: ObservableObject {
         self.wine = wine
         self.registry = RegistryService(wine: wine)
         self.service = FlexNetService(paths: paths, wine: wine, registry: registry)
-        if let installed = service.installed {
-            self.state = .stopped
-            self.statusMessage = "已检测到托管 FlexNet（端口 \(installed.port)）。"
-        }
     }
 
-    public var installation: ManagedFlexNetInstallation? { service.installed }
     public var isInstalled: Bool { installation != nil }
 
     public func refresh() async {
+        let service = self.service
+        installation = await Task.detached(priority: .utility) { service.installed }.value
         let servers = await registry.readLicenseServers(prefix: paths.bottle)
         addressInput = servers.canonical
         guard let installation else {
@@ -92,6 +90,7 @@ public final class LicenseServerStore: ObservableObject {
             do {
                 let existing = await registry.readLicenseServers(prefix: paths.bottle)
                 let metadata = try await service.install(from: source, existingServers: existing)
+                installation = metadata
                 addressInput = existing.addingManagedLocal(port: metadata.port).canonical
                 statusMessage = "FlexNet 已安装到 C:\\opt\\FlexNet。"
                 state = .stopped
@@ -116,6 +115,7 @@ public final class LicenseServerStore: ObservableObject {
                 let existing = await registry.readLicenseServers(prefix: paths.bottle)
                 let remaining = try await service.uninstall(existingServers: existing)
                 addressInput = remaining.canonical
+                installation = nil
                 state = .notInstalled
                 statusMessage = "托管 FlexNet 已卸载，其他服务器地址已保留。"
             } catch {

@@ -18,13 +18,19 @@ struct MenuBarView: View {
                 .disabled(!runtime.isInstalled)
         }
         Divider()
-        Button { AppLifecycleBridge.openSettings() } label: {
-            Label("设置…", systemImage: "gearshape")
-        }
+        if #available(macOS 14.0, *) {
+            SettingsLink {
+                Label("设置…", systemImage: "gearshape")
+            }
             .keyboardShortcut(",")
+        } else {
+            Button { AppLifecycleBridge.openLegacySettings() } label: {
+                Label("设置…", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",")
+        }
         Button("退出 MacSW") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
-        .task { await licenseServer.refresh() }
     }
 
     private var solidWorksStatus: String {

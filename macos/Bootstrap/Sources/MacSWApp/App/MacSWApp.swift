@@ -40,7 +40,10 @@ struct MacSWApplication: App {
         let defaults = UserDefaults.standard
         let key = "MacSW.autoLaunchSolidWorks"
         let shouldAutoLaunch = defaults.object(forKey: key) == nil ? true : defaults.bool(forKey: key)
-        Task { @MainActor in runtime.startup(autoLaunch: shouldAutoLaunch) }
+        Task { @MainActor in
+            await licenseServer.refresh()
+            runtime.startup(autoLaunch: shouldAutoLaunch)
+        }
     }
 
     var body: some Scene {

@@ -21,7 +21,6 @@ struct SettingsView: View {
         }
         .frame(width: 560, height: 390)
         .padding(16)
-        .task { await licenseServer.refresh() }
         .alert("卸载托管 FlexNet？", isPresented: $confirmUninstall) {
             Button("取消", role: .cancel) { }
             Button("停止并卸载", role: .destructive) { licenseServer.uninstall() }
@@ -38,10 +37,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("状态") {
-                LabeledContent("SOLIDWORKS", value: runtime.isInstalled ? "已安装" : "未安装")
-                Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary)
-            }
             Section("安装与部署") {
                 Button("安装或重新安装 SOLIDWORKS…") {
                     AppLifecycleBridge.showBootstrap(openWindow: openWindow)
@@ -57,7 +52,12 @@ struct SettingsView: View {
     private var licenseSettings: some View {
         Form {
             Section("服务器地址") {
-                TextField("25734@license.example.com", text: $licenseServer.addressInput)
+                TextField(
+                    "服务器地址",
+                    text: $licenseServer.addressInput,
+                    prompt: Text("25734@license.example.com")
+                )
+                    .labelsHidden()
                     .focused($addressFocused)
                     .onSubmit { licenseServer.saveAddress() }
                     .onChange(of: addressFocused) { focused in
@@ -78,7 +78,6 @@ struct SettingsView: View {
             }
 
             Section("托管 FlexNet") {
-                LabeledContent("安装位置", value: "C:\\opt\\FlexNet")
                 HStack {
                     if licenseServer.isInstalled {
                         Button("启动") { licenseServer.start() }

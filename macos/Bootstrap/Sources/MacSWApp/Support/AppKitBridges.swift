@@ -9,7 +9,7 @@ enum AppLifecycleBridge {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    static func openSettings() {
+    static func openLegacySettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
     }
