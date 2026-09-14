@@ -11,7 +11,23 @@ enum AppLifecycleBridge {
 
     static func openLegacySettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        bringSettingsToFront()
+    }
+
+    static func bringSettingsToFront() {
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            settingsWindow()?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private static func settingsWindow() -> NSWindow? {
+        NSApp.windows.first {
+            $0.isVisible
+                && $0.canBecomeKey
+                && $0.title != "MacSW 安装"
+                && !($0 is NSPanel)
+        }
     }
 
     static func switchToMenuBar(window: NSWindow?) {

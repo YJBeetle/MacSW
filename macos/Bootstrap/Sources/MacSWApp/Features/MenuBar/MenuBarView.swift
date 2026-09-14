@@ -19,10 +19,7 @@ struct MenuBarView: View {
         }
         Divider()
         if #available(macOS 14.0, *) {
-            SettingsLink {
-                Label("设置…", systemImage: "gearshape")
-            }
-            .keyboardShortcut(",")
+            SettingsMenuButton()
         } else {
             Button { AppLifecycleBridge.openLegacySettings() } label: {
                 Label("设置…", systemImage: "gearshape")
@@ -57,5 +54,20 @@ struct MenuBarView: View {
     private var flexNetRunning: Bool {
         if case .running = licenseServer.state { return true }
         return false
+    }
+}
+
+@available(macOS 14.0, *)
+private struct SettingsMenuButton: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button {
+            openSettings()
+            AppLifecycleBridge.bringSettingsToFront()
+        } label: {
+            Label("设置…", systemImage: "gearshape")
+        }
+        .keyboardShortcut(",")
     }
 }
