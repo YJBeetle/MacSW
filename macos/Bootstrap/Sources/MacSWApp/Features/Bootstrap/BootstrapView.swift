@@ -88,30 +88,42 @@ struct BootstrapView: View {
                 DisclosureGroup("附加选项") {
                     VStack(alignment: .leading, spacing: 14) {
                         if store.showsCleanInstall {
-                            Toggle("全新安装", isOn: $store.cleanInstall)
-                            if store.cleanInstall {
-                                Text("删除整个 Wine 容器后重新部署；不会创建备份。")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Toggle("全新安装", isOn: $store.cleanInstall)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if store.cleanInstall {
+                                    Text("删除整个 Wine 容器后重新部署；不会创建备份。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.leading, 20)
+                                }
                             }
                         }
 
-                        Toggle("预载序列号", isOn: $store.preloadSerialNumbers)
-                        if store.preloadSerialNumbers {
-                            Picker("输入方式", selection: $store.serialInputMode) {
-                                ForEach(SerialInputMode.allCases) { Text($0.rawValue).tag($0) }
-                            }
-                            .pickerStyle(.segmented)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Toggle("预载序列号", isOn: $store.preloadSerialNumbers)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if store.preloadSerialNumbers {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Picker("输入方式", selection: $store.serialInputMode) {
+                                        ForEach(SerialInputMode.allCases) { Text($0.rawValue).tag($0) }
+                                    }
+                                    .pickerStyle(.segmented)
 
-                            if store.serialInputMode == .text {
-                                SerialTextEditor(text: $store.serialText)
-                            } else {
-                                serialFilePicker
+                                    if store.serialInputMode == .text {
+                                        SerialTextEditor(text: $store.serialText)
+                                    } else {
+                                        serialFilePicker
+                                    }
+                                }
+                                .padding(.leading, 20)
                             }
                         }
                     }
                     .padding(.top, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
 
