@@ -78,6 +78,14 @@ struct SettingsView: View {
             }
 
             Section("托管 FlexNet") {
+                LabeledContent("运行状态") {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(flexNetStateColor)
+                            .frame(width: 7, height: 7)
+                        Text(flexNetStateText)
+                    }
+                }
                 HStack {
                     if licenseServer.isInstalled {
                         Button("启动") { licenseServer.start() }
@@ -94,6 +102,36 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var flexNetStateText: String {
+        switch licenseServer.state {
+        case .notInstalled:
+            return "未安装"
+        case .stopped:
+            return "已停止"
+        case .starting:
+            return "正在启动…"
+        case let .running(port):
+            return "运行中 · 端口 \(port)"
+        case .stopping:
+            return "正在停止…"
+        case .failed:
+            return "运行异常"
+        }
+    }
+
+    private var flexNetStateColor: Color {
+        switch licenseServer.state {
+        case .running:
+            return .green
+        case .starting, .stopping:
+            return .orange
+        case .failed:
+            return .red
+        case .notInstalled, .stopped:
+            return .secondary
+        }
     }
 
     private var advancedSettings: some View {
