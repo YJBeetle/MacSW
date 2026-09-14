@@ -7,6 +7,7 @@ struct BootstrapView: View {
     @ObservedObject var store: BootstrapStore
     @State private var showCleanInstallConfirmation = false
     @State private var showRegistryWarning = false
+    @State private var additionalOptionsExpanded = false
     @State private var showCleanupConfirmation = false
 
     var body: some View {
@@ -85,7 +86,7 @@ struct BootstrapView: View {
                     .padding(.vertical, 6)
                 }
 
-                DisclosureGroup("附加选项") {
+                DisclosureGroup("附加选项", isExpanded: $additionalOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 14) {
                         if store.showsCleanInstall {
                             VStack(alignment: .leading, spacing: 6) {
@@ -126,6 +127,11 @@ struct BootstrapView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                .onChange(of: store.selectedSerialFile) { selectedFile in
+                    if selectedFile?.kind == .registry {
+                        additionalOptionsExpanded = true
+                    }
+                }
 
                 Text(store.statusMessage)
                     .font(.caption)
