@@ -15,16 +15,15 @@ SOLIDWORKS 主 MSI 与 Login Manager MSI 都会调用 .NET Framework 4 路径下
 - 调用该实现的托管 `regasm-x86.exe` 与 `regasm-x86_64.exe`。
 
 这四个文件由 prerelease
-`wine-mono-11.3.0-X86StdcallFix-ComRegistration` 提供，Builder 对每个文件执行
+`wine-mono-11.3.0-X86StdcallFix-ComRegistration-v2` 提供，Builder 对每个文件执行
 SHA256 校验，再覆盖 App 中对应的 Wine-Mono 文件及 Wine RegAsm 入口。
 
 ## 上游验证
 
-x86 stdcall 与 COM Registration 补丁均移植到 Wine-Mono 11.3.0 使用的 Mono 基线
-`73610cc7350b7b51dd3bde3323a8ae28eaf5f7fc`，组合提交为
-`ee3bc7575ea8d644e05660ef4d3862f190c51f49`。同一个 Wine-Mono 父提交分别构建 x86
-native 模块和托管注册组件；CI 在 Wine 中执行 x86/x64 注册、按 CLSID 激活验证、注销和
-移除验证。发布与 Builder 校验值仅使用该同源构建结果。
+x86 stdcall 与 COM Registration 补丁均移植到 Wine-Mono 11.3.0 使用的 Mono 基线。
+新的 x86 DLL 由 Wine-Mono CI 提交 `a1f68cd224f38b6c636953b1cec2193e0b5c3448`
+构建；其余托管注册组件沿用上一轮已验证的同源构建结果。发布与 Builder 校验值仅使用
+各自 prerelease 中的固定文件。
 
 ## SOLIDWORKS 实机验证（2026-09-13）
 
