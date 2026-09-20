@@ -10,7 +10,7 @@ on:
       - 'scripts/**'
       - 'config/**'
       - 'Makefile'
-      - 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch'
+      - 'patches/wine-crossover/**'
       - 'resources/**'
       - '.github/workflows/build-app.yml'
     tags:
@@ -20,6 +20,8 @@ jobs:
   build-and-package:
     runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
     timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
     steps:
       - name: Checkout MacSW Repository
@@ -39,6 +41,11 @@ jobs:
           echo "stdole_output_directory=${STDOLE_OUTPUT_DIRECTORY}" >> "$GITHUB_OUTPUT"
           echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
 
+      - name: Report build toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
       - name: Cache pinned Wine runtime and 7zz
         uses: actions/cache@v4
         with:
@@ -51,7 +58,7 @@ jobs:
             dist/${{ steps.build-config.outputs.stdole_output_directory }}
             dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
             dist/7zz
-          key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/0002-winemac-metal-layer-clipping.patch') }}
+          key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
 
       - name: Install Wine build dependency
         run: brew install bison mingw-w64
