@@ -56,4 +56,13 @@ final class RuntimeTests: XCTestCase {
             XCTAssertFalse(process.isRunning)
         }
     }
+
+    func testCapturedOutputSurvivesNonUTF8LocaleBytes() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "printf 'InprocServer32    REG_SZ    \\304\\253\\277\\275mscoree.dll\\n'"]
+        let (status, output) = try await WineService.shared.captureCancellable(process)
+        XCTAssertEqual(status, 0)
+        XCTAssertTrue(output.contains("mscoree.dll"), "实际捕获: \(output.debugDescription)")
+    }
 }

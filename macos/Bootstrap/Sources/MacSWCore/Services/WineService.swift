@@ -171,7 +171,9 @@ public final class WineService: @unchecked Sendable {
         })
         let data = await readTask.value
         try Task.checkCancellation()
-        return (status, String(data: data, encoding: .utf8) ?? "")
+        // Wine 工具在中文 locale 下会输出遗留代码页字节（如 reg 的本地化“默认”），
+        // 严格解码会整体失败并丢掉 ASCII 内容，这里按有损 UTF-8 解码。
+        return (status, String(decoding: data, as: UTF8.self))
     }
 
     public func stopWineServerForCleanup(prefix: URL) async throws -> Bool {
