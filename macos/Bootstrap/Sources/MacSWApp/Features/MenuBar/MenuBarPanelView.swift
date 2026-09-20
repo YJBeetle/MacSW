@@ -8,8 +8,8 @@ struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @State private var panelVisible = false
-    @State private var panelWindow: NSWindow?
     @State private var isRefreshing = false
+    @State private var panelWindow: NSWindow?
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -64,14 +64,12 @@ struct MenuBarPanelView: View {
             if runtime.isRunning {
                 MenuBarActionRow(
                     title: "退出 SOLIDWORKS",
-                    systemImage: "rectangle.portrait.and.arrow.right",
-                    prominent: true
+                    systemImage: "rectangle.portrait.and.arrow.right"
                 ) { runtime.requestQuit() }
             } else {
                 MenuBarActionRow(
                     title: runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS",
-                    systemImage: "play.fill",
-                    prominent: true
+                    systemImage: "play.fill"
                 ) { runtime.launch() }
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
@@ -251,7 +249,6 @@ private struct MenuBarSettingsShortcut<Label: View>: View {
 private struct MenuBarActionRow: View {
     let title: String
     let systemImage: String
-    var prominent = false
     var destructive = false
     let action: () -> Void
 
@@ -261,7 +258,7 @@ private struct MenuBarActionRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage).font(.system(size: 11)).frame(width: 13)
-                Text(title).font(.system(size: 12, weight: prominent ? .semibold : .regular))
+                Text(title).font(.system(size: 12))
                 Spacer()
             }
             .foregroundStyle(rowTint)
@@ -275,18 +272,15 @@ private struct MenuBarActionRow: View {
         .onHover { isHovering = $0 }
     }
 
+    // 选中态用系统语义色，窗口非激活时会自动降级为灰色选中态。
     private var rowTint: Color {
-        if isHovering || prominent { return .white }
+        if isHovering { return Color(nsColor: .selectedTextColor) }
         return destructive ? .red : .primary
     }
 
     private var rowBackground: AnyShapeStyle {
-        if prominent {
-            // 半透明强调色叠在深色底上会发灰，主行用实色、悬停时压暗。
-            return AnyShapeStyle(Color.accentColor.opacity(isHovering ? 1 : 0.92))
-        }
-        return isHovering
-            ? AnyShapeStyle(Color.accentColor)
+        isHovering
+            ? AnyShapeStyle(Color(nsColor: .selectedTextBackgroundColor))
             : AnyShapeStyle(Color.clear)
     }
 }
