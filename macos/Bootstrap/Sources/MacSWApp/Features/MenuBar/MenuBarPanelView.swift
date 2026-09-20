@@ -252,7 +252,8 @@ private struct MenuBarActionRow: View {
 
     private var rowBackground: AnyShapeStyle {
         if prominent {
-            return AnyShapeStyle(Color.accentColor.opacity(isHovering ? 1 : 0.86))
+            // 半透明强调色叠在深色底上会发灰，主行用实色、悬停时压暗。
+            return AnyShapeStyle(Color.accentColor.opacity(isHovering ? 1 : 0.92))
         }
         return isHovering
             ? AnyShapeStyle(Color.accentColor)
