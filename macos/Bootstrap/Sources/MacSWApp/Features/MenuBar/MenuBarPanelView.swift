@@ -64,12 +64,14 @@ struct MenuBarPanelView: View {
             if runtime.isRunning {
                 MenuBarActionRow(
                     title: "退出 SOLIDWORKS",
-                    systemImage: "rectangle.portrait.and.arrow.right"
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    large: true
                 ) { runtime.requestQuit() }
             } else {
                 MenuBarActionRow(
                     title: runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS",
-                    systemImage: "play.fill"
+                    systemImage: "play.fill",
+                    large: true
                 ) { runtime.launch() }
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
@@ -250,6 +252,7 @@ private struct MenuBarActionRow: View {
     let title: String
     let systemImage: String
     var destructive = false
+    var large = false
     let action: () -> Void
 
     @State private var isHovering = false
@@ -257,13 +260,15 @@ private struct MenuBarActionRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: systemImage).font(.system(size: 11)).frame(width: 13)
-                Text(title).font(.system(size: 12))
+                Image(systemName: systemImage)
+                    .font(.system(size: large ? 13 : 11))
+                    .frame(width: large ? 16 : 13)
+                Text(title).font(.system(size: large ? 13 : 12, weight: large ? .semibold : .regular))
                 Spacer()
             }
             .foregroundStyle(rowTint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, large ? 10 : 8)
+            .padding(.vertical, large ? 9 : 5)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(rowBackground))
             .contentShape(Rectangle())
