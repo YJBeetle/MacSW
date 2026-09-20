@@ -8,6 +8,7 @@ struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @State private var panelVisible = false
+    @State private var panelWindow: NSWindow?
     @State private var isRefreshing = false
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -23,6 +24,7 @@ struct MenuBarPanelView: View {
         }
         .padding(10)
         .frame(width: 296, alignment: .leading)
+        .background(MenuBarWindowReader { panelWindow = $0 })
         .onAppear { panelVisible = true }
         .onDisappear { panelVisible = false }
         .task { await refresh() }
@@ -43,6 +45,7 @@ struct MenuBarPanelView: View {
             MenuBarSettingsButton {
                 Image(systemName: "gearshape").font(.system(size: 11.5))
             }
+            .simultaneousGesture(TapGesture().onEnded { dismissPanel() })
         }
     }
 
@@ -73,7 +76,10 @@ struct MenuBarPanelView: View {
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
             MenuBarActionRow(title: "刷新状态", systemImage: "arrow.clockwise") { Task { await refresh() } }
-            MenuBarActionRow(title: "查看日志", systemImage: "doc.text") { openLogs() }
+            MenuBarActionRow(title: "查看日志", systemImage: "doc.text") {
+                openLogs()
+                dismissPanel()
+            }
             if runtime.isRunning {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
                     runtime.forceStop()
@@ -131,6 +137,15 @@ struct MenuBarPanelView: View {
         return ProcessInventory.formatElapsed(primary.elapsed)
     }
 
+    /// 面板由系统托管，先按 Escape 的语义让它自己收起；仍可见时再隐藏。
+    private func dismissPanel() {
+        guard let panel = panelWindow else { return }
+        panel.cancelOperation(nil)
+        DispatchQueue.main.async {
+            if panel.isVisible { panel.orderOut(nil) }
+        }
+    }
+
     private func openLogs() {
         try? FileManager.default.createDirectory(at: runtime.paths.logs, withIntermediateDirectories: true)
         NSWorkspace.shared.open(runtime.paths.logs)
@@ -167,6 +182,21 @@ struct MenuBarPanelView: View {
         case .notInstalled: return "FlexNet 未安装"
         case .stopped: return "FlexNet 已停止"
         }
+    }
+}
+
+/// 取到承载面板的窗口，用于操作完成后收起它。
+private struct MenuBarWindowReader: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(view.window) }
     }
 }
 
