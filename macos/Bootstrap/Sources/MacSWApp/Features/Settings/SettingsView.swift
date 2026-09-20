@@ -32,7 +32,7 @@ struct SettingsView: View {
         Form {
             Section("启动") {
                 Toggle("启动 MacSW 时自动启动 SOLIDWORKS", isOn: $autoLaunchSolidWorks)
-                Text("如果安装了托管 FlexNet 且地址指向 localhost，会先确保许可服务运行。")
+                Text("打开时自动启动前，若托管 FlexNet 的地址指向 localhost 会先尝试拉起它；起不来只提示，不阻止 SOLIDWORKS 启动。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
