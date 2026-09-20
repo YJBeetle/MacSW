@@ -15,18 +15,20 @@ public final class RuntimeStore: ObservableObject {
         self.paths = paths
         self.licenseServer = licenseServer
         self.wine = wine
-        self.state = paths.solidWorksInstalled ? .stopped : .unavailable
+        self.state = paths.solidWorksInstalled ? .unknown : .unavailable
     }
 
     public var isInstalled: Bool { paths.solidWorksInstalled }
     public var isRunning: Bool { if case .running = state { return true }; return false }
 
+    /// 打开 App 不探测进程状态：需要自动启动时才探测，其余情况等用户查看菜单或启动时再说。
     public func startup(autoLaunch: Bool) {
         guard !didRunStartup else { return }
         didRunStartup = true
+        guard autoLaunch else { return }
         Task {
             await refreshState()
-            if autoLaunch, isInstalled, !isRunning { launch() }
+            if isInstalled, !isRunning { launch() }
         }
     }
 
@@ -42,12 +44,19 @@ public final class RuntimeStore: ObservableObject {
         }
         switch state {
         case .starting, .running, .stopping: return
-        case .unavailable, .stopped, .failed: break
+        case .unavailable, .unknown, .stopped, .failed: break
         }
+        // 状态未知时先确认没有第二份在跑，再决定是否启动。
+        let needsRunningProbe = state == .unknown
         state = .starting
         statusMessage = "正在准备启动 SOLIDWORKS…"
         Task {
             do {
+                if needsRunningProbe { await refreshState() }
+                if isRunning {
+                    statusMessage = "SOLIDWORKS 已在运行。"
+                    return
+                }
                 try await licenseServer.ensureRunningIfNeeded()
                 guard FileManager.default.isExecutableFile(atPath: wine.wineBinary.path),
                       FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path) else {

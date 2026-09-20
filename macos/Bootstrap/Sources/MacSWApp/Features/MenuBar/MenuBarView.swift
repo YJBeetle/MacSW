@@ -5,6 +5,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
+
     var body: some View {
         Label(solidWorksStatus, systemImage: runtime.isRunning ? "circle.fill" : "circle")
         if licenseServer.isInstalled {
@@ -18,6 +19,7 @@ struct MenuBarView: View {
                 .disabled(!runtime.isInstalled)
         }
         Button("安装或重新部署 SOLIDWORKS…") { AppShell.shared.showBootstrapWindow() }
+        Button("刷新状态") { statusProbe() }
         Divider()
         if #available(macOS 14.0, *) {
             SettingsMenuButton()
@@ -31,8 +33,14 @@ struct MenuBarView: View {
             .keyboardShortcut("q")
     }
 
+    private func statusProbe() {
+        runtime.refresh()
+        Task { await licenseServer.refresh() }
+    }
+
     private var solidWorksStatus: String {
         switch runtime.state {
+        case .unknown: return "SOLIDWORKS：未检测"
         case .unavailable: return "SOLIDWORKS：未安装"
         case .stopped: return "SOLIDWORKS：已停止"
         case .starting: return "SOLIDWORKS：启动中"

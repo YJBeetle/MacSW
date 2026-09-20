@@ -26,9 +26,16 @@ public final class LicenseServerStore: ObservableObject {
 
     public var isInstalled: Bool { installation != nil }
 
-    public func refresh() async {
+    /// 只读文件系统清单，不启动 Wine；用于打开 App 时的轻量刷新。
+    public func refreshInstallation() async {
         let service = self.service
         installation = await Task.detached(priority: .utility) { service.installed }.value
+        if installation == nil { state = .notInstalled }
+    }
+
+    /// 完整刷新：会读取容器注册表并探测许可端口，只在用户查看状态或需要启动时调用。
+    public func refresh() async {
+        await refreshInstallation()
         let servers = await registry.readLicenseServers(prefix: paths.bottle)
         addressInput = servers.canonical
         guard let installation else {

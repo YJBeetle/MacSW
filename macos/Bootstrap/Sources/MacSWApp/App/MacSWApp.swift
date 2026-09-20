@@ -42,7 +42,7 @@ struct MacSWApplication: App {
         }
         let autoLaunch = AppPreferences.autoLaunchSolidWorks()
         Task { @MainActor in
-            await licenseServer.refresh()
+            await licenseServer.refreshInstallation()
             runtime.startup(autoLaunch: autoLaunch)
         }
     }
