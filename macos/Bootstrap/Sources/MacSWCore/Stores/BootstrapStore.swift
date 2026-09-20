@@ -102,9 +102,9 @@ public final class BootstrapStore: ObservableObject {
 
     private func inspectMedia(_ url: URL) {
         inspectionTask?.cancel()
+        isInspectingMedia = true
         inspectionTask = Task { [weak self] in
             guard let self else { return }
-            self.isInspectingMedia = true
             var mounted: URL?
             var result: (discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage])?
             do {
