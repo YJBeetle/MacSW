@@ -192,7 +192,11 @@ public final class BootstrapStore: ObservableObject {
         report(.media, .running, "正在校验官方安装介质…")
         statusMessage = "正在校验安装介质…"
         var mountedByApp: URL?
+        var desktopRedirections: [PrerequisiteService.DesktopRedirection] = []
         defer {
+            if !desktopRedirections.isEmpty {
+                try? prerequisites.restoreDesktopFolders(prefix: paths.bottle, to: desktopRedirections)
+            }
             if let mountedByApp { iso.unmount(mountedByApp) }
             installationTask = nil
         }
@@ -233,11 +237,12 @@ public final class BootstrapStore: ObservableObject {
             )
             guard bootCode == 0 else { throw bootstrapError("Wine 初始化失败（\(bootCode)）。") }
             try prerequisites.prepareShortNameAliases(prefix: paths.bottle)
+            desktopRedirections = try prerequisites.redirectDesktopFolders(prefix: paths.bottle)
             try await prerequisites.configureMono(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMRegistration(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMDependencies(prefix: paths.bottle)
             try await wine.configureSolidWorksCompatibility(prefix: paths.bottle)
-            report(.environment, .completed, "Mono、RegAsm、stdole 与输入兼容设置已就绪")
+            report(.environment, .completed, "Mono、RegAsm、stdole 与输入兼容设置已就绪；桌面已临时改到容器内")
 
             state = .installing(.vcRuntime)
             report(.vcRuntime, .running, "正在静默安装官方 VC++ x64 运行库…")

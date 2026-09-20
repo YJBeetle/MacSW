@@ -184,6 +184,71 @@ public final class PrerequisiteService: @unchecked Sendable {
         try Self.prepareShortNameAliases(prefix: prefix)
     }
 
+    /// Wine 把 drive_c/users/<用户>/Desktop 链接到真实的 macOS 桌面，官方 MSI 创建的
+    /// .lnk 因此泄漏到桌面（winecfg「桌面整合」页显示的 Links to 就是这个链接）。
+    /// 安装期间把 Desktop 换成容器内真实目录，结束后按原目标恢复。
+    public struct DesktopRedirection: Equatable, Sendable {
+        public let account: String
+        /// 原有链接目标；空字符串表示原本就是真实目录或缺失，恢复时保持不动。
+        public let originalDestination: String
+    }
+
+    public static func redirectDesktopFolders(
+        prefix: URL,
+        fileManager: FileManager = .default
+    ) throws -> [DesktopRedirection] {
+        var redirected: [DesktopRedirection] = []
+        for account in try userAccounts(in: prefix, fileManager: fileManager) {
+            let desktop = account.appendingPathComponent("Desktop")
+            let destination = (try? fileManager.destinationOfSymbolicLink(atPath: desktop.path)) ?? ""
+            if destination.isEmpty {
+                try fileManager.createDirectory(at: desktop, withIntermediateDirectories: true)
+            } else {
+                try fileManager.removeItem(at: desktop)
+                try fileManager.createDirectory(at: desktop, withIntermediateDirectories: true)
+            }
+            redirected.append(DesktopRedirection(
+                account: account.lastPathComponent,
+                originalDestination: destination
+            ))
+        }
+        return redirected
+    }
+
+    public static func restoreDesktopFolders(
+        prefix: URL,
+        to redirected: [DesktopRedirection],
+        fileManager: FileManager = .default
+    ) throws {
+        for entry in redirected where !entry.originalDestination.isEmpty {
+            let desktop = prefix.appendingPathComponent("drive_c/users")
+                .appendingPathComponent(entry.account)
+                .appendingPathComponent("Desktop")
+            // 已经是符号链接说明此前恢复过，保持不动。
+            let existing = try? fileManager.destinationOfSymbolicLink(atPath: desktop.path)
+            if existing != nil { continue }
+            try? fileManager.removeItem(at: desktop)
+            try? fileManager.createSymbolicLink(atPath: desktop.path, withDestinationPath: entry.originalDestination)
+        }
+    }
+
+    private static func userAccounts(in prefix: URL, fileManager: FileManager) throws -> [URL] {
+        guard let accounts = try? fileManager.contentsOfDirectory(
+            at: prefix.appendingPathComponent("drive_c/users"),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return accounts.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+    }
+
+    public func redirectDesktopFolders(prefix: URL) throws -> [DesktopRedirection] {
+        try Self.redirectDesktopFolders(prefix: prefix)
+    }
+
+    public func restoreDesktopFolders(prefix: URL, to redirected: [DesktopRedirection]) throws {
+        try Self.restoreDesktopFolders(prefix: prefix, to: redirected)
+    }
+
     public func installThemes(media: URL, prefix: URL, target: URL) async throws {
         let fileManager = FileManager.default
         let source = media.appendingPathComponent("PreReqs/dotNetFx/ndp48-x86-x64-allos-enu.exe")
