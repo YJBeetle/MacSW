@@ -57,6 +57,14 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
+    func testStopCommandsCoverTheWholeProcessFamily() {
+        XCTAssertEqual(
+            WineService.taskkillArguments(force: false),
+            ["taskkill", "/im", "SLDWORKS.exe", "/im", "sldworks_fs.exe", "/im", "sw_ui_daemon.exe"]
+        )
+        XCTAssertEqual(WineService.taskkillArguments(force: true).prefix(2), ["taskkill", "/f"])
+    }
+
     func testCapturedOutputSurvivesNonUTF8LocaleBytes() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

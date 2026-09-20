@@ -11,6 +11,8 @@ public final class WineService: @unchecked Sendable {
         "concrt140", "msvcp140", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait",
         "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"
     ]
+    /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务与 UI 守护进程。
+    public static let solidWorksProcessNames = ["SLDWORKS.exe", "sldworks_fs.exe", "sw_ui_daemon.exe"]
     public static let solidWorksCompatibilityArguments = [
         "reg", "add", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
         "/v", "sldworks.exe", "/t", "REG_SZ", "/d", "WINE_NOCAPTURERESEND", "/f"
@@ -295,16 +297,23 @@ public final class WineService: @unchecked Sendable {
 
     public func requestSolidWorksQuit(prefix: URL) async throws -> Int32 {
         try await runCancellable(
-            makeProcess(arguments: ["taskkill", "/im", "SLDWORKS.exe"], prefix: prefix),
+            makeProcess(arguments: Self.taskkillArguments(force: false), prefix: prefix),
             log: logDirectory(prefix.path).appendingPathComponent("solidworks-stop.log")
         )
     }
 
     public func forceStopSolidWorks(prefix: URL) async throws -> Int32 {
         try await runCancellable(
-            makeProcess(arguments: ["taskkill", "/f", "/im", "SLDWORKS.exe"], prefix: prefix),
+            makeProcess(arguments: Self.taskkillArguments(force: true), prefix: prefix),
             log: logDirectory(prefix.path).appendingPathComponent("solidworks-stop.log")
         )
+    }
+
+    static func taskkillArguments(force: Bool) -> [String] {
+        var arguments = ["taskkill"]
+        if force { arguments.append("/f") }
+        for name in solidWorksProcessNames { arguments.append(contentsOf: ["/im", name]) }
+        return arguments
     }
 
     public func launchTool(_ name: String, prefix: URL) throws {

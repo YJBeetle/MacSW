@@ -57,7 +57,14 @@ public final class RuntimeStore: ObservableObject {
                     statusMessage = "SOLIDWORKS 已在运行。"
                     return
                 }
-                try await licenseServer.ensureRunningIfNeeded()
+                // 许可服务器起不来只降级为提示，不阻断 SOLIDWORKS 启动。
+                let licensingWarning: String?
+                do {
+                    try await licenseServer.ensureRunningIfNeeded()
+                    licensingWarning = nil
+                } catch {
+                    licensingWarning = error.localizedDescription
+                }
                 guard FileManager.default.isExecutableFile(atPath: wine.wineBinary.path),
                       FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path) else {
                     throw runtimeError("App 内置 Wine 运行时或 UI 守护程序缺失，请重新打包。")
@@ -69,7 +76,10 @@ public final class RuntimeStore: ObservableObject {
                     onStarted: { [weak self] in
                         guard let self else { return }
                         self.state = .running
-                        self.statusMessage = "SOLIDWORKS 正在运行。"
+                        self.statusMessage = [
+                            "SOLIDWORKS 正在运行。",
+                            licensingWarning.map { "许可服务器未就绪：\($0)" }
+                        ].compactMap { $0 }.joined(separator: " ")
                     },
                     completion: { [weak self] success, message in
                         guard let self else { return }
