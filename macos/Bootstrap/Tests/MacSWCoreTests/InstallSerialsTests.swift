@@ -100,4 +100,36 @@ final class LanguageCatalogTests: XCTestCase {
     func testDiscoveryReturnsEmptyWithoutMedia() {
         XCTAssertTrue(LanguageCatalog.discover(in: root.appendingPathComponent("missing")).isEmpty)
     }
+
+    func testSystemLanguageIdentifiersMapToMediaDirectories() {
+        XCTAssertEqual(LanguageCatalog.match(for: "en-US"), .baseLanguage)
+        XCTAssertEqual(LanguageCatalog.match(for: "zh-Hans-CN"), .directory("chinese-simplified"))
+        XCTAssertEqual(LanguageCatalog.match(for: "zh-CN"), .directory("chinese-simplified"))
+        XCTAssertEqual(LanguageCatalog.match(for: "zh-Hant"), .directory("chinese"))
+        XCTAssertEqual(LanguageCatalog.match(for: "zh-TW"), .directory("chinese"))
+        XCTAssertEqual(LanguageCatalog.match(for: "zh-HK"), .directory("chinese"))
+        XCTAssertEqual(LanguageCatalog.match(for: "de-DE"), .directory("german"))
+        XCTAssertEqual(LanguageCatalog.match(for: "pt"), .directory("portuguese-brazilian"))
+        XCTAssertEqual(LanguageCatalog.match(for: "nl-NL"), .unknown)
+        XCTAssertEqual(LanguageCatalog.match(for: ""), .unknown)
+    }
+
+    func testAutoSelectionFollowsSystemPreferenceOrder() {
+        let media = ["chinese-simplified", "japanese", "korean"].map {
+            SolidWorksLanguage(directoryName: $0, msiFileName: "\($0).msi", displayName: $0)
+        }
+        XCTAssertEqual(
+            LanguageCatalog.autoSelection(from: media, preferredLanguages: ["zh-Hans-CN", "en-US"])?.directoryName,
+            "chinese-simplified"
+        )
+        // 无法识别的首选语言继续向后查找。
+        XCTAssertEqual(
+            LanguageCatalog.autoSelection(from: media, preferredLanguages: ["nl-NL", "ja"])?.directoryName,
+            "japanese"
+        )
+        // 介质没有对应语言资源时不猜，保持介质默认。
+        XCTAssertNil(LanguageCatalog.autoSelection(from: media, preferredLanguages: ["de-DE", "fr"]))
+        XCTAssertNil(LanguageCatalog.autoSelection(from: media, preferredLanguages: ["en-GB"]))
+        XCTAssertNil(LanguageCatalog.autoSelection(from: [], preferredLanguages: ["zh-Hans-CN"]))
+    }
 }

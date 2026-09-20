@@ -131,6 +131,7 @@ public final class BootstrapStore: ObservableObject {
         serialSources = discovery.sources
         ambiguousSerialFields = discovery.ambiguousFields
         availableLanguages = languages
+        if selectedLanguage == nil { selectedLanguage = LanguageCatalog.autoSelection(from: languages) }
 
         var notes: [String] = []
         let matched = InstallSerialField.allCases.filter { !discovery.serials[$0].isEmpty }
