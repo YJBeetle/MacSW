@@ -8,7 +8,7 @@ public enum SerialNumberService {
             .map { NSRegularExpression.escapedPattern(for: $0.rawValue) }
             .joined(separator: "|")
         let headingExpression = try NSRegularExpression(
-            pattern: "(?im)^\\s*(\(headingAlternatives))\\s*(?::|=)?\\s*",
+            pattern: "(?im)^\\s*\"?(\(headingAlternatives))(?![A-Za-z0-9])\\s*(?::|=)?\\s*",
             options: [.caseInsensitive, .anchorsMatchLines]
         )
         let serialExpression = try NSRegularExpression(pattern: serialPattern)
