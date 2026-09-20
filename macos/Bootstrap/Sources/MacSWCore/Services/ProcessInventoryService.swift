@@ -39,7 +39,12 @@ public enum ProcessInventory {
         return monitoredProcesses.compactMap { name in found.first { $0.name == name } }
     }
 
+    /// 在后台执行器上跑 ps 并等待退出，避免非隔离 async 函数沿用主线程导致界面卡顿。
     public static func snapshot() async -> [WineProcess] {
+        await Task.detached(priority: .utility) { collect() }.value
+    }
+
+    private static func collect() -> [WineProcess] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["axo", "pid=,rss=,etime=,command="]
@@ -47,7 +52,7 @@ public enum ProcessInventory {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return [] }
-        let data = await Task.detached { pipe.fileHandleForReading.readDataToEndOfFile() }.value
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return parse(String(decoding: data, as: UTF8.self))
     }

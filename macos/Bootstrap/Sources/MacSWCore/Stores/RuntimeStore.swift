@@ -131,7 +131,7 @@ public final class RuntimeStore: ObservableObject {
 
     private func refreshState() async {
         let snapshot = await ProcessInventory.snapshot()
-        processes = snapshot
+        if snapshot != processes { processes = snapshot }
         state = ProcessInventory.isSolidWorksRunning(snapshot)
             ? .running
             : (paths.solidWorksInstalled ? .stopped : .unavailable)

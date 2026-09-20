@@ -2,18 +2,21 @@ import AppKit
 import MacSWCore
 import SwiftUI
 
-/// 菜单栏面板：顶部强调色状态卡 + 紧凑操作行 + 底部会变化的进程条。
-/// 只用系统语义色与原生按钮样式，高亮与材质交给系统（含后续液态玻璃）；不注册任何快捷键。
+/// 菜单栏面板：朴素的标题与状态行 + 菜单式操作行 + 底部会变化的进程条。
+/// 整块面板保持系统语义色，只有鼠标经过的行才用强调色底与白字，与系统菜单一致；不注册任何快捷键。
 struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @State private var panelVisible = false
+    @State private var isRefreshing = false
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            statusCard
+            header
+            chips
+            Divider()
             actions
             Divider()
             processSection
@@ -24,58 +27,30 @@ struct MenuBarPanelView: View {
         .onDisappear { panelVisible = false }
         .task { await refresh() }
         .onReceive(Self.tick) { _ in
-            // 面板收起后停止轮询，避免后台一直起 ps 子进程。
-            guard panelVisible else { return }
+            // 面板收起后停止轮询；刷新未回来时不叠加任务。
+            guard panelVisible, !isRefreshing else { return }
             Task { await refresh() }
         }
     }
 
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("MacSW").font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Text("Wine \(BuildInfo.wineVersion) · Mono \(BuildInfo.monoVersion)")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.white.opacity(0.72))
-            }
-            statusLine(solidWorksStatus, active: runtime.isRunning)
-            if licenseServer.isInstalled {
-                statusLine(flexNetStatus, active: licenseServer.isRunning, detail: licenseServer.addressInput)
-            }
-            HStack {
-                Spacer()
-                MenuBarSettingsButton {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.white.opacity(0.16)))
-                }
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("MacSW").font(.system(size: 13, weight: .semibold))
+            Text("Wine \(BuildInfo.wineVersion) · Mono \(BuildInfo.monoVersion)")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            MenuBarSettingsButton {
+                Image(systemName: "gearshape").font(.system(size: 11.5))
             }
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous).fill(
-                LinearGradient(
-                    colors: [Color(red: 0.55, green: 0.32, blue: 0.93), Color(red: 0.40, green: 0.20, blue: 0.72)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            )
-        )
-        .foregroundStyle(.white)
     }
 
-    private func statusLine(_ title: String, active: Bool, detail: String = "") -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(active ? Color(red: 0.36, green: 0.96, blue: 0.64) : Color.white.opacity(0.45))
-                .frame(width: 6, height: 6)
-            Text(title).font(.system(size: 11.5, weight: .medium))
-            if !detail.isEmpty {
-                Text(detail).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.7))
+    private var chips: some View {
+        HStack(spacing: 6) {
+            MenuBarStatusChip(title: solidWorksStatus, active: runtime.isRunning)
+            if licenseServer.isInstalled {
+                MenuBarStatusChip(title: flexNetStatus, active: licenseServer.isRunning, help: licenseServer.addressInput)
             }
             Spacer()
         }
@@ -163,6 +138,9 @@ struct MenuBarPanelView: View {
 
     /// 面板可见时每两秒刷新；只用 ps 与本机端口探测，不启动 Wine。
     private func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         async let running: Void = runtime.refreshNow()
         async let licensing: Void = licenseServer.refreshRunningState()
         _ = await (running, licensing)
@@ -189,6 +167,26 @@ struct MenuBarPanelView: View {
         case .notInstalled: return "FlexNet 未安装"
         case .stopped: return "FlexNet 已停止"
         }
+    }
+}
+
+private struct MenuBarStatusChip: View {
+    let title: String
+    let active: Bool
+    var help: String = ""
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(active ? Color(red: 0.24, green: 0.86, blue: 0.52) : Color.secondary.opacity(0.55))
+                .frame(width: 7, height: 7)
+            Text(title).font(.system(size: 11.5, weight: .medium)).fixedSize()
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(.quaternary))
+        .help(help.isEmpty ? title : help)
     }
 }
 
@@ -248,9 +246,8 @@ private struct MenuBarActionRow: View {
     }
 
     private var rowTint: Color {
-        if destructive { return .red }
-        if prominent { return .white }
-        return .primary
+        if isHovering || prominent { return .white }
+        return destructive ? .red : .primary
     }
 
     private var rowBackground: AnyShapeStyle {
@@ -258,7 +255,7 @@ private struct MenuBarActionRow: View {
             return AnyShapeStyle(Color.accentColor.opacity(isHovering ? 1 : 0.86))
         }
         return isHovering
-            ? AnyShapeStyle(Color.primary.opacity(0.09))
+            ? AnyShapeStyle(Color.accentColor)
             : AnyShapeStyle(Color.clear)
     }
 }
