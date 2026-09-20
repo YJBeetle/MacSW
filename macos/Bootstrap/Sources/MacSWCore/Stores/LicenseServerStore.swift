@@ -37,6 +37,13 @@ public final class LicenseServerStore: ObservableObject {
         if installation == nil { state = .notInstalled }
     }
 
+    /// 只探测许可端口（不读注册表、不启动 Wine），供菜单栏面板高频刷新使用。
+    public func refreshRunningState() async {
+        await refreshInstallation()
+        guard let installation else { return }
+        state = await isPortOpen(installation.port) ? .running(installation.port) : .stopped
+    }
+
     /// 完整刷新：会读取容器注册表并探测许可端口，只在用户查看状态或需要启动时调用。
     public func refresh() async {
         await refreshInstallation()

@@ -2,132 +2,102 @@ import AppKit
 import MacSWCore
 import SwiftUI
 
-/// 菜单栏面板：状态胶囊 + 容器进程清单 + 操作列表，不使用任何系统快捷键。
+/// 菜单栏面板：顶部强调色状态卡 + 紧凑操作行 + 底部会变化的进程条。
+/// 只用系统语义色与原生按钮样式，高亮与材质交给系统（含后续液态玻璃）；不注册任何快捷键。
 struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
+    @State private var panelVisible = false
+
+    private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            chips
-            Divider().overlay(MenuBarPalette.divider)
-            processCard
+        VStack(alignment: .leading, spacing: 8) {
+            statusCard
             actions
-            Divider().overlay(MenuBarPalette.divider)
-            footer
+            Divider()
+            processSection
         }
-        .padding(12)
-        .frame(width: 306, alignment: .leading)
+        .padding(10)
+        .frame(width: 296, alignment: .leading)
+        .onAppear { panelVisible = true }
+        .onDisappear { panelVisible = false }
         .task { await refresh() }
+        .onReceive(Self.tick) { _ in
+            // 面板收起后停止轮询，避免后台一直起 ps 子进程。
+            guard panelVisible else { return }
+            Task { await refresh() }
+        }
     }
 
-    private var header: some View {
-        HStack(spacing: 9) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.71, green: 0.47, blue: 1.0), Color(red: 0.48, green: 0.25, blue: 0.83)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 30, height: 30)
-                .overlay(Image(systemName: "cube.fill").font(.system(size: 15)).foregroundStyle(.white))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("MacSW").font(.system(size: 13.5, weight: .semibold))
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("MacSW").font(.system(size: 13, weight: .semibold))
+                Spacer()
                 Text("Wine \(BuildInfo.wineVersion) · Mono \(BuildInfo.monoVersion)")
-                    .font(.system(size: 11)).foregroundStyle(MenuBarPalette.tertiary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(0.72))
             }
-            Spacer()
-            Button { openSettingsWindow() } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(MenuBarPalette.secondary)
-                    .frame(width: 26, height: 26)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(MenuBarPalette.card))
-            }
-            .buttonStyle(.plain)
-            .help("设置")
-        }
-        .padding(.bottom, 11)
-    }
-
-    private var chips: some View {
-        HStack(spacing: 6) {
-            MenuBarStatusChip(title: solidWorksStatus, active: runtime.isRunning)
+            statusLine(solidWorksStatus, active: runtime.isRunning)
             if licenseServer.isInstalled {
-                MenuBarStatusChip(title: flexNetStatus, active: licenseServer.isRunning, help: licenseServer.addressInput)
+                statusLine(flexNetStatus, active: licenseServer.isRunning, detail: licenseServer.addressInput)
             }
-        }
-        .padding(.bottom, 11)
-    }
-
-    private var processCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("容器进程")
-                .font(.system(size: 10.5, weight: .semibold))
-                .kerning(0.6)
-                .foregroundStyle(MenuBarPalette.tertiary)
-                .padding(.bottom, 7)
-            Group {
-                if runtime.processes.isEmpty {
-                    Text("未检测到运行中的进程")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MenuBarPalette.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 12)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(runtime.processes, id: \.pid) { process in
-                            MenuBarProcessRow(process: process, share: share(of: process))
-                        }
-                    }
+            HStack {
+                Spacer()
+                MenuBarSettingsButton {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(.white.opacity(0.16)))
                 }
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10).fill(MenuBarPalette.card))
         }
-        .padding(.bottom, 11)
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous).fill(
+                LinearGradient(
+                    colors: [Color(red: 0.55, green: 0.32, blue: 0.93), Color(red: 0.40, green: 0.20, blue: 0.72)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            )
+        )
+        .foregroundStyle(.white)
+    }
+
+    private func statusLine(_ title: String, active: Bool, detail: String = "") -> some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(active ? Color(red: 0.36, green: 0.96, blue: 0.64) : Color.white.opacity(0.45))
+                .frame(width: 6, height: 6)
+            Text(title).font(.system(size: 11.5, weight: .medium))
+            if !detail.isEmpty {
+                Text(detail).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.7))
+            }
+            Spacer()
+        }
     }
 
     private var actions: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 1) {
             if runtime.isRunning {
                 MenuBarActionRow(
                     title: "退出 SOLIDWORKS",
-                    systemImage: "rectangle.portrait.and.arrow.right"
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    prominent: true
                 ) { runtime.requestQuit() }
             } else {
-                Button { runtime.launch() } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "play.fill").font(.system(size: 11))
-                        Text(runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS")
-                    }
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(red: 0.69, green: 0.47, blue: 0.97), Color(red: 0.55, green: 0.30, blue: 0.88)],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                    )
-                }
-                .buttonStyle(.plain)
+                MenuBarActionRow(
+                    title: runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS",
+                    systemImage: "play.fill",
+                    prominent: true
+                ) { runtime.launch() }
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
             MenuBarActionRow(title: "刷新状态", systemImage: "arrow.clockwise") { Task { await refresh() } }
-        }
-        .padding(.bottom, 11)
-    }
-
-    private var footer: some View {
-        VStack(spacing: 0) {
             MenuBarActionRow(title: "查看日志", systemImage: "doc.text") { openLogs() }
             if runtime.isRunning {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
@@ -140,10 +110,50 @@ struct MenuBarPanelView: View {
         }
     }
 
+    /// 进程数量会变化，放在最底部，避免上面的操作行位置跳动。
+    private var processSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("容器进程")
+                .font(.system(size: 10, weight: .semibold))
+                .kerning(0.6)
+                .foregroundStyle(.tertiary)
+            if runtime.processes.isEmpty {
+                Text("未检测到运行中的进程")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(runtime.processes, id: \.pid) { process in
+                        MenuBarProcessRow(process: process, share: share(of: process))
+                    }
+                }
+                Text("合计 \(formattedTotalMemory) · 已运行 \(uptimeText)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
     private func share(of process: WineProcess) -> Double {
         let peak = runtime.processes.map(\.residentKB).max() ?? 1
         guard peak > 0 else { return 0 }
         return min(Double(process.residentKB) / Double(peak), 1)
+    }
+
+    private var formattedTotalMemory: String {
+        let megabytes = ProcessInventory.totalResidentMB(runtime.processes)
+        if megabytes >= 1024 { return String(format: "%.1f GB", Double(megabytes) / 1024) }
+        return "\(megabytes) MB"
+    }
+
+    private var uptimeText: String {
+        guard let primary = runtime.processes.first(where: { $0.name == ProcessInventory.primaryProcess }) else {
+            return "—"
+        }
+        return ProcessInventory.formatElapsed(primary.elapsed)
     }
 
     private func openLogs() {
@@ -151,13 +161,11 @@ struct MenuBarPanelView: View {
         NSWorkspace.shared.open(runtime.paths.logs)
     }
 
-    private func openSettingsWindow() {
-        AppLifecycleBridge.openLegacySettings()
-    }
-
+    /// 面板可见时每两秒刷新；只用 ps 与本机端口探测，不启动 Wine。
     private func refresh() async {
-        runtime.refresh()
-        await licenseServer.refresh()
+        async let running: Void = runtime.refreshNow()
+        async let licensing: Void = licenseServer.refreshRunningState()
+        _ = await (running, licensing)
     }
 
     private var solidWorksStatus: String {
@@ -184,35 +192,74 @@ struct MenuBarPanelView: View {
     }
 }
 
-enum MenuBarPalette {
-    static let card = Color.white.opacity(0.055)
-    static let secondary = Color.secondary
-    static let tertiary = Color.secondary.opacity(0.75)
-    static let divider = Color.white.opacity(0.08)
-    static let bar = Color.white.opacity(0.09)
-    static let barFill = LinearGradient(
-        colors: [Color(red: 0.56, green: 0.36, blue: 0.94), Color(red: 0.78, green: 0.61, blue: 1.0)],
-        startPoint: .leading, endPoint: .trailing
-    )
-}
-
-private struct MenuBarStatusChip: View {
-    let title: String
-    let active: Bool
-    var help: String = ""
+/// macOS 14+ 走系统的 openSettings，更早版本回退 AppKit 动作。
+private struct MenuBarSettingsButton<Label: View>: View {
+    @ViewBuilder let label: () -> Label
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(active ? Color(red: 0.24, green: 0.86, blue: 0.52) : Color.secondary.opacity(0.6))
-                .frame(width: 7, height: 7)
-            Text(title).font(.system(size: 11.5, weight: .medium)).fixedSize()
+        if #available(macOS 14.0, *) {
+            MenuBarSettingsShortcut(label: label)
+        } else {
+            Button { AppLifecycleBridge.openLegacySettings() } label: { label() }
+                .buttonStyle(.plain)
         }
-        .foregroundStyle(MenuBarPalette.secondary)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(MenuBarPalette.card))
-        .help(help.isEmpty ? title : help)
+    }
+}
+
+@available(macOS 14.0, *)
+private struct MenuBarSettingsShortcut<Label: View>: View {
+    @Environment(\.openSettings) private var openSettings
+    let label: () -> Label
+
+    var body: some View {
+        Button {
+            openSettings()
+            AppLifecycleBridge.bringSettingsToFront()
+        } label: { label() }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MenuBarActionRow: View {
+    let title: String
+    let systemImage: String
+    var prominent = false
+    var destructive = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage).font(.system(size: 11)).frame(width: 13)
+                Text(title).font(.system(size: 12, weight: prominent ? .semibold : .regular))
+                Spacer()
+            }
+            .foregroundStyle(rowTint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(rowBackground))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var rowTint: Color {
+        if destructive { return .red }
+        if prominent { return .white }
+        return .primary
+    }
+
+    private var rowBackground: AnyShapeStyle {
+        if prominent {
+            return AnyShapeStyle(Color.accentColor.opacity(isHovering ? 1 : 0.86))
+        }
+        return isHovering
+            ? AnyShapeStyle(Color.primary.opacity(0.09))
+            : AnyShapeStyle(Color.clear)
     }
 }
 
@@ -221,58 +268,33 @@ private struct MenuBarProcessRow: View {
     let share: Double
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Text(process.name)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium))
                 .lineLimit(1)
-                .frame(width: 118, alignment: .leading)
+                .frame(width: 112, alignment: .leading)
             Text(String(process.pid))
-                .font(.system(size: 10.5))
-                .foregroundStyle(MenuBarPalette.tertiary)
-                .frame(width: 38, alignment: .leading)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.tertiary)
+                .frame(width: 34, alignment: .leading)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(MenuBarPalette.bar)
-                    Capsule().fill(MenuBarPalette.barFill)
-                        .frame(width: max(2, geometry.size.width * share))
+                    Capsule().fill(.quaternary)
+                    Capsule().fill(Color.accentColor).frame(width: max(2, geometry.size.width * share))
                 }
             }
-            .frame(height: 5)
+            .frame(height: 4)
             Text(memoryText)
-                .font(.system(size: 11))
-                .foregroundStyle(MenuBarPalette.secondary)
-                .frame(width: 54, alignment: .trailing)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .frame(width: 50, alignment: .trailing)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 3)
     }
 
     private var memoryText: String {
         let megabytes = process.residentMB
-        if megabytes >= 1024 {
-            return String(format: "%.1f GB", Double(megabytes) / 1024)
-        }
+        if megabytes >= 1024 { return String(format: "%.1f GB", Double(megabytes) / 1024) }
         return "\(megabytes) MB"
-    }
-}
-
-private struct MenuBarActionRow: View {
-    let title: String
-    let systemImage: String
-    var destructive = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: systemImage).font(.system(size: 12)).frame(width: 14)
-                Text(title).font(.system(size: 12.5))
-                Spacer()
-            }
-            .foregroundStyle(destructive ? Color(red: 1.0, green: 0.54, blue: 0.50) : Color.primary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
