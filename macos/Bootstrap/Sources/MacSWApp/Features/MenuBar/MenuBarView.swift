@@ -18,7 +18,6 @@ struct MenuBarView: View {
             Button("启动 SOLIDWORKS") { runtime.launch() }
                 .disabled(!runtime.isInstalled)
         }
-        Button("安装或重新部署 SOLIDWORKS…") { AppShell.shared.showBootstrapWindow() }
         Button("刷新状态") { statusProbe() }
         Divider()
         if #available(macOS 14.0, *) {
