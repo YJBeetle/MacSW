@@ -97,17 +97,6 @@ final class LanguageCatalogTests: XCTestCase {
         )
     }
 
-    func testPreferredFallsBackToFirstLanguage() throws {
-        try makeLanguageDirectory("german")
-        XCTAssertEqual(LanguageCatalog.preferred(from: LanguageCatalog.discover(in: root))?.directoryName, "german")
-
-        try makeLanguageDirectory("chinese-simplified")
-        XCTAssertEqual(
-            LanguageCatalog.preferred(from: LanguageCatalog.discover(in: root))?.directoryName,
-            "chinese-simplified"
-        )
-    }
-
     func testDiscoveryReturnsEmptyWithoutMedia() {
         XCTAssertTrue(LanguageCatalog.discover(in: root.appendingPathComponent("missing")).isEmpty)
     }

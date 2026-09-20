@@ -16,7 +16,6 @@ public struct SolidWorksLanguage: Identifiable, Hashable, Sendable {
 
 public enum LanguageCatalog {
     public static let relativeDirectory = "swwi/lang"
-    public static let preferredDirectoryName = "chinese-simplified"
 
     private static let displayNames: [String: String] = [
         "chinese": "繁體中文",
@@ -58,11 +57,6 @@ public enum LanguageCatalog {
                 displayName: displayName(for: name)
             )
         }.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-    }
-
-    public static func preferred(from languages: [SolidWorksLanguage]) -> SolidWorksLanguage? {
-        languages.first { $0.directoryName.caseInsensitiveCompare(preferredDirectoryName) == .orderedSame }
-            ?? languages.first
     }
 
     public static func relativeMSIPath(_ language: SolidWorksLanguage) -> String {
