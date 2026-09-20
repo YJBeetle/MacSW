@@ -49,8 +49,9 @@ struct MacSWApplication: App {
 
     var body: some Scene {
         MenuBarExtra("MacSW", systemImage: "cube.fill") {
-            MenuBarView(runtime: runtime, licenseServer: licenseServer)
+            MenuBarPanelView(runtime: runtime, licenseServer: licenseServer)
         }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(runtime: runtime, licenseServer: licenseServer)

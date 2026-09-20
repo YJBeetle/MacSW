@@ -25,6 +25,10 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     public var isInstalled: Bool { installation != nil }
+    public var isRunning: Bool {
+        if case .running = state { return true }
+        return false
+    }
 
     /// 只读文件系统清单，不启动 Wine；用于打开 App 时的轻量刷新。
     public func refreshInstallation() async {
