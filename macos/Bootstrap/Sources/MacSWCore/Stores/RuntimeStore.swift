@@ -62,13 +62,23 @@ public final class RuntimeStore: ObservableObject {
                       FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path) else {
                     throw runtimeError("App 内置 Wine 运行时或 UI 守护程序缺失，请重新打包。")
                 }
-                state = .running
                 statusMessage = "正在启动 SOLIDWORKS（Wine \(BuildInfo.wineVersion)）…"
-                wine.launchSolidWorks(executable: paths.solidWorksExecutable, prefix: paths.bottle) { [weak self] _, message in
-                    guard let self else { return }
-                    self.state = self.paths.solidWorksInstalled ? .stopped : .unavailable
-                    self.statusMessage = message
-                }
+                wine.launchSolidWorks(
+                    executable: paths.solidWorksExecutable,
+                    prefix: paths.bottle,
+                    onStarted: { [weak self] in
+                        guard let self else { return }
+                        self.state = .running
+                        self.statusMessage = "SOLIDWORKS 正在运行。"
+                    },
+                    completion: { [weak self] success, message in
+                        guard let self else { return }
+                        self.state = success
+                            ? (self.paths.solidWorksInstalled ? .stopped : .unavailable)
+                            : .failed(message)
+                        self.statusMessage = message
+                    }
+                )
             } catch {
                 state = .failed(error.localizedDescription)
                 statusMessage = error.localizedDescription

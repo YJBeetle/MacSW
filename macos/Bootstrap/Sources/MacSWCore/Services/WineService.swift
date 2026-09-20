@@ -227,10 +227,17 @@ public final class WineService: @unchecked Sendable {
         }
     }
 
-    public func launchSolidWorks(executable: URL, prefix: URL, completion: @escaping (Bool, String) -> Void) {
+    public func launchSolidWorks(
+        executable: URL,
+        prefix: URL,
+        onStarted: @escaping () -> Void,
+        completion: @escaping (Bool, String) -> Void
+    ) {
         stateLock.lock()
         guard !activePrefixes.contains(prefix.path) else {
             stateLock.unlock()
+            // 必须回调，否则调用方会永远停在“启动中”；真正退出由已接管该容器的那次启动通知。
+            DispatchQueue.main.async { onStarted() }
             return
         }
         activePrefixes.insert(prefix.path)
@@ -264,10 +271,18 @@ public final class WineService: @unchecked Sendable {
 
                 let solidWorks = self.makeProcess(arguments: [executable.path], prefix: prefix, solidWorks: true)
                 solidWorks.currentDirectoryURL = executable.deletingLastPathComponent()
-                let result = try self.run(
-                    solidWorks,
-                    log: self.logDirectory(prefix.path).appendingPathComponent("sw_launch.log")
-                )
+                let launchLog = self.logDirectory(prefix.path).appendingPathComponent("sw_launch.log")
+                let handle = try self.logHandle(for: launchLog)
+                solidWorks.standardOutput = handle ?? FileHandle.nullDevice
+                solidWorks.standardError = handle ?? FileHandle.nullDevice
+                do { try solidWorks.run() } catch {
+                    try? handle?.close()
+                    throw error
+                }
+                DispatchQueue.main.async { onStarted() }
+                solidWorks.waitUntilExit()
+                let result = solidWorks.terminationStatus
+                try? handle?.close()
                 try? daemonHandle?.close()
                 DispatchQueue.main.async {
                     completion(result == 0, "SOLIDWORKS 已退出（\(result)）。")
