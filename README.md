@@ -7,15 +7,20 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 
 - 固定使用唯一容器 `~/Library/Application Support/MacSW/bottle`，不提供容器切换。
 - 使用 [`config/versions.env`](config/versions.env) 固定的 Gcenx Wine，并校验下载归档的 SHA-256。
-- Bootstrap 使用官方安装程序；支持 ISO 或包含 `swwi/data/solidworks.msi` 的介质目录，安装过程可终止。
-- 可选预载文本序列号或原样导入用户明确选择的 `.reg`。选择介质时只扫描其同级与向下一层目录中的
-  `.txt` / `.reg`；结果唯一时自动选择，存在歧义时交给用户选择。
+- Bootstrap 全程静默部署官方介质：主体 MSI 以 `/qb` 加已验证的属性树安装，无需在安装窗口内点击，
+  安装过程仍可终止。支持 ISO 或包含 `swwi/data/solidworks.msi` 的介质目录，开装前先校验官方 MSI、
+  VC++/Login Manager/.NET 前置件与 Toolbox 载荷是否齐备。
+- 安装序列号按 SOLIDWORKS/Simulation/Motion/MBD 四项填写，直接作为 MSI 公共属性传入，不再预写注册表。
+  选择介质时会扫描其同级与介质内部（最深三层）的文本与注册表导出并匹配取值：唯一的自动回填，
+  存在多个不同取值的字段留空交给用户确认。`.reg` 只作为读取来源，不再导入容器。
+- 界面语言在安装界面选择，清单来自介质 `swwi/lang` 实际存在的官方语言 MSI，在主体安装完成后静默追加。
 - 正常运行时只显示菜单栏启动器；启动 App 后默认自动启动 SOLIDWORKS，设置窗口负责 Wine 工具、
   服务器地址以及托管 FlexNet 的安装、卸载、启动和停止。
 - 托管 FlexNet 经结构校验后原子复制到容器内固定位置 `C:\\opt\\FlexNet`，运行时不再依赖用户最初选择的外部目录。
 - 安装阶段的 32 位托管辅助程序使用 Wine-Mono 解释器；64 位 SOLIDWORKS 正常使用 JIT。
 - App 在主安装器前校验并放置固定版本 `stdole`，随后静默安装介质中的官方 Login Manager；
-  SOLIDWORKS 主 MSI 仍显示官方交互窗口。
+  两者的安装结果都按注册表内容断言托管 COM 注册，主 MSI 完成后额外校验 `SldWorks.Application`
+  的 COM 链路，安装器退出码本身不作为成功依据。
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
 
 ## 图形窗口修复
@@ -125,9 +130,11 @@ Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行在 Bootst
 日志位于 `~/Library/Application Support/MacSW/logs`，主要包括：
 
 - `install_msi.log`
+- `install_msi_errors.log`
 - `installer-wine.log`
 - `login-manager-install.log`
 - `login-manager-wine.log`
+- `language-install.log`
 - `prerequisites.log`
 - `sw_launch.log`
 - `ui-daemon.log`
