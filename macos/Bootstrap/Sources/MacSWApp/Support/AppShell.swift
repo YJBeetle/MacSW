@@ -62,6 +62,8 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
         window.title = "MacSW 安装"
         window.identifier = NSUserInterfaceItemIdentifier(BootstrapWindowIdentity.identifier)
         window.isRestorable = false
+        // 由本控制器持有；关闭只隐藏，避免 AppKit 释放后再次访问导致过度释放。
+        window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: makeRootView())
         window.delegate = self
         window.setFrameAutosaveName("MacSW.BootstrapWindow")
@@ -72,16 +74,18 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
         self.window = window
     }
 
+    /// 只隐藏不销毁：窗口与内容视图在进程存活期内复用。
     func close() {
-        guard let window else { return }
-        self.window = nil
-        window.close()
-        NSApp.setActivationPolicy(AppShell.shared.installedAtLaunch ? .accessory : .regular)
+        window?.orderOut(nil)
+        restoreActivationPolicy()
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let closed = notification.object as? NSWindow, closed === window else { return }
-        window = nil
+        restoreActivationPolicy()
+    }
+
+    private func restoreActivationPolicy() {
+        guard NSApp.isRunning else { return }
         NSApp.setActivationPolicy(AppShell.shared.installedAtLaunch ? .accessory : .regular)
     }
 }
