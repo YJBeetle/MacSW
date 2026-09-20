@@ -1,14 +1,11 @@
 import AppKit
+import MacSWCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum AppLifecycleBridge {
-    static func showBootstrap(openWindow: OpenWindowAction) {
-        NSApp.setActivationPolicy(.regular)
-        openWindow(id: "bootstrap")
-        NSApp.activate(ignoringOtherApps: true)
-    }
+private let bootstrapWindowIdentifier = NSUserInterfaceItemIdentifier(BootstrapWindowIdentity.identifier)
 
+enum AppLifecycleBridge {
     static func openLegacySettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         bringSettingsToFront()
@@ -25,28 +22,8 @@ enum AppLifecycleBridge {
         NSApp.windows.first {
             $0.isVisible
                 && $0.canBecomeKey
-                && $0.title != "MacSW 安装"
                 && !($0 is NSPanel)
-        }
-    }
-
-    static func switchToMenuBar(window: NSWindow?) {
-        window?.close()
-        NSApp.setActivationPolicy(.accessory)
-    }
-}
-
-struct BootstrapWindowBridge: NSViewRepresentable {
-    let shouldClose: Bool
-
-    func makeNSView(context: Context) -> NSView {
-        NSView(frame: .zero)
-    }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        guard shouldClose else { return }
-        DispatchQueue.main.async {
-            AppLifecycleBridge.switchToMenuBar(window: view.window)
+                && $0.identifier != bootstrapWindowIdentifier
         }
     }
 }

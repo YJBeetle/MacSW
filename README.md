@@ -15,7 +15,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
   存在多个不同取值的字段留空交给用户确认。`.reg` 只作为读取来源，不再导入容器。
 - 界面语言按 macOS 语言偏好从介质 `swwi/lang` 实际提供的官方语言 MSI 中自动预选，可在安装界面改；
   不追加语言资源时即介质自带的英文。语言 MSI 在主体安装完成后静默安装。
-- 正常运行时只显示菜单栏启动器；启动 App 后默认自动启动 SOLIDWORKS，设置窗口负责 Wine 工具、
+- 正常运行时只显示菜单栏启动器；打开 App 不会自动拉起 SOLIDWORKS（设置里可勾选“启动 MacSW 时自动启动”，
+  默认关闭），未安装时打开的就是引导安装窗口；设置窗口负责 Wine 工具、
   服务器地址以及托管 FlexNet 的安装、卸载、启动和停止。
 - 托管 FlexNet 经结构校验后原子复制到容器内固定位置 `C:\\opt\\FlexNet`，运行时不再依赖用户最初选择的外部目录。
 - 安装阶段的 32 位托管辅助程序使用 Wine-Mono 解释器；64 位 SOLIDWORKS 正常使用 JIT。
@@ -109,7 +110,7 @@ GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.pl
 open build/app/MacSW.app
 ```
 
-Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行在 Bootstrap 窗口中选择安装介质并完成部署；安装完成后的启动默认进入菜单栏并自动启动 SOLIDWORKS。
+Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行会打开引导安装窗口选择介质并完成部署；安装完成后应用转入菜单栏常驻，是否自动启动 SOLIDWORKS 由设置里的开关决定。
 干净安装会直接清空唯一容器，请确认其中没有需要保留的文件。
 
 图形回归至少应覆盖：

@@ -5,8 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
-    @Environment(\.openWindow) private var openWindow
-    @AppStorage("MacSW.autoLaunchSolidWorks") private var autoLaunchSolidWorks = true
+    @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
 
@@ -39,7 +38,7 @@ struct SettingsView: View {
             }
             Section("安装与部署") {
                 Button("安装或重新安装 SOLIDWORKS…") {
-                    AppLifecycleBridge.showBootstrap(openWindow: openWindow)
+                    AppShell.shared.showBootstrapWindow()
                 }
                 Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
                     .font(.caption)

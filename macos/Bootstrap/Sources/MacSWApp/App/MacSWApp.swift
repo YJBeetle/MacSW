@@ -4,16 +4,11 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let installed = AppPaths.live().solidWorksInstalled
-        NSApp.setActivationPolicy(installed ? .accessory : .regular)
-        if installed {
-            DispatchQueue.main.async {
-                NSApp.windows
-                    .filter { $0.title == "MacSW 安装" }
-                    .forEach { $0.close() }
-            }
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
+        let shell = AppShell.shared
+        NSApp.setActivationPolicy(shell.activationPolicyAtLaunch)
+        // 未安装时引导安装是唯一入口；已安装时只保留菜单栏，需要时由菜单或设置打开。
+        if !shell.installedAtLaunch {
+            shell.showBootstrapWindow()
         }
     }
 
@@ -25,37 +20,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MacSWApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @AppStorage("MacSW.autoLaunchSolidWorks") private var autoLaunchSolidWorks = true
+    @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @StateObject private var bootstrap: BootstrapStore
     @StateObject private var licenseServer: LicenseServerStore
     @StateObject private var runtime: RuntimeStore
 
     init() {
         let paths = AppPaths.live()
+        let bootstrap = BootstrapStore(paths: paths)
         let licenseServer = LicenseServerStore(paths: paths)
         let runtime = RuntimeStore(paths: paths, licenseServer: licenseServer)
-        _bootstrap = StateObject(wrappedValue: BootstrapStore(paths: paths))
+        _bootstrap = StateObject(wrappedValue: bootstrap)
         _licenseServer = StateObject(wrappedValue: licenseServer)
         _runtime = StateObject(wrappedValue: runtime)
-        let defaults = UserDefaults.standard
-        let key = "MacSW.autoLaunchSolidWorks"
-        let shouldAutoLaunch = defaults.object(forKey: key) == nil ? true : defaults.bool(forKey: key)
+        AppShell.shared.configure {
+            AnyView(BootstrapSceneRoot(
+                store: bootstrap,
+                runtime: runtime,
+                autoLaunchSolidWorks: AppPreferences.autoLaunchSolidWorks()
+            ))
+        }
+        let autoLaunch = AppPreferences.autoLaunchSolidWorks()
         Task { @MainActor in
             await licenseServer.refresh()
-            runtime.startup(autoLaunch: shouldAutoLaunch)
+            runtime.startup(autoLaunch: autoLaunch)
         }
     }
 
     var body: some Scene {
-        Window("MacSW 安装", id: "bootstrap") {
-            BootstrapSceneRoot(
-                store: bootstrap,
-                runtime: runtime,
-                autoLaunchSolidWorks: autoLaunchSolidWorks
-            )
-        }
-        .defaultSize(width: 680, height: 640)
-
         MenuBarExtra("MacSW", systemImage: "cube.fill") {
             MenuBarView(runtime: runtime, licenseServer: licenseServer)
         }
