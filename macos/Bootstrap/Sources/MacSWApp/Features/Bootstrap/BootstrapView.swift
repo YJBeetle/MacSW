@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 struct BootstrapView: View {
     @ObservedObject var store: BootstrapStore
     @State private var showCleanInstallConfirmation = false
-    @State private var showRegistryWarning = false
     @State private var additionalOptionsExpanded = false
     @State private var showCleanupConfirmation = false
 
@@ -24,15 +23,9 @@ struct BootstrapView: View {
         .frame(minWidth: 620, minHeight: 560)
         .alert("全新安装会删除现有容器", isPresented: $showCleanInstallConfirmation) {
             Button("取消", role: .cancel) { }
-            Button("删除并安装", role: .destructive) { beginAfterWarnings() }
+            Button("删除并安装", role: .destructive) { store.start() }
         } message: {
             Text("容器内的程序、设置和文件将被删除；其中包含的托管 FlexNet 也会被移除。请先移出需要保留的文件。")
-        }
-        .alert("将原样导入注册表文件", isPresented: $showRegistryWarning) {
-            Button("取消", role: .cancel) { }
-            Button("继续导入") { store.start() }
-        } message: {
-            Text("MacSW 不会过滤或改写此文件。它可能修改 Wine 容器中的任意注册表项：\n\n\(store.selectedSerialFile?.url.path ?? "")")
         }
         .alert("清理不完整安装", isPresented: $showCleanupConfirmation) {
             Button("取消", role: .cancel) { }
@@ -54,7 +47,7 @@ struct BootstrapView: View {
                 .foregroundStyle(.purple)
             VStack(alignment: .leading, spacing: 3) {
                 Text("安装 SOLIDWORKS").font(.title2.bold())
-                Text("Bootstrap 只负责准备官方安装介质与 Wine 运行环境")
+                Text("静默完成官方介质部署，无需在安装窗口内操作")
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -79,6 +72,17 @@ struct BootstrapView: View {
                                 .lineLimit(2)
                         }
                         Spacer()
+                        Button {
+                            store.rescanSerials()
+                        } label: {
+                            if store.isInspectingMedia {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .disabled(store.selectedMedia == nil)
+                        .help("重新扫描介质与随附序列号文件")
                         Button(store.selectedMedia == nil ? "选择…" : "更换…") {
                             if let url = OpenPanelService.chooseInstallationMedia() { store.selectMedia(url) }
                         }
@@ -86,7 +90,7 @@ struct BootstrapView: View {
                     .padding(.vertical, 6)
                 }
 
-                DisclosureGroup("附加选项", isExpanded: $additionalOptionsExpanded) {
+                DisclosureGroup("安装选项", isExpanded: $additionalOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 14) {
                         if store.showsCleanInstall {
                             VStack(alignment: .leading, spacing: 6) {
@@ -101,24 +105,50 @@ struct BootstrapView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Toggle("预载序列号", isOn: $store.preloadSerialNumbers)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            if store.preloadSerialNumbers {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Picker("输入方式", selection: $store.serialInputMode) {
-                                        ForEach(SerialInputMode.allCases) { Text($0.rawValue).tag($0) }
-                                    }
-                                    .pickerStyle(.segmented)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("安装序列号").fontWeight(.medium)
+                            SerialFieldRow(
+                                title: InstallSerialField.solidWorks.title,
+                                text: $store.serialSolidWorks,
+                                source: store.serialSources[.solidWorks],
+                                isAmbiguous: store.ambiguousSerialFields.contains(.solidWorks)
+                            )
+                            SerialFieldRow(
+                                title: InstallSerialField.simulation.title,
+                                text: $store.serialSimulation,
+                                source: store.serialSources[.simulation],
+                                isAmbiguous: store.ambiguousSerialFields.contains(.simulation)
+                            )
+                            SerialFieldRow(
+                                title: InstallSerialField.motion.title,
+                                text: $store.serialMotion,
+                                source: store.serialSources[.motion],
+                                isAmbiguous: store.ambiguousSerialFields.contains(.motion)
+                            )
+                            SerialFieldRow(
+                                title: InstallSerialField.mbd.title,
+                                text: $store.serialMBD,
+                                source: store.serialSources[.mbd],
+                                isAmbiguous: store.ambiguousSerialFields.contains(.mbd)
+                            )
+                            Text("SOLIDWORKS 序列号必填，其余三项留空即不安装对应组件。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                                    if store.serialInputMode == .text {
-                                        SerialTextEditor(text: $store.serialText)
-                                    } else {
-                                        serialFilePicker
-                                    }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("界面语言").fontWeight(.medium)
+                            Picker("界面语言", selection: $store.selectedLanguage) {
+                                Text("保留官方默认语言").tag(Optional<SolidWorksLanguage>.none)
+                                ForEach(store.availableLanguages) { language in
+                                    Text(language.displayName).tag(Optional(language))
                                 }
-                                .padding(.leading, 20)
                             }
+                            .labelsHidden()
+                            .disabled(store.availableLanguages.isEmpty)
+                            Text("语言资源取自介质 swwi/lang，在主体安装完成后静默追加。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .padding(.top, 12)
@@ -127,10 +157,14 @@ struct BootstrapView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-                .onChange(of: store.selectedSerialFile) { selectedFile in
-                    if selectedFile?.kind == .registry {
-                        additionalOptionsExpanded = true
-                    }
+                .onChange(of: store.serialSources) { sources in
+                    if !sources.isEmpty { additionalOptionsExpanded = true }
+                }
+
+                if let hint = store.startHint {
+                    Label(hint, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
 
                 Text(store.statusMessage)
@@ -143,40 +177,9 @@ struct BootstrapView: View {
         HStack {
             Button("查看日志") { openLogs() }
             Spacer()
-            Button("开始安装") { requestStart() }
+            Button("开始静默安装") { requestStart() }
                 .buttonStyle(.borderedProminent)
                 .disabled(!store.canStart)
-        }
-    }
-
-    private var serialFilePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(store.selectedSerialFile?.url.lastPathComponent ?? "尚未选择文件")
-                    Text(store.selectedSerialFile?.url.path ?? "支持 .txt 与 .reg")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                Button("选择…") {
-                    if let url = OpenPanelService.chooseSerialInput() { store.selectSerialFile(url) }
-                }
-            }
-            if store.serialCandidates.count > 1 {
-                Picker("检测到多个文件", selection: $store.selectedSerialFile) {
-                    Text("请选择").tag(Optional<SerialInputFile>.none)
-                    ForEach(store.serialCandidates) { candidate in
-                        Text(candidate.url.lastPathComponent).tag(Optional(candidate))
-                    }
-                }
-            }
-            if store.selectedSerialFile?.kind == .registry {
-                Label("该文件将在确认后原样导入", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
         }
     }
 
@@ -226,11 +229,6 @@ struct BootstrapView: View {
 
     private func requestStart() {
         if store.cleanInstall { showCleanInstallConfirmation = true }
-        else { beginAfterWarnings() }
-    }
-
-    private func beginAfterWarnings() {
-        if store.selectedRegistryWillImportRaw { showRegistryWarning = true }
         else { store.start() }
     }
 
@@ -240,43 +238,33 @@ struct BootstrapView: View {
     }
 }
 
-private struct SerialTextEditor: View {
+private struct SerialFieldRow: View {
+    let title: String
     @Binding var text: String
-
-    private static let placeholder = """
-    SolidWorks           XXXX XXXX XXXX XXXX XXXX XXXX
-    COSMOSWorks          XXXX XXXX XXXX XXXX XXXX XXXX
-    COSMOSMotion         XXXX XXXX XXXX XXXX XXXX XXXX
-    COSMOSFloWorks       XXXX XXXX XXXX XXXX XXXX XXXX
-    Composer             XXXX XXXX XXXX XXXX XXXX XXXX
-    ComposerPlayer       XXXX XXXX XXXX XXXX XXXX XXXX
-    Inspection           XXXX XXXX XXXX XXXX XXXX XXXX
-    MBD                  XXXX XXXX XXXX XXXX XXXX XXXX
-    Plastics             XXXX XXXX XXXX XXXX XXXX XXXX
-    Electrical 2D        XXXX XXXX XXXX XXXX XXXX XXXX
-    Electrical 3D        XXXX XXXX XXXX XXXX XXXX XXXX
-    PCB                  XXXX XXXX XXXX XXXX XXXX XXXX
-    Visualize            XXXX XXXX XXXX XXXX XXXX XXXX
-    Visualize Boost      XXXX XXXX XXXX XXXX XXXX XXXX
-    CAM                  XXXX XXXX XXXX XXXX XXXX XXXX
-    SolidNetWork License XXXX XXXX XXXX XXXX XXXX XXXX
-    """
+    let source: URL?
+    let isAmbiguous: Bool
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(.system(.caption, design: .monospaced))
-                .frame(minHeight: 190)
-            if text.isEmpty {
-                Text(Self.placeholder)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 92, alignment: .leading)
+                TextField("XXXX XXXX XXXX XXXX XXXX XXXX", text: $text)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 8)
-                    .allowsHitTesting(false)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if isAmbiguous {
+                Text("随附文件中存在多个不同取值，请确认后手工填写")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            } else if let source {
+                Text("已匹配：\(source.lastPathComponent)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
     }
 }
 

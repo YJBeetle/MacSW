@@ -20,13 +20,26 @@ public final class RegistryService {
         }
     }
 
-    public func importRegistryFile(_ file: URL, prefix: URL) async throws {
-        let process = wine.makeProcess(arguments: ["regedit", "/S", file.path], prefix: prefix.path)
-        let code = try await wine.runCancellable(
-            process,
-            log: wine.logDirectory(prefix.path).appendingPathComponent("registry-import.log")
+    /// 托管 COM 只有注册表内容才算证据；查询失败按全部缺失处理。
+    public func missingCOMRegistrations(
+        at path: String,
+        requires: [String],
+        prefix: URL
+    ) async -> [String] {
+        let process = wine.makeProcess(arguments: ["reg", "query", path, "/s"], prefix: prefix)
+        guard let (status, output) = try? await wine.captureCancellable(process), status == 0 else {
+            return requires
+        }
+        return InstallerDiagnostics.missingRequirements(output: output, required: requires)
+    }
+
+    public func solidWorksApplicationCLSID(prefix: URL) async -> String? {
+        let process = wine.makeProcess(
+            arguments: ["reg", "query", #"HKCR\SldWorks.Application\CLSID"#, "/ve"],
+            prefix: prefix
         )
-        guard code == 0 else { throw registryError("注册表文件导入失败（\(code)）。") }
+        guard let (_, output) = try? await wine.captureCancellable(process) else { return nil }
+        return InstallerDiagnostics.registeredCLSID(fromQuery: output)
     }
 
     public func writeLicenseServers(_ servers: LicenseServerList, prefix: URL, serviceName: String? = nil) async throws {

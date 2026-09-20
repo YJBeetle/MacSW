@@ -138,6 +138,52 @@ public final class PrerequisiteService: @unchecked Sendable {
         }
     }
 
+    public func installLanguage(media: URL, language: SolidWorksLanguage, prefix: URL) async throws {
+        let installer = media.appendingPathComponent(LanguageCatalog.relativeMSIPath(language))
+        guard FileManager.default.fileExists(atPath: installer.path) else {
+            throw failure("所选介质缺少 \(language.displayName) 语言资源。")
+        }
+        let logs = wine.logDirectory(prefix.path)
+        let msiLog = logs.appendingPathComponent("language-install.log")
+        let code = try await wine.runMSIExec(
+            arguments: SilentInstallerPlan.languageInstallArguments(msi: installer, log: msiLog),
+            prefix: prefix,
+            log: logs.appendingPathComponent("language-wine.log")
+        )
+        guard WineService.isSuccessfulPrerequisiteStatus(code) else {
+            throw failure("\(language.displayName) 语言资源安装失败（\(code)），请查看 \(msiLog.path)。")
+        }
+        let resources = AppPaths.resolveSolidWorksExecutable(in: prefix)
+            .deletingLastPathComponent()
+            .appendingPathComponent("lang/\(language.directoryName)")
+        guard FileManager.default.fileExists(atPath: resources.path) else {
+            throw failure("语言安装器已退出，但未找到 \(resources.path)。")
+        }
+    }
+
+    /// Wine 侧部分安装动作会按 8.3 短名解析 Program Files；真实目录存在时补符号链接。
+    public static func prepareShortNameAliases(prefix: URL, fileManager: FileManager = .default) throws {
+        for (directory, alias) in [("Program Files", "PROGRA~1"), ("Program Files (x86)", "PROGRA~2")] {
+            let root = prefix.appendingPathComponent("drive_c")
+            guard fileManager.fileExists(atPath: root.appendingPathComponent(directory).path) else { continue }
+            let link = root.appendingPathComponent(alias)
+            let values = try? link.resourceValues(forKeys: [.isSymbolicLinkKey])
+            // 已经是指向正确目标的链接就跳过；是真实目录时绝不覆盖删除。
+            if values?.isSymbolicLink == true {
+                let destination = (try? fileManager.destinationOfSymbolicLink(atPath: link.path)) ?? ""
+                if destination == directory { continue }
+                try fileManager.removeItem(at: link)
+            } else if values?.isSymbolicLink == false {
+                continue
+            }
+            try fileManager.createSymbolicLink(atPath: link.path, withDestinationPath: directory)
+        }
+    }
+
+    public func prepareShortNameAliases(prefix: URL) throws {
+        try Self.prepareShortNameAliases(prefix: prefix)
+    }
+
     public func installThemes(media: URL, prefix: URL, target: URL) async throws {
         let fileManager = FileManager.default
         let source = media.appendingPathComponent("PreReqs/dotNetFx/ndp48-x86-x64-allos-enu.exe")

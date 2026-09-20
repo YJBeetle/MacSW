@@ -1,11 +1,12 @@
 import Foundation
 
 public enum InstallationStep: Int, CaseIterable, Identifiable, Sendable {
-    case environment = 1
+    case media = 1
+    case environment
     case vcRuntime
     case loginManager
-    case serialNumbers
     case installer
+    case language
     case wpfThemes
     case validation
 
@@ -13,11 +14,12 @@ public enum InstallationStep: Int, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .environment: return "准备运行环境与挂载介质"
+        case .media: return "校验官方安装介质"
+        case .environment: return "准备 Wine 运行环境与托管 COM"
         case .vcRuntime: return "安装微软 VC++ 运行库"
         case .loginManager: return "安装 SOLIDWORKS Login Manager"
-        case .serialNumbers: return "预载安装序列号"
-        case .installer: return "运行 SOLIDWORKS 官方安装器"
+        case .installer: return "静默部署 SOLIDWORKS 主体"
+        case .language: return "安装官方语言资源"
         case .wpfThemes: return "补齐微软官方 WPF 主题库"
         case .validation: return "检查部署结果"
         }
@@ -49,29 +51,4 @@ public enum InstallationState: Equatable, Sendable {
         default: return false
         }
     }
-}
-
-public enum SerialInputMode: String, CaseIterable, Identifiable, Sendable {
-    case text = "文本输入"
-    case file = "选择文件"
-    public var id: String { rawValue }
-}
-
-public enum SerialInputFileKind: Hashable, Sendable {
-    case text
-    case registry
-}
-
-public struct SerialInputFile: Identifiable, Hashable, Sendable {
-    public let url: URL
-    public let kind: SerialInputFileKind
-    public let depth: Int
-
-    public init(url: URL, kind: SerialInputFileKind, depth: Int) {
-        self.url = url
-        self.kind = kind
-        self.depth = depth
-    }
-
-    public var id: String { url.standardizedFileURL.path }
 }

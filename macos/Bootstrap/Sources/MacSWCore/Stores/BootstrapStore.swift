@@ -9,11 +9,15 @@ public extension Notification.Name {
 public final class BootstrapStore: ObservableObject {
     @Published public var selectedMedia: URL?
     @Published public var cleanInstall = false
-    @Published public var preloadSerialNumbers = false
-    @Published public var serialInputMode: SerialInputMode = .text
-    @Published public var serialText = ""
-    @Published public var selectedSerialFile: SerialInputFile?
-    @Published public private(set) var serialCandidates: [SerialInputFile] = []
+    @Published public var serialSolidWorks = ""
+    @Published public var serialSimulation = ""
+    @Published public var serialMotion = ""
+    @Published public var serialMBD = ""
+    @Published public var selectedLanguage: SolidWorksLanguage?
+    @Published public private(set) var availableLanguages: [SolidWorksLanguage] = []
+    @Published public private(set) var serialSources: [InstallSerialField: URL] = [:]
+    @Published public private(set) var ambiguousSerialFields: [InstallSerialField] = []
+    @Published public private(set) var isInspectingMedia = false
     @Published public private(set) var state: InstallationState = .idle
     @Published public private(set) var stepStatuses: [InstallationStep: InstallationStepStatus] = [:]
     @Published public private(set) var stepDetails: [InstallationStep: String] = [:]
@@ -25,6 +29,7 @@ public final class BootstrapStore: ObservableObject {
     private let registry: RegistryService
     private let iso: IsoService
     private var installationTask: Task<Void, Never>?
+    private var inspectionTask: Task<Void, Never>?
 
     public init(
         paths: AppPaths,
@@ -40,18 +45,38 @@ public final class BootstrapStore: ObservableObject {
         self.iso = iso
     }
 
-    public var canStart: Bool {
-        guard selectedMedia != nil, !state.isActive else { return false }
-        guard preloadSerialNumbers else { return true }
-        switch serialInputMode {
-        case .text: return !serialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .file: return selectedSerialFile != nil
+    public var serials: InstallSerials {
+        get {
+            InstallSerials(values: [
+                .solidWorks: serialSolidWorks,
+                .simulation: serialSimulation,
+                .motion: serialMotion,
+                .mbd: serialMBD
+            ])
+        }
+        set {
+            serialSolidWorks = newValue[.solidWorks]
+            serialSimulation = newValue[.simulation]
+            serialMotion = newValue[.motion]
+            serialMBD = newValue[.mbd]
         }
     }
-    public var showsCleanInstall: Bool { paths.bottleExists }
-    public var selectedRegistryWillImportRaw: Bool {
-        preloadSerialNumbers && serialInputMode == .file && selectedSerialFile?.kind == .registry
+
+    public var canStart: Bool {
+        selectedMedia != nil
+            && !state.isActive
+            && serials.isComplete
+            && serials.invalidFields().isEmpty
     }
+
+    public var startHint: String? {
+        let invalid = serials.invalidFields()
+        if !invalid.isEmpty { return "\(invalid.map(\.title).joined(separator: "、")) 需要六组四字符。" }
+        if !serials.isComplete { return "静默安装必须至少提供 SOLIDWORKS 序列号。" }
+        return nil
+    }
+
+    public var showsCleanInstall: Bool { paths.bottleExists }
 
     public func selectMedia(_ url: URL) {
         var isDirectory: ObjCBool = false
@@ -62,44 +87,65 @@ public final class BootstrapStore: ObservableObject {
             return
         }
         selectedMedia = url
-        statusMessage = "已选择：\(url.lastPathComponent)"
-        scanSerialInputs()
+        availableLanguages = []
+        selectedLanguage = nil
+        serialSources = [:]
+        ambiguousSerialFields = []
+        statusMessage = "已选择：\(url.lastPathComponent)；正在读取介质与随附序列号文件…"
+        inspectMedia(url)
     }
 
-    public func selectSerialFile(_ url: URL) {
-        let kind: SerialInputFileKind
-        switch url.pathExtension.lowercased() {
-        case "txt": kind = .text
-        case "reg": kind = .registry
-        default:
-            statusMessage = "预载序列号文件仅支持 .txt 或 .reg。"
-            return
-        }
-        selectedSerialFile = SerialInputFile(url: url, kind: kind, depth: 0)
-        preloadSerialNumbers = true
-        serialInputMode = .file
-        statusMessage = kind == .registry
-            ? "已选择注册表文件；部署前将提示原样导入。"
-            : "已选择序列号文本文件。"
-    }
-
-    public func scanSerialInputs() {
+    public func rescanSerials() {
         guard let selectedMedia else { return }
-        Task {
-            let candidates = await Task.detached {
-                CompanionFileService.findSerialInputs(nextTo: selectedMedia)
-            }.value
-            guard self.selectedMedia == selectedMedia else { return }
-            serialCandidates = candidates
-            if let preferred = CompanionFileService.preferredAutomaticSelection(from: candidates) {
-                selectedSerialFile = preferred
-                preloadSerialNumbers = true
-                serialInputMode = .file
-                statusMessage = "已自动识别序列号文件：\(preferred.url.lastPathComponent)"
-            } else if candidates.count > 1 {
-                statusMessage = "发现多个序列号文件，请选择要使用的文件。"
+        inspectMedia(selectedMedia)
+    }
+
+    private func inspectMedia(_ url: URL) {
+        inspectionTask?.cancel()
+        inspectionTask = Task { [weak self] in
+            guard let self else { return }
+            self.isInspectingMedia = true
+            var mounted: URL?
+            var result: (discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage])?
+            do {
+                if url.pathExtension.caseInsensitiveCompare("iso") == .orderedSame {
+                    mounted = try await self.iso.mount(url)
+                }
+                let mediaRoot = mounted ?? url
+                let searchRoots = [url.deletingLastPathComponent(), mediaRoot]
+                result = await Task.detached {
+                    (SerialDiscoveryService.discover(in: searchRoots), LanguageCatalog.discover(in: mediaRoot))
+                }.value
+            } catch {
+                statusMessage = "介质读取失败：\(error.localizedDescription)"
             }
+            if let mounted { self.iso.unmount(mounted) }
+            self.isInspectingMedia = false
+            guard let result, !Task.isCancelled, self.selectedMedia == url else { return }
+            apply(discovery: result.discovery, languages: result.languages)
         }
+    }
+
+    private func apply(discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage]) {
+        serials = serials.merging(discovery.serials)
+        serialSources = discovery.sources
+        ambiguousSerialFields = discovery.ambiguousFields
+        availableLanguages = languages
+        if selectedLanguage == nil { selectedLanguage = LanguageCatalog.preferred(from: languages) }
+
+        var notes: [String] = []
+        let matched = InstallSerialField.allCases.filter { !discovery.serials[$0].isEmpty }
+        if matched.isEmpty {
+            notes.append("未在介质同级或子级文本中找到序列号")
+        } else {
+            let sources = Set(discovery.sources.values.map(\.lastPathComponent))
+            notes.append("已匹配 \(matched.map(\.title).joined(separator: "、"))（来自 \(sources.sorted().joined(separator: "、"))）")
+        }
+        if !ambiguousSerialFields.isEmpty {
+            notes.append("\(ambiguousSerialFields.map(\.title).joined(separator: "、")) 存在多个不同取值，请手工确认")
+        }
+        notes.append(languages.isEmpty ? "介质内未发现可选语言资源" : "语言资源 \(languages.count) 项可选")
+        statusMessage = notes.joined(separator: "；") + "。"
     }
 
     public func start() {
@@ -139,11 +185,12 @@ public final class BootstrapStore: ObservableObject {
 
     private func runInstallation() async {
         guard let selectedMedia else { return }
+        let request = SerialRequest(serials: serials, language: selectedLanguage)
         state = .preparing
         stepStatuses = [:]
         stepDetails = [:]
-        report(.environment, .running, "正在准备安装介质与唯一 Wine 容器…")
-        statusMessage = "正在准备官方安装程序…"
+        report(.media, .running, "正在校验官方安装介质…")
+        statusMessage = "正在校验安装介质…"
         var mountedByApp: URL?
         defer {
             if let mountedByApp { iso.unmount(mountedByApp) }
@@ -151,7 +198,6 @@ public final class BootstrapStore: ObservableObject {
         }
 
         do {
-            let preparedSerialInput = try prepareSerialInput()
             let media: URL
             if selectedMedia.pathExtension.caseInsensitiveCompare("iso") == .orderedSame {
                 media = try await iso.mount(selectedMedia)
@@ -160,13 +206,16 @@ public final class BootstrapStore: ObservableObject {
                 media = selectedMedia
             }
             try Task.checkCancellation()
-            let installer = media.appendingPathComponent("swwi/data/solidworks.msi")
-            guard FileManager.default.fileExists(atPath: installer.path) else {
-                throw bootstrapError("介质中未找到 swwi/data/solidworks.msi。")
+
+            let missing = InstallationMedia.missingComponents(in: media, language: request.language)
+            guard missing.isEmpty else {
+                throw bootstrapError("介质缺少必需组件：\(missing.map(\.label).joined(separator: "、"))。")
             }
+            report(.media, .completed, "官方 MSI、前置库与 Toolbox 齐备")
+            let installerMSI = media.appendingPathComponent(SilentInstallerPlan.coreMSIRelativePath)
 
             if cleanInstall, paths.bottleExists {
-                try validateInputsOutsideBottle([selectedMedia, selectedSerialFile?.url, media].compactMap { $0 })
+                try validateInputsOutsideBottle([selectedMedia, media])
                 guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
                     throw bootstrapError("未能停止容器进程，已取消全新安装。")
                 }
@@ -175,12 +224,15 @@ public final class BootstrapStore: ObservableObject {
             }
             try Task.checkCancellation()
 
+            state = .installing(.environment)
+            report(.environment, .running, "正在准备 Wine 容器与托管 COM 运行时…")
             let wineboot = wine.makeProcess(arguments: ["wineboot", "-u"], prefix: paths.bottle)
             let bootCode = try await wine.runCancellable(
                 wineboot,
                 log: paths.logs.appendingPathComponent("wineboot.log")
             )
             guard bootCode == 0 else { throw bootstrapError("Wine 初始化失败（\(bootCode)）。") }
+            try prerequisites.prepareShortNameAliases(prefix: paths.bottle)
             try await prerequisites.configureMono(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMRegistration(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMDependencies(prefix: paths.bottle)
@@ -188,29 +240,60 @@ public final class BootstrapStore: ObservableObject {
             report(.environment, .completed, "Mono、RegAsm、stdole 与输入兼容设置已就绪")
 
             state = .installing(.vcRuntime)
-            report(.vcRuntime, .running, "正在运行官方 VC++ x64 安装包…")
+            report(.vcRuntime, .running, "正在静默安装官方 VC++ x64 运行库…")
             try await prerequisites.installVC(media: media, prefix: paths.bottle)
-            report(.vcRuntime, .completed, "VC++ 运行库已检查")
+            report(.vcRuntime, .completed, "VC++ 运行库已校验")
 
             state = .installing(.loginManager)
-            report(.loginManager, .running, "正在后台安装 SOLIDWORKS Login Manager…")
+            report(.loginManager, .running, "正在静默安装 SOLIDWORKS Login Manager…")
             try await prerequisites.installLoginManager(media: media, prefix: paths.bottle)
-            report(.loginManager, .completed, "Login Manager 与托管 COM 注册已完成")
-
-            state = .installing(.serialNumbers)
-            report(.serialNumbers, .running, "正在准备安装序列号…")
-            try await preloadSerials(preparedSerialInput)
+            let missingLoginManager = await registry.missingCOMRegistrations(
+                at: "HKCR\\CLSID\\\(InstallerDiagnostics.loginManagerCLSID)\\InprocServer32",
+                requires: InstallerDiagnostics.loginManagerRequirements,
+                prefix: paths.bottle
+            )
+            guard missingLoginManager.isEmpty else {
+                throw bootstrapError("Login Manager 托管 COM 注册缺少 \(missingLoginManager.joined(separator: "、"))。")
+            }
+            report(.loginManager, .completed, "托管 COM 注册已校验")
 
             state = .installing(.installer)
-            report(.installer, .running, "请在官方安装窗口继续操作；可随时停止本次安装")
-            let installerCode = try await wine.runInstaller(msi: installer, prefix: paths.bottle)
+            report(.installer, .running, "正在静默部署 SOLIDWORKS 主体，请勿关闭本窗口…")
+            let msiLog = paths.logs.appendingPathComponent("install_msi.log")
+            let installerCode = try await wine.runMSIExec(
+                arguments: SilentInstallerPlan.coreInstallArguments(
+                    msi: installerMSI,
+                    log: msiLog,
+                    serials: request.serials
+                ),
+                prefix: paths.bottle,
+                log: paths.logs.appendingPathComponent("installer-wine.log")
+            )
             if WineService.isCancelledInstallerStatus(installerCode) { throw CancellationError() }
-            let installerSucceeded = WineService.isSuccessfulInstallerStatus(installerCode)
-            report(.installer, installerSucceeded ? .completed : .warning, "安装器退出码 \(installerCode)")
+            guard WineService.isSuccessfulInstallerStatus(installerCode) else {
+                throw bootstrapError("SOLIDWORKS 静默安装失败（\(installerCode)）。\(msiFailureDetail(msiLog))")
+            }
+            if await wine.waitWineserver(prefix: paths.bottle, seconds: 30) {
+                report(.installer, .completed, "官方 MSI 已静默完成（退出码 \(installerCode)）")
+            } else {
+                guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
+                    throw bootstrapError("安装器遗留进程未能停止，容器仍处于锁定状态。")
+                }
+                report(.installer, .completed, "官方 MSI 已静默完成，已收敛遗留的 Wine 辅助进程")
+            }
             try Task.checkCancellation()
 
             guard paths.solidWorksInstalled else {
                 throw bootstrapError("安装器已退出，但未找到 SOLIDWORKS 主程序。")
+            }
+
+            state = .installing(.language)
+            if let language = request.language {
+                report(.language, .running, "正在安装 \(language.displayName) 语言资源…")
+                try await prerequisites.installLanguage(media: media, language: language, prefix: paths.bottle)
+                report(.language, .completed, "\(language.displayName) 语言资源已就位")
+            } else {
+                report(.language, .skipped, "未选择语言资源，保留官方默认语言")
             }
 
             state = .installing(.wpfThemes)
@@ -223,11 +306,10 @@ public final class BootstrapStore: ObservableObject {
             report(.wpfThemes, .completed, "五个 WPF 主题库已补齐")
 
             state = .installing(.validation)
-            report(.validation, .running, "正在验证安装结果…")
-            try validateInstalledRuntime()
+            report(.validation, .running, "正在验证主程序、COM 注册与主题库…")
+            try await validateInstalledRuntime()
             try writeInstallationReceipt()
-            report(.validation, installerSucceeded ? .completed : .warning,
-                   installerSucceeded ? "基础文件检查通过" : "文件检查通过，但安装器返回了警告状态")
+            report(.validation, .completed, "主程序、SldWorks.Application COM 注册与主题库校验通过")
             state = .completed
             statusMessage = "安装完成，MacSW 将切换到菜单栏并启动 SOLIDWORKS。"
             NotificationCenter.default.post(name: .macSWInstallationCompleted, object: nil)
@@ -246,51 +328,20 @@ public final class BootstrapStore: ObservableObject {
         }
     }
 
-    private enum PreparedSerialInput {
-        case none
-        case assignments([RegistryAssignment], String)
-        case registry(URL)
+    private struct SerialRequest {
+        let serials: InstallSerials
+        let language: SolidWorksLanguage?
     }
 
-    private func prepareSerialInput() throws -> PreparedSerialInput {
-        guard preloadSerialNumbers else { return .none }
-        switch serialInputMode {
-        case .text:
-            let parsed = try SerialNumberService.parse(serialText)
-            return .assignments(
-                SerialNumberService.registryAssignments(for: parsed),
-                "已写入 \(parsed.values.count) 个产品序列号"
-            )
-        case .file:
-            guard let selectedSerialFile else { throw bootstrapError("请选择序列号文本或注册表文件。") }
-            guard FileManager.default.fileExists(atPath: selectedSerialFile.url.path) else {
-                throw bootstrapError("序列号文件不存在：\(selectedSerialFile.url.path)")
-            }
-            switch selectedSerialFile.kind {
-            case .text:
-                let text = try String(contentsOf: selectedSerialFile.url, encoding: .utf8)
-                let parsed = try SerialNumberService.parse(text)
-                return .assignments(
-                    SerialNumberService.registryAssignments(for: parsed),
-                    "已解析并写入 \(selectedSerialFile.url.lastPathComponent)"
-                )
-            case .registry:
-                return .registry(selectedSerialFile.url)
-            }
+    private func msiFailureDetail(_ log: URL) -> String {
+        guard let data = try? Data(contentsOf: log), let text = PlainTextDecoder.decode(data) else {
+            return " 请查看 \(log.path)。"
         }
-    }
-
-    private func preloadSerials(_ prepared: PreparedSerialInput) async throws {
-        switch prepared {
-        case .none:
-            report(.serialNumbers, .skipped, "未启用预载序列号")
-        case .assignments(let assignments, let detail):
-            try await registry.write(assignments, prefix: paths.bottle)
-            report(.serialNumbers, .completed, detail)
-        case .registry(let url):
-            try await registry.importRegistryFile(url, prefix: paths.bottle)
-            report(.serialNumbers, .completed, "已原样导入 \(url.lastPathComponent)")
-        }
+        let summary = InstallerDiagnostics.msiErrorSummary(text)
+        guard !summary.isEmpty else { return " 请查看 \(log.path)。" }
+        let errors = paths.logs.appendingPathComponent("install_msi_errors.log")
+        try? summary.joined(separator: "\n").data(using: .utf8)?.write(to: errors)
+        return " 关键错误：\n\(summary.suffix(6).joined(separator: "\n"))\n完整摘要见 \(errors.path)。"
     }
 
     private func report(_ step: InstallationStep, _ status: InstallationStepStatus, _ detail: String) {
@@ -298,13 +349,24 @@ public final class BootstrapStore: ObservableObject {
         stepDetails[step] = detail
     }
 
-    private func validateInstalledRuntime() throws {
+    private func validateInstalledRuntime() async throws {
         guard paths.solidWorksInstalled else { throw bootstrapError("未找到 SOLIDWORKS 主程序。") }
         let target = paths.solidWorksExecutable.deletingLastPathComponent()
         for theme in PrerequisiteService.themes {
             guard FileManager.default.fileExists(atPath: target.appendingPathComponent("PresentationFramework.\(theme).dll").path) else {
                 throw bootstrapError("缺少 WPF 主题库 PresentationFramework.\(theme).dll。")
             }
+        }
+        guard let clsid = await registry.solidWorksApplicationCLSID(prefix: paths.bottle) else {
+            throw bootstrapError("官方 MSI 未注册 SldWorks.Application ProgID。")
+        }
+        let missing = await registry.missingCOMRegistrations(
+            at: "HKCR\\CLSID\\\(clsid)",
+            requires: InstallerDiagnostics.solidWorksRequirements,
+            prefix: paths.bottle
+        )
+        guard missing.isEmpty else {
+            throw bootstrapError("SOLIDWORKS COM 注册缺少 \(missing.joined(separator: "、"))。")
         }
     }
 

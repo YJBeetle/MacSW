@@ -31,26 +31,28 @@ final class InstallSerialsTests: XCTestCase {
         XCTAssertTrue(serials.invalidFields().isEmpty)
     }
 
-    func testMergingMapsAddinProductsToMSIFieldsAndIgnoresTheRest() {
-        let parsed = ParsedSerialNumbers(values: [
-            .solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA",
-            .cosmosWorks: "BBBB BBBB BBBB BBBB BBBB BBBB",
-            .cosmosMotion: "CCCC CCCC CCCC CCCC CCCC CCCC",
-            .mbd: "DDDD DDDD DDDD DDDD DDDD DDDD",
-            .plastics: "EEEE EEEE EEEE EEEE EEEE EEEE"
-        ])
-        let merged = InstallSerials().merging(parsed)
-        XCTAssertEqual(merged[.simulation], "BBBB BBBB BBBB BBBB BBBB BBBB")
-        XCTAssertEqual(merged[.motion], "CCCC CCCC CCCC CCCC CCCC CCCC")
-        XCTAssertEqual(merged[.mbd], "DDDD DDDD DDDD DDDD DDDD DDDD")
-        XCTAssertEqual(merged.msiProperties.count, 4)
+    func testOnlyMSICapableProductsHaveFields() {
+        XCTAssertEqual(InstallSerialField.forProduct(.solidWorks), .solidWorks)
+        XCTAssertEqual(InstallSerialField.forProduct(.cosmosWorks), .simulation)
+        XCTAssertEqual(InstallSerialField.forProduct(.cosmosMotion), .motion)
+        XCTAssertEqual(InstallSerialField.forProduct(.mbd), .mbd)
+        XCTAssertNil(InstallSerialField.forProduct(.plastics))
+        XCTAssertNil(InstallSerialField.forProduct(.visualize))
     }
 
-    func testMergingKeepsValuesTheUserAlreadyTyped() {
-        let parsed = ParsedSerialNumbers(values: [.solidWorks: "BBBB BBBB BBBB BBBB BBBB BBBB"])
-        var serials = InstallSerials()
-        serials[.solidWorks] = "AAAA AAAA AAAA AAAA AAAA AAAA"
-        XCTAssertEqual(serials.merging(parsed)[.solidWorks], "AAAA AAAA AAAA AAAA AAAA AAAA")
+    func testMergingFillsOnlyEmptyFields() {
+        var discovered = InstallSerials(values: [
+            .solidWorks: "BBBB BBBB BBBB BBBB BBBB BBBB",
+            .simulation: "CCCC CCCC CCCC CCCC CCCC CCCC",
+            .motion: "   "
+        ])
+        var typed = InstallSerials(values: [.solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA"])
+        typed = typed.merging(discovered)
+        XCTAssertEqual(typed[.solidWorks], "AAAA AAAA AAAA AAAA AAAA AAAA")
+        XCTAssertEqual(typed[.simulation], "CCCC CCCC CCCC CCCC CCCC CCCC")
+        XCTAssertTrue(typed[.motion].isEmpty)
+        discovered[.mbd] = "  "
+        XCTAssertTrue(InstallSerials().merging(discovered)[.mbd].isEmpty)
     }
 }
 

@@ -89,11 +89,13 @@ public struct InstallSerials: Equatable, Sendable {
         }
     }
 
-    public func merging(_ parsed: ParsedSerialNumbers) -> InstallSerials {
+    /// 只回填用户尚未填写的字段，不覆盖手工输入。
+    public func merging(_ discovered: InstallSerials) -> InstallSerials {
         var result = self
-        for (product, value) in parsed.values {
-            guard let field = InstallSerialField.forProduct(product) else { continue }
-            if result.normalized(field).isEmpty { result[field] = value }
+        for field in InstallSerialField.allCases where normalized(field).isEmpty {
+            let value = discovered[field]
+            guard !Self.normalized(value).isEmpty else { continue }
+            result[field] = value
         }
         return result
     }

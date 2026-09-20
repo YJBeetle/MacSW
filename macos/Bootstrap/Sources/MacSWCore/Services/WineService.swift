@@ -195,16 +195,34 @@ public final class WineService: @unchecked Sendable {
         }
     }
 
-    public func runInstaller(msi: URL, prefix: URL) async throws -> Int32 {
-        let logs = logDirectory(prefix.path)
-        let arguments = [
-            "msiexec", "/i", msi.path, "DISABLEROLLBACK=1", "/l*v",
-            logs.appendingPathComponent("install_msi.log").path
-        ]
-        return try await runCancellable(
+    public func runMSIExec(arguments: [String], prefix: URL, log: URL) async throws -> Int32 {
+        try await runCancellable(
             makeProcess(arguments: arguments, prefix: prefix),
-            log: logs.appendingPathComponent("installer-wine.log")
+            log: log
         )
+    }
+
+    /// msiexec 返回后 wineserver 可能仍在收尾；官方安装包也会留下更新器
+    /// 之类的辅助进程，必须在继续之前让它们沉降或退出。
+    public func waitWineserver(prefix: URL, seconds: TimeInterval) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                let process = self.makeProcess(arguments: ["-w"], prefix: prefix)
+                process.executableURL = self.wineServerBinary
+                let status = try? await self.runCancellable(
+                    process,
+                    log: self.logDirectory(prefix.path).appendingPathComponent("wineserver.log")
+                )
+                return status == 0
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return false
+            }
+            let settled = await group.next() ?? false
+            group.cancelAll()
+            return settled
+        }
     }
 
     public func launchSolidWorks(executable: URL, prefix: URL, completion: @escaping (Bool, String) -> Void) {

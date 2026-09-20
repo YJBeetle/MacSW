@@ -35,7 +35,7 @@ public enum SerialDiscoveryService {
         for file in candidateFiles(in: roots, fileManager: fileManager) {
             result.scannedFiles.append(file)
             guard let data = try? Data(contentsOf: file),
-                  let text = decode(data),
+                  let text = PlainTextDecoder.decode(data),
                   let parsed = try? SerialNumberService.parse(text) else { continue }
             for (product, value) in parsed.values {
                 guard let field = InstallSerialField.forProduct(product) else { continue }
@@ -90,15 +90,6 @@ public enum SerialDiscoveryService {
             }
         }
         return sorted(candidates)
-    }
-
-    /// 官方注册表导出常是 UTF-16，随附说明文本可能是非 UTF-8 代码页，逐个兜底。
-    public static func decode(_ data: Data) -> String? {
-        guard !data.isEmpty else { return nil }
-        if data.starts(with: [0xFF, 0xFE]) { return String(data: data, encoding: .utf16LittleEndian) }
-        if data.starts(with: [0xFE, 0xFF]) { return String(data: data, encoding: .utf16BigEndian) }
-        if let text = String(data: data, encoding: .utf8) { return text }
-        return String(data: data, encoding: .windowsCP1252)
     }
 
     private static func sorted(_ candidates: [Candidate]) -> [URL] {

@@ -62,19 +62,6 @@ enum OpenPanelService {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    static func chooseSerialInput() -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType.plainText,
-            UTType(filenameExtension: "reg") ?? .data
-        ]
-        panel.message = "选择序列号 .txt 或注册表 .reg 文件"
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-
     static func chooseFlexNetPackage() -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
