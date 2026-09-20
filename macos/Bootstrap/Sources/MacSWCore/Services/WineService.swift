@@ -36,17 +36,6 @@ public final class WineService: @unchecked Sendable {
         return activePrefixes.contains(prefix.path)
     }
 
-    public func isSolidWorksProcessRunning(prefix: URL) async -> Bool {
-        if isRunning(prefix: prefix) { return true }
-        guard FileManager.default.fileExists(atPath: prefix.path),
-              FileManager.default.isExecutableFile(atPath: wineBinary.path) else { return false }
-        let process = makeProcess(arguments: [
-            "tasklist", "/fi", "IMAGENAME eq SLDWORKS.exe", "/fo", "csv", "/nh"
-        ], prefix: prefix)
-        guard let (status, output) = try? await captureCancellable(process), status == 0 else { return false }
-        return output.range(of: "SLDWORKS.exe", options: .caseInsensitive) != nil
-    }
-
     public static func isSuccessfulPrerequisiteStatus(_ code: Int32) -> Bool {
         [Int32(0), 3010, 194, 1638, 102].contains(code)
     }

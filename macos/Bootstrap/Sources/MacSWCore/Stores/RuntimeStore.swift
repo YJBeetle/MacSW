@@ -5,6 +5,7 @@ import Foundation
 public final class RuntimeStore: ObservableObject {
     @Published public private(set) var state: SolidWorksRuntimeState
     @Published public private(set) var statusMessage = ""
+    @Published public private(set) var processes: [WineProcess] = []
 
     public let paths: AppPaths
     private let wine: WineService
@@ -124,11 +125,11 @@ public final class RuntimeStore: ObservableObject {
     }
 
     private func refreshState() async {
-        if await wine.isSolidWorksProcessRunning(prefix: paths.bottle) {
-            state = .running
-        } else {
-            state = paths.solidWorksInstalled ? .stopped : .unavailable
-        }
+        let snapshot = await ProcessInventory.snapshot()
+        processes = snapshot
+        state = ProcessInventory.isSolidWorksRunning(snapshot)
+            ? .running
+            : (paths.solidWorksInstalled ? .stopped : .unavailable)
     }
 
     private func runtimeError(_ message: String) -> NSError {
