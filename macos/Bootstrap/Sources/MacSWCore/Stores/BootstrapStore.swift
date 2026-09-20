@@ -180,6 +180,7 @@ public final class BootstrapStore: ObservableObject {
             try FileManager.default.removeItem(at: paths.bottle)
         }
         try? FileManager.default.removeItem(at: installationReceipt)
+        AppPaths.invalidateInstallationState()
         statusMessage = "不完整安装已清理。"
     }
 
@@ -225,6 +226,7 @@ public final class BootstrapStore: ObservableObject {
                 }
                 try FileManager.default.removeItem(at: paths.bottle)
                 try? FileManager.default.removeItem(at: installationReceipt)
+                AppPaths.invalidateInstallationState()
             }
             try Task.checkCancellation()
 
@@ -288,6 +290,7 @@ public final class BootstrapStore: ObservableObject {
             }
             try Task.checkCancellation()
 
+            AppPaths.invalidateInstallationState()
             guard paths.solidWorksInstalled else {
                 throw bootstrapError("安装器已退出，但未找到 SOLIDWORKS 主程序。")
             }

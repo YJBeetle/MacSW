@@ -32,7 +32,33 @@ public struct AppPaths: Sendable {
         FileManager.default.fileExists(atPath: solidWorksExecutable.path)
     }
 
+    private static let memoLock = NSLock()
+    private static var executableMemo: [String: URL] = [:]
+
+    /// 解析结果按容器路径缓存：system.reg 有十几 MB，逐行扫描不能出现在界面刷新路径上。
     public static func resolveSolidWorksExecutable(in bottle: URL, fileManager: FileManager = .default) -> URL {
+        let key = bottle.standardizedFileURL.path
+        memoLock.lock()
+        if let cached = executableMemo[key] {
+            memoLock.unlock()
+            return cached
+        }
+        memoLock.unlock()
+        let resolved = locateSolidWorksExecutable(in: bottle, fileManager: fileManager)
+        memoLock.lock()
+        executableMemo[key] = resolved
+        memoLock.unlock()
+        return resolved
+    }
+
+    /// 安装完成、容器被删除等改变磁盘状态之后必须调用。
+    public static func invalidateInstallationState() {
+        memoLock.lock()
+        executableMemo.removeAll()
+        memoLock.unlock()
+    }
+
+    private static func locateSolidWorksExecutable(in bottle: URL, fileManager: FileManager) -> URL {
         let systemRegistry = bottle.appendingPathComponent("system.reg")
         if let contents = try? String(contentsOf: systemRegistry, encoding: .utf8) {
             for line in contents.split(separator: "\n") {
