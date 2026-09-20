@@ -139,7 +139,7 @@ struct BootstrapView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("界面语言").fontWeight(.medium)
                             Picker("界面语言", selection: $store.selectedLanguage) {
-                                Text("英文（介质默认，不追加语言资源）").tag(Optional<SolidWorksLanguage>.none)
+                                Text("English").tag(Optional<SolidWorksLanguage>.none)
                                 ForEach(store.availableLanguages) { language in
                                     Text(language.displayName).tag(Optional(language))
                                 }
