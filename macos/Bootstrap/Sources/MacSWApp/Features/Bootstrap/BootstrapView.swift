@@ -8,6 +8,7 @@ struct BootstrapView: View {
     @State private var showCleanInstallConfirmation = false
     @State private var additionalOptionsExpanded = false
     @State private var showCleanupConfirmation = false
+    @State private var heights = WindowHeights()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -21,7 +22,9 @@ struct BootstrapView: View {
         }
         .padding(24)
         .frame(minWidth: 620)
-        .autoHeightWindow()
+        .reportRootHeight()
+        .collectWindowHeights { heights = $0 }
+        .autoHeightWindow(targetContentHeight: heights.targetContentHeight)
         .alert("全新安装会删除现有容器", isPresented: $showCleanInstallConfirmation) {
             Button("取消", role: .cancel) { }
             Button("删除并安装", role: .destructive) { store.start() }
@@ -92,7 +95,22 @@ struct BootstrapView: View {
                 }
                 .modifier(FileDropArea { store.selectMedia($0) })
 
-                DisclosureGroup("安装选项", isExpanded: $additionalOptionsExpanded) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        additionalOptionsExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .rotationEffect(.degrees(additionalOptionsExpanded ? 90 : 0))
+                            Text("安装选项").fontWeight(.medium)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 3)
+                    }
+                    .buttonStyle(.plain)
+                    if additionalOptionsExpanded {
                     VStack(alignment: .leading, spacing: 14) {
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle("静默安装", isOn: $store.silentInstall)
@@ -214,6 +232,7 @@ struct BootstrapView: View {
                     }
                     .padding(.top, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
@@ -233,8 +252,9 @@ struct BootstrapView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
-            .reportScrollContentHeight()
+            .reportIdealScrollHeight()
         }
+        .frame(height: heights.pinnedScrollHeight)
         .reportViewportHeight()
 
         HStack {
@@ -259,8 +279,9 @@ struct BootstrapView: View {
                         )
                     }
                 }
-                .reportScrollContentHeight()
+                .reportIdealScrollHeight()
             }
+            .frame(height: heights.pinnedScrollHeight)
             .reportViewportHeight()
             Text(store.statusMessage)
                 .font(.caption)
