@@ -27,8 +27,21 @@ struct SettingsView: View {
             Button("取消", role: .cancel) { }
             Button("停止并卸载", role: .destructive) { licenseServer.uninstall() }
         } message: {
-            Text("只会删除 C:\\opt\\FlexNet，并从服务器列表移除对应的 localhost 地址；其他地址会保留。")
+            Text("会停止并删除 C:\\opt\\FlexNet，并清空许可服务器列表——托管时它就是唯一一条地址。")
         }
+        .alert("无法安装 FlexNet 服务器", isPresented: installProblemShown) {
+            Button("好", role: .cancel) { licenseServer.dismissInstallProblem() }
+        } message: {
+            Text(licenseServer.installProblem ?? "")
+        }
+    }
+
+    /// 安装失败直接弹窗，别只把原因写在状态行里等人去发现。
+    private var installProblemShown: Binding<Bool> {
+        Binding(
+            get: { licenseServer.installProblem != nil },
+            set: { shown in if !shown { licenseServer.dismissInstallProblem() } }
+        )
     }
 
     private var generalSettings: some View {
