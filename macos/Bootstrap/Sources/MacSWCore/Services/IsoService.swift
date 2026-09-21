@@ -21,34 +21,44 @@ public final class IsoService: @unchecked Sendable {
     }
 
     public func mount(_ iso: URL) async throws -> MountedMedia {
-        if let existing = try existingMountPoint(of: iso) {
+        if let existing = try await existingMountPoint(of: iso) {
             return MountedMedia(mountPoint: existing, isOurs: false)
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         process.arguments = ["attach", iso.path, "-nobrowse", "-plist"]
-        let (status, output) = try await wine.captureCancellable(process)
-        guard status == 0 else {
-            let reason = output.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+        let capture = try await wine.capturePairCancellable(process)
+        guard capture.status == 0 else {
+            let reason = failingReason(from: capture)
             throw error(reason.isEmpty ? "挂载安装介质失败。" : "挂载安装介质失败：\(reason)")
         }
-        guard let mountPoint = try mountPoint(in: output) else {
-            throw error("安装介质已挂载，但无法取得挂载路径。")
+        do {
+            guard let mountPoint = try mountPoint(in: capture.standardOutput) else {
+                throw error("安装介质已挂载，但无法取得挂载路径。")
+            }
+            return MountedMedia(mountPoint: mountPoint, isOurs: true)
+        } catch {
+            // 卷已经挂上了，调用方收到抛错就不会再走 unmount，只能自己收拾，否则每次重试都留一个孤儿卷。
+            if let mountPoint = try? await existingMountPoint(of: iso) {
+                unmount(MountedMedia(mountPoint: mountPoint, isOurs: true))
+            }
+            throw error
         }
-        return MountedMedia(mountPoint: mountPoint, isOurs: true)
     }
 
-    public func unmount(_ mounted: MountedMedia) {
-        guard mounted.isOurs else { return }
+    /// 只弹出我们自己挂上去的卷；返回非 0 时由调用方提示用户手动推出。
+    @discardableResult
+    public func unmount(_ mounted: MountedMedia) -> Int32 {
+        guard mounted.isOurs else { return 0 }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         process.arguments = ["detach", mounted.mountPoint.path, "-force"]
-        try? process.run()
-        process.waitUntilExit()
+        guard let status = try? runProcess(process) else { return -1 }
+        return status
     }
 
     /// 该镜像是否已经挂在某处；已挂载时再 attach 会得到"资源暂时不可用"。
-    func existingMountPoint(of iso: URL, fileManager: FileManager = .default) throws -> URL? {
+    func existingMountPoint(of iso: URL, fileManager: FileManager = .default) async throws -> URL? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: iso.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             return nil
@@ -56,7 +66,7 @@ public final class IsoService: @unchecked Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         process.arguments = ["info", "-plist"]
-        let output = try run(process)
+        let output = try await wine.capturePairCancellable(process).standardOutput
         guard let images = try plist(output)?["images"] as? [[String: Any]] else { return nil }
         for image in images {
             guard let path = image["image-path"] as? String,
@@ -81,16 +91,18 @@ public final class IsoService: @unchecked Sendable {
         return try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
     }
 
-    private func run(_ process: Process) throws -> String {
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+    private func failingReason(from capture: (status: Int32, standardOutput: String, standardError: String)) -> String {
+        [capture.standardError, capture.standardOutput]
+            .flatMap { $0.split(whereSeparator: \.isNewline).map(String.init) }
+            .last { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+    }
+
+    private func runProcess(_ process: Process) throws -> Int32 {
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
-        let handle = pipe.fileHandleForReading
-        let data = handle.readDataToEndOfFile()
-        handle.closeFile()
-        return String(decoding: data, as: UTF8.self)
+        return process.terminationStatus
     }
 
     private func error(_ message: String) -> NSError {

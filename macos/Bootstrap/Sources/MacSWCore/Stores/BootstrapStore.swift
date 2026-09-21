@@ -280,7 +280,12 @@ public final class BootstrapStore: ObservableObject {
             if !desktopRedirections.isEmpty {
                 try? prerequisites.restoreDesktopFolders(prefix: paths.bottle, to: desktopRedirections)
             }
-            if let mountedByApp { iso.unmount(mountedByApp) }
+            if let mountedByApp {
+                let code = iso.unmount(mountedByApp)
+                if code != 0 {
+                    statusMessage += " 安装镜像未能自动弹出（\(code)），请在访达中推出“\(mountedByApp.mountPoint.lastPathComponent)”。"
+                }
+            }
             installationTask = nil
         }
 
