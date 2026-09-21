@@ -57,6 +57,38 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
+    /// 已取消的任务里再调取消安全包装会直接抛错，所以"取消后收尾"不能就地跑。
+    func testCancelledScopeRefusesToStartNewProcesses() async {
+        let task = Task { () -> Bool in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            do {
+                _ = try await WineService.shared.runCancellable(Process())
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                return false
+            }
+        }
+        task.cancel()
+        let threw = await task.value
+        XCTAssertTrue(threw)
+    }
+
+    /// `Task.detached` 不继承取消，这就是清理安装进程时用的逃生通道。
+    func testDetachedTaskSurvivesParentCancellation() async {
+        let task = Task { () -> Bool in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            return await Task.detached {
+                try? await Task.sleep(nanoseconds: 2_000_000)
+                return !Task.isCancelled
+            }.value
+        }
+        task.cancel()
+        let survived = await task.value
+        XCTAssertTrue(survived)
+    }
+
     func testStopCommandsCoverTheWholeProcessFamily() {
         XCTAssertEqual(
             WineService.taskkillArguments(force: false),

@@ -435,11 +435,15 @@ public final class BootstrapStore: ObservableObject {
             statusMessage = "安装完成，MacSW 将切换到菜单栏并启动 SOLIDWORKS。"
             NotificationCenter.default.post(name: .macSWInstallationCompleted, object: nil)
         } catch is CancellationError {
+            statusMessage = "正在终止容器内的安装进程…"
+            let settled = await terminateCancelledInstallation()
             if let running = stepStatuses.first(where: { $0.value == .running })?.key {
                 report(running, .cancelled, "用户终止了本次安装")
             }
             state = .cancelled
-            statusMessage = "安装已中断；未写入完成标记。可以重新开始或清理不完整安装。"
+            statusMessage = settled
+                ? "安装已中断；未写入完成标记。可以重新开始或清理不完整安装。"
+                : "安装已中断，但容器内仍有进程没有退出，请在设置的维护页强制终止后再重试。"
         } catch {
             if let running = stepStatuses.first(where: { $0.value == .running })?.key {
                 report(running, .failed, error.localizedDescription)
@@ -447,6 +451,19 @@ public final class BootstrapStore: ObservableObject {
             state = .failed(error.localizedDescription)
             statusMessage = error.localizedDescription
         }
+    }
+
+    /// 取消只能 SIGTERM 到宿主侧的 wine 启动器：容器里的 msiexec 会改挂到 launchd 下继续写盘，
+    /// 所以"已取消"必须等容器真的空了才算数。收尾要跑在未被取消的任务里，
+    /// 否则 WineService 的取消安全包装会立刻抛错，什么也杀不掉。
+    private func terminateCancelledInstallation() async -> Bool {
+        let wine = self.wine
+        let bottle = paths.bottle
+        return await Task.detached(priority: .userInitiated) {
+            if await wine.waitWineserver(prefix: bottle, seconds: 10) { return true }
+            _ = try? await wine.stopWineServerForCleanup(prefix: bottle)
+            return await wine.waitWineserver(prefix: bottle, seconds: 25)
+        }.value
     }
 
     private struct InstallRequest {
