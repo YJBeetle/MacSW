@@ -46,24 +46,27 @@ struct SettingsView: View {
 
     private var licenseSection: some View {
         Section("许可服务器") {
-            Picker("许可服务器", selection: licenseMode) {
-                ForEach(BootstrapLicenseMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            HStack(spacing: 8) {
+                Picker("许可服务器", selection: licenseMode) {
+                    ForEach(BootstrapLicenseMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .horizontalRadioGroupLayout()
+                .labelsHidden()
+                // 写入注册表期间整块锁住，顺便转个菊花表示"在做事"。
+                if licenseServer.isOperating {
+                    ProgressView()
+                        .controlSize(.small)
                 }
             }
-            .pickerStyle(.radioGroup)
-            .horizontalRadioGroupLayout()
-            .labelsHidden()
-            Text(licenseMode.wrappedValue.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .disabled(licenseServer.isOperating)
             switch licenseMode.wrappedValue {
             case .unconfigured:
-                Button("清除当前许可配置") {
-                    licenseServer.addressInput = ""
-                    licenseServer.saveAddress()
-                }
-                .disabled(licenseServer.isOperating)
+                Text(BootstrapLicenseMode.unconfigured.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             case .remoteServer:
                 addressEditor
             case .managedFlexNet:
@@ -74,34 +77,39 @@ struct SettingsView: View {
 
     private var addressEditor: some View {
         Group {
-            TextField(
-                "服务器地址",
-                text: $licenseServer.addressInput,
-                prompt: Text("25734@license.example.com")
-            )
-                .labelsHidden()
-                .focused($addressFocused)
-                .onSubmit { licenseServer.saveAddress() }
-                .onChange(of: addressFocused) { focused in
-                    if !focused, !licenseServer.addressInput.isEmpty {
-                        _ = licenseServer.normalizeAddressInput()
-                    }
+            LabeledContent("服务器地址") {
+                HStack(spacing: 8) {
+                    TextField("25734@license.example.com", text: $licenseServer.addressInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 260)
+                        .focused($addressFocused)
+                        .onSubmit { commitAddressIfNeeded() }
+                        .onChange(of: addressFocused) { focused in
+                            if !focused { commitAddressIfNeeded() }
+                        }
                 }
-            Text("优先使用 port@host；也接受 host:port 与 [IPv6]:port，多个服务器以分号分隔。写入 Wine 注册表，下次启动 SOLIDWORKS 时生效。")
+            }
+            Text("port@host，也接受 host:port 与 [IPv6]:port；多个地址用分号分隔，写入后下次启动 SOLIDWORKS 生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if licenseServer.isInstalled {
+                Text("容器里还装着托管 FlexNet；一旦启动它，这份列表会被覆盖成那一条地址。")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
             if !licenseServer.addressNotice.isEmpty {
                 Text(licenseServer.addressNotice)
                     .font(.caption)
                     .foregroundStyle(licenseServer.addressHasError ? .red : .secondary)
             }
-            Button("保存") { licenseServer.saveAddress() }
-                .disabled(licenseServer.isOperating)
         }
     }
 
     private var managedFlexNetEditor: some View {
         Group {
+            Text(BootstrapLicenseMode.managedFlexNet.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             LabeledContent("运行状态") {
                 HStack(spacing: 6) {
                     Circle()
@@ -113,20 +121,25 @@ struct SettingsView: View {
             HStack {
                 if licenseServer.isInstalled {
                     Button("启动") { licenseServer.start() }
+                        .disabled(licenseServer.isOperating || licenseServer.isRunning)
                     Button("停止") { licenseServer.stop() }
+                        .disabled(licenseServer.isOperating || !licenseServer.isRunning)
                     Button("卸载…", role: .destructive) { confirmUninstall = true }
+                        .disabled(licenseServer.isOperating)
                 } else {
                     Button("安装目录或压缩包…") {
                         if let url = OpenPanelService.chooseFlexNetPackage() { licenseServer.install(from: url) }
                     }
+                    .disabled(licenseServer.isOperating)
                 }
             }
-            .disabled(licenseServer.isOperating)
-            // 状态行已经说明"运行中/已停止"，这里只在失败时补一句原因，别重复播报。
-            if case .failed(let reason) = licenseServer.state {
-                Text(reason).font(.caption).foregroundStyle(.red)
-            }
         }
+    }
+
+    /// 地址只有真的改过才再写一次，避免每次失焦都起一个 reg 进程。
+    private func commitAddressIfNeeded() {
+        guard licenseServer.appliedAddress != licenseServer.addressInput else { return }
+        licenseServer.apply(mode: .remoteServer)
     }
 
     private var maintenanceSettings: some View {
@@ -200,7 +213,12 @@ struct SettingsView: View {
             if licenseServer.isInstalled { return .managedFlexNet }
             return licenseServer.addressInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? .unconfigured : .remoteServer
-        } set: { chosenLicenseMode = $0 }
+        } set: { mode in
+            chosenLicenseMode = mode
+            // 离开"托管"就等于不再用它，正在跑的服务器先停掉，别留个后台进程。
+            if mode != .managedFlexNet, licenseServer.isRunning { licenseServer.stop() }
+            licenseServer.apply(mode: mode)
+        }
     }
 
     private var flexNetStateText: String {
