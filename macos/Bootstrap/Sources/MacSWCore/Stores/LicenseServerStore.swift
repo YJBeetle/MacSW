@@ -10,6 +10,9 @@ public final class LicenseServerStore: ObservableObject {
     @Published public private(set) var addressHasError = false
     @Published public private(set) var statusMessage = ""
     @Published public private(set) var isOperating = false
+    @Published public private(set) var appliedMode: BootstrapLicenseMode?
+    /// 上一次真正写进注册表的内容，用来判断输入框是否需要再写一次。
+    @Published public private(set) var appliedAddress: String?
 
     public let paths: AppPaths
     private let registry: RegistryService
@@ -79,19 +82,46 @@ public final class LicenseServerStore: ObservableObject {
         }
     }
 
-    public func saveAddress() {
-        guard normalizeAddressInput() else { return }
+    /// 单选即生效：把选中的模式写进容器注册表。
+    /// 写入期间 isOperating 为真，界面上整块随之锁住并转菊花，
+    /// 因此不会出现用户连着切、旧写入盖掉新选择的情况。
+    public func apply(mode: BootstrapLicenseMode) {
+        guard !isOperating else { return }
+        appliedMode = mode
         Task {
             isOperating = true
             defer { isOperating = false }
             do {
-                if addressInput.isEmpty {
+                switch mode {
+                case .unconfigured:
+                    guard !addressInput.isEmpty else { return }
                     try await registry.clearLicenseServers(prefix: paths.bottle)
-                    statusMessage = "许可服务器地址已清除。"
-                } else {
-                    let servers = try LicenseServerAddressService.parse(addressInput)
-                    try await registry.writeLicenseServers(servers, prefix: paths.bottle)
+                    addressInput = ""
+                    appliedAddress = ""
+                    statusMessage = "已清空许可服务器地址。"
+                case .remoteServer:
+                    guard normalizeAddressInput(), !addressInput.isEmpty else {
+                        statusMessage = "还没有填写服务器地址。"
+                        return
+                    }
+                    try await registry.writeLicenseServers(
+                        try LicenseServerAddressService.parse(addressInput), prefix: paths.bottle
+                    )
+                    appliedAddress = addressInput
                     statusMessage = "许可服务器地址已写入注册表。"
+                case .managedFlexNet:
+                    guard let metadata = installation else {
+                        statusMessage = "尚未安装托管 FlexNet 服务器。"
+                        return
+                    }
+                    try await registry.writeLicenseServers(
+                        .managed(port: metadata.port),
+                        prefix: paths.bottle,
+                        serviceName: FlexNetService.serviceName
+                    )
+                    addressInput = metadata.managedAddress
+                    appliedAddress = metadata.managedAddress
+                    statusMessage = "已写入托管服务器地址 \(metadata.managedAddress)。"
                 }
             } catch {
                 statusMessage = error.localizedDescription
@@ -109,6 +139,7 @@ public final class LicenseServerStore: ObservableObject {
                 let metadata = try await service.install(from: source)
                 installation = metadata
                 addressInput = metadata.managedAddress
+                appliedAddress = metadata.managedAddress
                 statusMessage = "FlexNet 已安装到 C:\\opt\\FlexNet。"
                 state = .stopped
                 try await startAndWait()
@@ -131,6 +162,7 @@ public final class LicenseServerStore: ObservableObject {
                 try await stopAndWait()
                 try await service.uninstall()
                 addressInput = ""
+                appliedAddress = ""
                 installation = nil
                 state = .notInstalled
                 statusMessage = "托管 FlexNet 已卸载，许可服务器列表已清空。"
@@ -153,6 +185,7 @@ public final class LicenseServerStore: ObservableObject {
         let metadata = try await service.install(from: flexNetSource)
         installation = metadata
         addressInput = metadata.managedAddress
+        appliedAddress = metadata.managedAddress
         state = .stopped
         try await startAndWait()
     }

@@ -136,7 +136,7 @@ public final class FlexNetService: @unchecked Sendable {
 
         do {
             try await registry.writeLicenseServers(
-                LicenseServerList(endpoints: [LicenseServerEndpoint(port: metadata.port, host: "localhost")]),
+                .managed(port: metadata.port),
                 prefix: paths.bottle,
                 serviceName: Self.serviceName
             )

@@ -37,6 +37,11 @@ public struct LicenseServerList: Equatable, Sendable {
     public var canonical: String {
         endpoints.map(\.canonical).joined(separator: ";")
     }
+
+    /// 托管 FlexNet 独占列表时的那一条地址。
+    public static func managed(port: UInt16) -> LicenseServerList {
+        LicenseServerList(endpoints: [LicenseServerEndpoint(port: port, host: "localhost")])
+    }
 }
 
 public enum LicenseServerAddressError: LocalizedError, Equatable {
