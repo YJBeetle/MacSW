@@ -59,6 +59,11 @@ enum OpenPanelService {
 struct SettingsWindowLifecycle: NSViewRepresentable {
     final class Coordinator {
         var observed: NSWindow?
+        var closeObserver: NSObjectProtocol?
+
+        deinit {
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -75,12 +80,16 @@ struct SettingsWindowLifecycle: NSViewRepresentable {
 
     private func attach(to view: NSView, coordinator: Coordinator) {
         guard let window = view.window, coordinator.observed !== window else { return }
+        // 换窗口（关闭后重开）之前必须摘掉上一个观察者，否则每次重开都留一个永久的监听。
+        if let closeObserver = coordinator.closeObserver {
+            NotificationCenter.default.removeObserver(closeObserver)
+        }
         coordinator.observed = window
         AppShell.shared.settingsWindowVisible = true
-        NotificationCenter.default.addObserver(
+        coordinator.closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
-            AppShell.shared.settingsWindowVisible = false
+            Task { @MainActor in AppShell.shared.settingsWindowVisible = false }
         }
     }
 }

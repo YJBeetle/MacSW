@@ -7,7 +7,6 @@ import SwiftUI
 struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
-    @State private var panelVisible = false
     @State private var isRefreshing = false
     @State private var panelWindow: NSWindow?
 
@@ -17,6 +16,13 @@ struct MenuBarPanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
             chips
+            if let reason = failureReason {
+                // "运行异常"不能只有一个词，原因要看得见，不然只能去猜或翻日志。
+                Text(reason)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             Divider()
             actions
             Divider()
@@ -165,6 +171,13 @@ struct MenuBarPanelView: View {
         async let running: Void = runtime.refreshNow()
         async let licensing: Void = licenseServer.refreshRunningState()
         _ = await (running, licensing)
+    }
+
+    /// 面板上的"异常"要能把原因一起说出来。
+    private var failureReason: String? {
+        if case .failed(let reason) = runtime.state { return reason }
+        if case .failed(let reason) = licenseServer.state { return reason }
+        return nil
     }
 
     private var solidWorksStatus: String {
