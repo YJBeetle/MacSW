@@ -19,32 +19,40 @@ final class FlexNetLocatorTests: XCTestCase {
         try fileManager.createDirectory(at: root.appendingPathComponent(relativePath), withIntermediateDirectories: true)
     }
 
-    func testDirectoryNameNeedsBothFlexnetAndServer() {
-        XCTAssertTrue(FlexNetLocator.matches("SolidWorks_Flexnet_Server"))
-        XCTAssertTrue(FlexNetLocator.matches("SOLIDWORKS FLEXNET SERVER"))
-        XCTAssertTrue(FlexNetLocator.matches("FlexNet2Server"))
-        XCTAssertFalse(FlexNetLocator.matches("FlexNet"))
-        XCTAssertFalse(FlexNetLocator.matches("Server"))
-        XCTAssertFalse(FlexNetLocator.matches("crack"))
+    @discardableResult
+    private func writeDaemon(_ relativePath: String) throws -> URL {
+        let url = root.appendingPathComponent(relativePath)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("MZ".utf8).write(to: url)
+        return url
     }
 
-    func testScansCurrentLevelAndOneLevelOfSubdirectories() throws {
-        try makeDirectory("SolidWorks_Flexnet_Server")
-        try makeDirectory("crack/SolidWorks_Flexnet_Server")
+    func testFindsDaemonAtRootAndWithinTwoLevels() throws {
+        try writeDaemon("SolidWorks_Flexnet_Server/lmgrd.exe")
+        try writeDaemon("crack/Flexnet_Server/lmgrd.exe")
         let found = FlexNetLocator.discover(in: root, fileManager: fileManager)
-        XCTAssertEqual(found.count, 2)
-        XCTAssertEqual(found.map(\.lastPathComponent), Array(repeating: "SolidWorks_Flexnet_Server", count: 2))
-        XCTAssertTrue(found.contains { $0.path.hasSuffix("/crack/SolidWorks_Flexnet_Server") })
+        XCTAssertEqual(found.map(\.lastPathComponent), ["Flexnet_Server", "SolidWorks_Flexnet_Server"])
+        XCTAssertTrue(found.contains { $0.path.hasSuffix("/crack/Flexnet_Server") })
     }
 
-    func testIgnoresDeeperNestingFilesAndHiddenEntries() throws {
-        try fileManager.createDirectory(
-            at: root.appendingPathComponent("a/b/c/SolidWorks_Flexnet_Server"),
-            withIntermediateDirectories: true
-        )
-        try Data("x".utf8).write(to: root.appendingPathComponent("SolidWorks_Flexnet_Server.txt"))
+    func testFindsDaemonSittingDirectlyInTheSearchRoot() throws {
+        try writeDaemon("lmgrd.exe")
+        XCTAssertEqual(FlexNetLocator.discover(in: root, fileManager: fileManager).map(\.path), [root.path])
+    }
+
+    func testIgnoresBeyondTwoLevelsAndNameLookalikes() throws {
+        try writeDaemon("a/b/c/lmgrd.exe")
+        try makeDirectory("SolidWorks_Flexnet_Server")
         try makeDirectory(".hidden/SolidWorks_Flexnet_Server")
+        try writeDaemon(".hidden/SolidWorks_Flexnet_Server/lmgrd.exe")
         XCTAssertTrue(FlexNetLocator.discover(in: root, fileManager: fileManager).isEmpty)
+    }
+
+    func testMatchedPackageIsNotScannedAgainForNestedDaemons() throws {
+        try writeDaemon("crack/SolidWorks_Flexnet_Server/lmgrd.exe")
+        try writeDaemon("crack/SolidWorks_Flexnet_Server/tools/lmgrd.exe")
+        let found = FlexNetLocator.discover(in: root, fileManager: fileManager)
+        XCTAssertEqual(found.map(\.lastPathComponent), ["SolidWorks_Flexnet_Server"])
     }
 }
 

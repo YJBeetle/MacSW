@@ -1,39 +1,41 @@
 import Foundation
 
-/// 在附属资源目录（介质所在目录）及其一级子目录里寻找随附的 FlexNet 服务器目录。
+/// 在附属资源目录里寻找随附的 FlexNet 服务器包：判据是目录里有 `lmgrd.exe`，
+/// 不再依赖目录命名（*Flexnet*Server* 只是常见写法，不是契约）。
 public enum FlexNetLocator {
+    /// `lmgrd.exe` 所在目录相对搜索根的层数上限。
     public static let maximumDepth = 2
-
-    /// 目录名形如 *Flexnet*Server*（不区分大小写）。
-    public static func matches(_ directoryName: String) -> Bool {
-        let lowered = directoryName.lowercased()
-        return lowered.contains("flexnet") && lowered.contains("server")
-    }
+    public static let daemonName = "lmgrd.exe"
 
     /// 返回按路径排序的候选目录；调用方只在唯一命中时自动选中。
     public static func discover(
         in root: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        let rootPath = root.standardizedFileURL.path
-        guard let enumerator = fileManager.enumerator(
-            at: root,
+        var found: [URL] = []
+        collect(directory: root, depth: 0, fileManager: fileManager, into: &found)
+        return found.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    }
+
+    private static func collect(
+        directory: URL,
+        depth: Int,
+        fileManager: FileManager,
+        into found: inout [URL]
+    ) {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        var found: [URL] = []
-        for case let url as URL in enumerator {
-            let relative = url.standardizedFileURL.path.dropFirst(rootPath.count + 1)
-            let depth = relative.split(separator: "/").count
-            if depth > maximumDepth {
-                enumerator.skipDescendants()
-                continue
-            }
-            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-                  matches(url.lastPathComponent) else { continue }
-            found.append(url)
+        ) else { return }
+        if entries.contains(where: { $0.lastPathComponent.caseInsensitiveCompare(daemonName) == .orderedSame }) {
+            // 命中即止：安装包内部不会再有第二个服务器包。
+            found.append(directory)
+            return
         }
-        return found.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+        guard depth < maximumDepth else { return }
+        for entry in entries where (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            collect(directory: entry, depth: depth + 1, fileManager: fileManager, into: &found)
+        }
     }
 }
