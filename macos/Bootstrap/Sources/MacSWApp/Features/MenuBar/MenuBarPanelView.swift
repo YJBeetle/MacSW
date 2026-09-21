@@ -74,12 +74,11 @@ struct MenuBarPanelView: View {
                 ) { runtime.launch() }
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
-            MenuBarActionRow(title: "刷新状态", systemImage: "arrow.clockwise") { Task { await refresh() } }
             MenuBarActionRow(title: "查看日志", systemImage: "doc.text") {
                 openLogs()
                 dismissPanel()
             }
-            if runtime.isRunning {
+            if !runtime.processes.isEmpty {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
                     runtime.forceStop()
                 }
