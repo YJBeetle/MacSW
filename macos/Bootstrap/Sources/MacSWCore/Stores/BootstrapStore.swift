@@ -5,16 +5,6 @@ public extension Notification.Name {
     static let macSWInstallationCompleted = Notification.Name("MacSWInstallationCompleted")
 }
 
-/// 选中的 FlexNet 目录是否满足托管安装的结构要求。
-public enum FlexNetPackageCheck: Equatable {
-    case empty
-    case checking
-    case ready(ManagedFlexNetInstallation)
-    case rejected(String)
-    /// 压缩包要等安装时解包后才能校验。
-    case archiveNotChecked
-}
-
 @MainActor
 public final class BootstrapStore: ObservableObject {
     @Published public private(set) var selectedMedia: URL?
@@ -46,7 +36,6 @@ public final class BootstrapStore: ObservableObject {
     private let registry: RegistryService
     private let iso: IsoService
     private let licensing: LicenseServerStore
-    private let flexNet: FlexNetService
     private var installationTask: Task<Void, Never>?
     private var inspectionTask: Task<Void, Never>?
     private var flexNetCheckTask: Task<Void, Never>?
@@ -65,7 +54,6 @@ public final class BootstrapStore: ObservableObject {
         self.registry = registry ?? RegistryService(wine: wine)
         self.iso = iso
         self.licensing = licensing ?? LicenseServerStore(paths: paths)
-        self.flexNet = FlexNetService(paths: paths)
     }
 
     public var serials: InstallSerials {
@@ -129,26 +117,12 @@ public final class BootstrapStore: ObservableObject {
             flexNetCheck = .empty
             return
         }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            flexNetCheck = .rejected("所选 FlexNet 来源不存在。")
-            return
-        }
-        guard isDirectory.boolValue else {
-            flexNetCheck = .archiveNotChecked
-            return
-        }
         flexNetCheck = .checking
-        let checker = flexNet
+        let licensing = self.licensing
         flexNetCheckTask = Task { [weak self] in
-            let result = await Task.detached {
-                Result { try checker.inspect(directory: url) }
-            }.value
+            let check = await licensing.checkedPackage(at: url)
             guard let self, !Task.isCancelled, self.flexNetDirectory?.path == url.path else { return }
-            switch result {
-            case .success(let metadata): self.flexNetCheck = .ready(metadata)
-            case .failure(let error): self.flexNetCheck = .rejected(error.localizedDescription)
-            }
+            self.flexNetCheck = check
         }
     }
 

@@ -13,6 +13,8 @@ public final class LicenseServerStore: ObservableObject {
     @Published public private(set) var appliedMode: BootstrapLicenseMode?
     /// 上一次真正写进注册表的内容，用来判断输入框是否需要再写一次。
     @Published public private(set) var appliedAddress: String?
+    /// 安装 FlexNet 失败的原因，界面用它弹窗；非空即表示要弹。
+    @Published public private(set) var installProblem: String?
 
     public let paths: AppPaths
     private let registry: RegistryService
@@ -82,6 +84,23 @@ public final class LicenseServerStore: ObservableObject {
         }
     }
 
+    /// 选完就检查文件是否齐备：`lmgrd.exe`、唯一 `.lic` 里的端口、`VENDOR` 引用的守护进程。
+    /// 安装界面与设置页共用这一份判定，压缩包只能等解包后再验。
+    public func checkedPackage(at url: URL) async -> FlexNetPackageCheck {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return .rejected("所选 FlexNet 来源不存在。")
+        }
+        guard isDirectory.boolValue else { return .archiveNotChecked }
+        let checker = service
+        return await Task.detached(priority: .utility) {
+            switch Result(catching: { try checker.inspect(directory: url) }) {
+            case .success(let metadata): return .ready(metadata)
+            case .failure(let error): return .rejected(error.localizedDescription)
+            }
+        }.value
+    }
+
     /// 单选即生效：把选中的模式写进容器注册表。
     /// 写入期间 isOperating 为真，界面上整块随之锁住并转菊花，
     /// 因此不会出现用户连着切、旧写入盖掉新选择的情况。
@@ -129,12 +148,19 @@ public final class LicenseServerStore: ObservableObject {
         }
     }
 
+    public func dismissInstallProblem() { installProblem = nil }
+
     public func install(from source: URL) {
         guard !isOperating else { return }
         Task {
             isOperating = true
             statusMessage = "正在验证并安装 FlexNet…"
             defer { isOperating = false }
+            if case .rejected(let reason) = await checkedPackage(at: source) {
+                installProblem = reason
+                statusMessage = reason
+                return
+            }
             do {
                 let metadata = try await service.install(from: source)
                 installation = metadata
@@ -148,6 +174,7 @@ public final class LicenseServerStore: ObservableObject {
             } catch {
                 state = .failed(error.localizedDescription)
                 statusMessage = error.localizedDescription
+                installProblem = error.localizedDescription
             }
         }
     }
