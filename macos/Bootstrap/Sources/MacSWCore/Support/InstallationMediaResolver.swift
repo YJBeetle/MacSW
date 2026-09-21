@@ -56,7 +56,9 @@ public enum InstallationMediaResolver {
 
         let selected = dropped.standardizedFileURL
         // 先在本级与一级子目录里找 setup.exe，再找 ISO；都按由浅到深、路径排序取首个。
-        if let exe = findFile(named: "setup.exe", under: selected, fileManager: fileManager) {
+        if let exe = findFile(under: selected, fileManager: fileManager, matches: {
+            $0.lastPathComponent.caseInsensitiveCompare("setup.exe") == .orderedSame
+        }) {
             return .directory(
                 exe.deletingLastPathComponent(),
                 explicitlySelected: exe.deletingLastPathComponent().standardizedFileURL == selected
@@ -65,17 +67,20 @@ public enum InstallationMediaResolver {
         if fileManager.fileExists(atPath: selected.appendingPathComponent("swwi/data/solidworks.msi").path) {
             return .directory(selected, explicitlySelected: true)
         }
-        if let iso = findFile(withExtension: "iso", under: selected, fileManager: fileManager) {
+        if let iso = findFile(under: selected, fileManager: fileManager, matches: {
+            $0.pathExtension.caseInsensitiveCompare("iso") == .orderedSame
+        }) {
             return .iso(iso)
         }
         return nil
     }
 
+    /// 有界深度地找一个文件：同层按路径排序后先取匹配项，再按同样的顺序下钻子目录。
     private static func findFile(
-        named name: String,
         under directory: URL,
         fileManager: FileManager,
-        depth: Int = 0
+        depth: Int = 0,
+        matches: (URL) -> Bool
     ) -> URL? {
         guard depth <= maximumDepth else { return nil }
         guard let entries = try? fileManager.contentsOfDirectory(
@@ -83,48 +88,23 @@ public enum InstallationMediaResolver {
             includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
-        let files = entries.filter {
-            ((try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
-                && $0.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame
-        }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        if let found = files.first { return found }
-        let subdirectories = entries.filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        for child in subdirectories {
-            if let found = findFile(named: name, under: child, fileManager: fileManager, depth: depth + 1) {
+        let ordered = entries.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+        for entry in ordered where isRegularFile(entry) && matches(entry) {
+            return entry
+        }
+        for entry in ordered where isDirectory(entry) {
+            if let found = findFile(under: entry, fileManager: fileManager, depth: depth + 1, matches: matches) {
                 return found
             }
         }
         return nil
     }
 
-    private static func findFile(
-        withExtension extensionName: String,
-        under directory: URL,
-        fileManager: FileManager,
-        depth: Int = 0
-    ) -> URL? {
-        guard depth <= maximumDepth else { return nil }
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        let files = entries.filter {
-            ((try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
-                && $0.pathExtension.caseInsensitiveCompare(extensionName) == .orderedSame
-        }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        if let found = files.first { return found }
-        let subdirectories = entries.filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        for child in subdirectories {
-            if let found = findFile(withExtension: extensionName, under: child, fileManager: fileManager, depth: depth + 1) {
-                return found
-            }
-        }
-        return nil
+    private static func isRegularFile(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
     }
 
+    private static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
 }

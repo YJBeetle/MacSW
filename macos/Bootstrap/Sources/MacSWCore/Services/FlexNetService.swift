@@ -217,8 +217,10 @@ public final class FlexNetService: @unchecked Sendable {
         }
     }
 
+    /// 在解压结果里找包根目录，层数上限与介质扫描用同一条规则（FlexNetLocator）。
     private func locatePackageRoot(in source: URL) throws -> URL {
         if (try? inspect(directory: source)) != nil { return source }
+        let rootPath = source.standardizedFileURL.path
         guard let enumerator = FileManager.default.enumerator(
             at: source,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -226,6 +228,12 @@ public final class FlexNetService: @unchecked Sendable {
         ) else { throw failure("无法检查 FlexNet 包结构。") }
         var matches: [URL] = []
         for case let candidate as URL in enumerator {
+            let depth = candidate.standardizedFileURL.path.dropFirst(rootPath.count + 1)
+                .split(separator: "/").count
+            if depth > FlexNetLocator.maximumDepth {
+                enumerator.skipDescendants()
+                continue
+            }
             guard (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             if (try? inspect(directory: candidate)) != nil {
                 matches.append(candidate)
