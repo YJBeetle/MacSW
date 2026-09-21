@@ -154,8 +154,8 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
-    /// Wine 冷启动要几秒，工具窗口不会立刻出现；这里负责把"点下去了"这件事反馈出来，
-    /// 并在容器进程里真的看到该工具（或超时）之后收尾。
+    /// Wine 的窗口不是瞬间弹出的：点下去立刻变灰转菊花，撑过这段空窗就收回，
+    /// 不去猜进程有没有起来（猜错会一直转）。真实证据是下面 1 秒刷新的容器进程表。
     public func openWineTool(_ name: String) {
         guard pendingWineTool == nil else { return }
         pendingWineTool = name
@@ -167,22 +167,12 @@ public final class RuntimeStore: ObservableObject {
             statusMessage = error.localizedDescription
             return
         }
-        let toolProcess = "\(name).exe"
+        let tool = name
         Task {
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                await refreshState()
-                if processes.contains(where: { $0.name.caseInsensitiveCompare(toolProcess) == .orderedSame }) {
-                    statusMessage = "\(name) 已启动。"
-                    break
-                }
-            }
-            if pendingWineTool == name {
-                pendingWineTool = nil
-                if !processes.contains(where: { $0.name.caseInsensitiveCompare(toolProcess) == .orderedSame }) {
-                    statusMessage = "\(name) 没有出现在容器进程里，可能被 Wine 拒绝或已立即退出。"
-                }
-            }
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard pendingWineTool == tool else { return }
+            pendingWineTool = nil
+            statusMessage = "\(tool) 已交给 Wine 启动；窗口还没出现的话，稍等一两秒看下面的容器进程表。"
         }
     }
 
