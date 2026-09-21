@@ -8,6 +8,7 @@ public enum InstallationStep: Int, CaseIterable, Identifiable, Sendable {
     case installer
     case language
     case wpfThemes
+    case licensing
     case validation
 
     public var id: Int { rawValue }
@@ -21,6 +22,7 @@ public enum InstallationStep: Int, CaseIterable, Identifiable, Sendable {
         case .installer: return "静默部署 SOLIDWORKS 主体"
         case .language: return "安装官方语言资源"
         case .wpfThemes: return "补齐微软官方 WPF 主题库"
+        case .licensing: return "部署许可服务器" 
         case .validation: return "检查部署结果"
         }
     }

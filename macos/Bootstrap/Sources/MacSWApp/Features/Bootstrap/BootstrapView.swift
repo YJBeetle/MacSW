@@ -162,6 +162,35 @@ struct BootstrapView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("许可（两项都可留空）").fontWeight(.medium)
+                            HStack(spacing: 8) {
+                                Text("局域网地址")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(width: 84, alignment: .leading)
+                                TextField("25734@192.168.1.20", text: $store.licenseServerAddress)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.caption, design: .monospaced))
+                            }
+                            HStack(spacing: 8) {
+                                Text("FlexNet 目录")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(width: 84, alignment: .leading)
+                                Text(store.flexNetDirectory?.lastPathComponent ?? "未选择")
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Button("选择…") {
+                                    if let url = OpenPanelService.chooseFlexNetPackage() { store.flexNetDirectory = url }
+                                }
+                            }
+                            Text(store.flexNetCandidates.count > 1
+                                ? "在介质同级与一级子目录里发现 \(store.flexNetCandidates.count) 个 FlexNet 目录，请确认要使用的那个。"
+                                : "填了地址就在安装后写入服务器列表；选了目录则再复制进容器 C:\\opt\\FlexNet 并启动服务。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .padding(.top, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)

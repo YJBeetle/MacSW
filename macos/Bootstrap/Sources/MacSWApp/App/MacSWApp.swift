@@ -27,8 +27,8 @@ struct MacSWApplication: App {
 
     init() {
         let paths = AppPaths.live()
-        let bootstrap = BootstrapStore(paths: paths)
         let licenseServer = LicenseServerStore(paths: paths)
+        let bootstrap = BootstrapStore(paths: paths, licensing: licenseServer)
         let runtime = RuntimeStore(paths: paths, licenseServer: licenseServer)
         _bootstrap = StateObject(wrappedValue: bootstrap)
         _licenseServer = StateObject(wrappedValue: licenseServer)

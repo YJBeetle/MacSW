@@ -143,6 +143,24 @@ public final class LicenseServerStore: ObservableObject {
         }
     }
 
+    /// 安装链路内联使用：先写手填地址，再复制托管 FlexNet 并启动，
+    /// 这个顺序保证 FlexNet 安装时合并读取的服务器列表已包含手填地址。
+    public func configureDuringInstallation(address: String, flexNetSource: URL?) async throws {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            let servers = try LicenseServerAddressService.parse(trimmed)
+            try await registry.writeLicenseServers(servers, prefix: paths.bottle)
+            addressInput = servers.canonical
+        }
+        guard let flexNetSource else { return }
+        let existing = await registry.readLicenseServers(prefix: paths.bottle)
+        let metadata = try await service.install(from: flexNetSource, existingServers: existing)
+        installation = metadata
+        addressInput = existing.addingManagedLocal(port: metadata.port).canonical
+        state = .stopped
+        try await startAndWait()
+    }
+
     public func start() {
         guard !isOperating else { return }
         Task {

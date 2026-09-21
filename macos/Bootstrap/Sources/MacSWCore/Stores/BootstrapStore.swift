@@ -15,6 +15,9 @@ public final class BootstrapStore: ObservableObject {
     @Published public var serialMotion = ""
     @Published public var serialMBD = ""
     @Published public var selectedLanguage: SolidWorksLanguage?
+    @Published public var licenseServerAddress = ""
+    @Published public var flexNetDirectory: URL?
+    @Published public private(set) var flexNetCandidates: [URL] = []
     @Published public private(set) var availableLanguages: [SolidWorksLanguage] = []
     @Published public private(set) var serialSources: [InstallSerialField: URL] = [:]
     @Published public private(set) var ambiguousSerialFields: [InstallSerialField] = []
@@ -29,6 +32,7 @@ public final class BootstrapStore: ObservableObject {
     private let prerequisites: PrerequisiteService
     private let registry: RegistryService
     private let iso: IsoService
+    private let licensing: LicenseServerStore
     private var installationTask: Task<Void, Never>?
     private var inspectionTask: Task<Void, Never>?
 
@@ -37,13 +41,15 @@ public final class BootstrapStore: ObservableObject {
         wine: WineService = .shared,
         prerequisites: PrerequisiteService = .shared,
         registry: RegistryService? = nil,
-        iso: IsoService = .shared
+        iso: IsoService = .shared,
+        licensing: LicenseServerStore? = nil
     ) {
         self.paths = paths
         self.wine = wine
         self.prerequisites = prerequisites
         self.registry = registry ?? RegistryService(wine: wine)
         self.iso = iso
+        self.licensing = licensing ?? LicenseServerStore(paths: paths)
     }
 
     public var serials: InstallSerials {
@@ -107,7 +113,7 @@ public final class BootstrapStore: ObservableObject {
         inspectionTask = Task { [weak self] in
             guard let self else { return }
             var mounted: URL?
-            var result: (discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage])?
+            var result: (discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage], flexNet: [URL])?
             do {
                 if url.pathExtension.caseInsensitiveCompare("iso") == .orderedSame {
                     mounted = try await self.iso.mount(url)
@@ -115,7 +121,11 @@ public final class BootstrapStore: ObservableObject {
                 let mediaRoot = mounted ?? url
                 let searchRoots = [url.deletingLastPathComponent(), mediaRoot]
                 result = await Task.detached {
-                    (SerialDiscoveryService.discover(in: searchRoots), LanguageCatalog.discover(in: mediaRoot))
+                    (
+                        SerialDiscoveryService.discover(in: searchRoots),
+                        LanguageCatalog.discover(in: mediaRoot),
+                        FlexNetLocator.discover(near: url)
+                    )
                 }.value
             } catch {
                 statusMessage = "介质读取失败：\(error.localizedDescription)"
@@ -123,11 +133,11 @@ public final class BootstrapStore: ObservableObject {
             if let mounted { self.iso.unmount(mounted) }
             self.isInspectingMedia = false
             guard let result, !Task.isCancelled, self.selectedMedia == url else { return }
-            apply(discovery: result.discovery, languages: result.languages)
+            apply(discovery: result.discovery, languages: result.languages, flexNet: result.flexNet)
         }
     }
 
-    private func apply(discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage]) {
+    private func apply(discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage], flexNet: [URL]) {
         serials = serials.merging(discovery.serials)
         serialSources = discovery.sources
         ambiguousSerialFields = discovery.ambiguousFields
@@ -146,6 +156,13 @@ public final class BootstrapStore: ObservableObject {
             notes.append("\(ambiguousSerialFields.map(\.title).joined(separator: "、")) 存在多个不同取值，请手工确认")
         }
         notes.append(languages.isEmpty ? "介质内未发现可选语言资源" : "语言资源 \(languages.count) 项可选")
+        flexNetCandidates = flexNet
+        if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
+        switch flexNet.count {
+        case 0: break
+        case 1: notes.append("已自动识别 FlexNet 目录 \(flexNet[0].lastPathComponent)")
+        default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在安装选项里选择")
+        }
         statusMessage = notes.joined(separator: "；") + "。"
     }
 
@@ -187,7 +204,13 @@ public final class BootstrapStore: ObservableObject {
 
     private func runInstallation() async {
         guard let selectedMedia else { return }
-        let request = SerialRequest(serials: serials, language: selectedLanguage, silent: silentInstall)
+        let request = InstallRequest(
+            serials: serials,
+            language: selectedLanguage,
+            silent: silentInstall,
+            licenseAddress: licenseServerAddress,
+            flexNetSource: flexNetDirectory
+        )
         state = .preparing
         stepStatuses = [:]
         stepDetails = [:]
@@ -326,6 +349,20 @@ public final class BootstrapStore: ObservableObject {
             )
             report(.wpfThemes, .completed, "五个 WPF 主题库已补齐")
 
+            state = .installing(.licensing)
+            if request.licenseAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && request.flexNetSource == nil {
+                report(.licensing, .skipped, "未填写许可地址，也未选择 FlexNet 目录")
+            } else {
+                report(.licensing, .running, "正在写入许可服务器配置…")
+                try await licensing.configureDuringInstallation(
+                    address: request.licenseAddress,
+                    flexNetSource: request.flexNetSource
+                )
+                report(.licensing, .completed, request.flexNetSource == nil
+                    ? "许可服务器地址已写入容器"
+                    : "托管 FlexNet 已部署到 C:\\opt\\FlexNet 并启动")
+            }
+
             state = .installing(.validation)
             report(.validation, .running, "正在验证主程序、COM 注册与主题库…")
             try await validateInstalledRuntime()
@@ -349,10 +386,12 @@ public final class BootstrapStore: ObservableObject {
         }
     }
 
-    private struct SerialRequest {
+    private struct InstallRequest {
         let serials: InstallSerials
         let language: SolidWorksLanguage?
         let silent: Bool
+        let licenseAddress: String
+        let flexNetSource: URL?
     }
 
     private func msiFailureDetail(_ log: URL) -> String {
