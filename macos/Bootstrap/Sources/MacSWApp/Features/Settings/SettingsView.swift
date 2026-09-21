@@ -129,9 +129,9 @@ struct SettingsView: View {
     private var maintenanceSettings: some View {
         Form {
             Section("Wine 工具") {
-                HStack {
-                    Button("注册表编辑器") { runtime.openWineTool("regedit") }
-                    Button("Wine 配置") { runtime.openWineTool("winecfg") }
+                HStack(spacing: 10) {
+                    wineToolButton("注册表编辑器", name: "regedit")
+                    wineToolButton("Wine 配置", name: "winecfg")
                     Button("浏览虚拟 C 盘") {
                         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: runtime.paths.bottle.appendingPathComponent("drive_c").path)
                     }
@@ -174,6 +174,18 @@ struct SettingsView: View {
                 // 只在设置窗口真的在前台时跑 ps，切到别的 App 就停。
                 if NSApp.isActive { await runtime.refreshNow() }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    /// Wine 工具窗口不是瞬间出现：点下去之后按钮变灰并转菊花，直到进程真的起来。
+    private func wineToolButton(_ title: String, name: String) -> some View {
+        HStack(spacing: 6) {
+            Button(title) { runtime.openWineTool(name) }
+                .disabled(runtime.pendingWineTool != nil)
+            if runtime.pendingWineTool == name {
+                ProgressView()
+                    .controlSize(.small)
             }
         }
     }

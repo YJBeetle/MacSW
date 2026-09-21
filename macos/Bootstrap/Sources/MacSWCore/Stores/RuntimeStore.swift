@@ -7,6 +7,9 @@ public final class RuntimeStore: ObservableObject {
     @Published public private(set) var statusMessage = ""
     @Published public private(set) var processes: [WineProcess] = []
 
+    /// 正在拉起但还没出现在容器进程里的 Wine 工具名；UI 用它把按钮变灰并转菊花。
+    @Published public private(set) var pendingWineTool: String?
+
     public let paths: AppPaths
     private let wine: WineService
     private let licenseServer: LicenseServerStore
@@ -151,9 +154,36 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
+    /// Wine 冷启动要几秒，工具窗口不会立刻出现；这里负责把"点下去了"这件事反馈出来，
+    /// 并在容器进程里真的看到该工具（或超时）之后收尾。
     public func openWineTool(_ name: String) {
-        do { try wine.launchTool(name, prefix: paths.bottle) }
-        catch { statusMessage = error.localizedDescription }
+        guard pendingWineTool == nil else { return }
+        pendingWineTool = name
+        statusMessage = "正在启动 \(name)…Wine 冷启动需要几秒。"
+        do {
+            try wine.launchTool(name, prefix: paths.bottle)
+        } catch {
+            pendingWineTool = nil
+            statusMessage = error.localizedDescription
+            return
+        }
+        let toolProcess = "\(name).exe"
+        Task {
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                await refreshState()
+                if processes.contains(where: { $0.name.caseInsensitiveCompare(toolProcess) == .orderedSame }) {
+                    statusMessage = "\(name) 已启动。"
+                    break
+                }
+            }
+            if pendingWineTool == name {
+                pendingWineTool = nil
+                if !processes.contains(where: { $0.name.caseInsensitiveCompare(toolProcess) == .orderedSame }) {
+                    statusMessage = "\(name) 没有出现在容器进程里，可能被 Wine 拒绝或已立即退出。"
+                }
+            }
+        }
     }
 
     private func refreshState() async {
