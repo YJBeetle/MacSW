@@ -103,7 +103,7 @@ struct SettingsView: View {
                     }
             }
             .disabled(licenseServer.isOperating)
-            Text("port@host，也接受 host:port 与 [IPv6]:port；多个地址用分号分隔，写入后下次启动 SOLIDWORKS 生效。")
+            Text("port@host，也接受 host:port 与 [IPv6]:port；多个地址用分号分隔。回车或点到别处即写入注册表，下次启动 SOLIDWORKS 生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !licenseServer.addressNotice.isEmpty {
