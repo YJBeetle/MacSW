@@ -12,7 +12,8 @@ public final class WineService: @unchecked Sendable {
         "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"
     ]
     /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务与 UI 守护进程。
-    public static let solidWorksProcessNames = ["SLDWORKS.exe", "sldworks_fs.exe", "sw_ui_daemon.exe"]
+    /// 名单与"哪些进程算 SOLIDWORKS 自己的"是同一件事，只在 ProcessInventory 里定义一次。
+    public static let solidWorksProcessNames = ProcessInventory.solidWorksProcesses
     public static let solidWorksCompatibilityArguments = [
         "reg", "add", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
         "/v", "sldworks.exe", "/t", "REG_SZ", "/d", "WINE_NOCAPTURERESEND", "/f"

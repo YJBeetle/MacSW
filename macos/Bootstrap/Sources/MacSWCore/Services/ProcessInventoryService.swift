@@ -16,15 +16,24 @@ public struct WineProcess: Identifiable, Equatable, Sendable {
 
     public var id: Int32 { pid }
 
+    /// 单行显示用的近似值（再小也记 1 MB）；合计不要用它累加，见 `totalResidentMB`。
     public var residentMB: Int64 { max(residentKB / 1024, 1) }
+
+    /// ps 的 etime 是 `[[DD-]hh:]mm:ss`，不满一小时只有 `mm:ss` 两段。
+    private var elapsedComponents: (days: Int, clock: [Int]) {
+        let parts = elapsed.split(separator: "-")
+        let days = parts.count == 2 ? Int(parts[0]) ?? 0 : 0
+        return (days, (parts.last ?? Substring(elapsed)).split(separator: ":").compactMap { Int($0) })
+    }
 
     /// 表头排序用的秒数；解析不出来时退回 0，不影响显示。
     public var elapsedSeconds: Int {
-        let parts = elapsed.split(separator: "-")
-        let days = parts.count == 2 ? Int(parts[0]) ?? 0 : 0
-        let clock = (parts.last ?? Substring(elapsed)).split(separator: ":").compactMap { Int($0) }
-        guard clock.count == 3 else { return days * 86_400 }
-        return days * 86_400 + clock[0] * 3600 + clock[1] * 60 + clock[2]
+        let parsed = elapsedComponents
+        switch parsed.clock.count {
+        case 3: return parsed.days * 86_400 + parsed.clock[0] * 3600 + parsed.clock[1] * 60 + parsed.clock[2]
+        case 2: return parsed.days * 86_400 + parsed.clock[0] * 60 + parsed.clock[1]
+        default: return parsed.days * 86_400
+        }
     }
 }
 
@@ -71,11 +80,14 @@ public enum ProcessInventory {
         return solidWorksProcesses.contains { command.contains($0) }
     }
 
+    /// 宿主侧起的 wine 工具（reg import、taskkill 这些临时命令行）不是容器里的程序，
+    /// wineserver 例外，它代表容器还活着。按 `<运行时>/bin/` 前缀认，
+    /// 不能按空格切第一个字段：容器或 App 的路径里可能有空格。
     private static func isWineLauncher(command: String, wineRuntimePath: String) -> Bool {
-        guard !wineRuntimePath.isEmpty,
-              let executable = command.split(separator: " ").first,
-              executable.hasPrefix(wineRuntimePath) else { return false }
-        return (String(executable) as NSString).lastPathComponent != "wineserver"
+        guard !wineRuntimePath.isEmpty else { return false }
+        let binaries = wineRuntimePath.hasSuffix("/") ? wineRuntimePath + "bin/" : wineRuntimePath + "/bin/"
+        guard command.hasPrefix(binaries) else { return false }
+        return !command.hasPrefix(binaries + "wineserver")
     }
 
     /// Windows 客户进程的 argv[0] 会被改写成 `C:\...\X.exe`，参数跟在后面；
@@ -116,19 +128,27 @@ public enum ProcessInventory {
         snapshot.contains { $0.name.caseInsensitiveCompare(primaryProcess) == .orderedSame }
     }
 
+    /// 合计按 KB 累加后再换算：逐行向上取整会把五十个小进程报成多出的 50 MB。
     public static func totalResidentMB(_ snapshot: [WineProcess]) -> Int64 {
-        snapshot.reduce(Int64(0)) { $0 + $1.residentMB }
+        snapshot.reduce(Int64(0)) { $0 + $1.residentKB } / 1024
     }
 
     /// ps 的 etime 转成中文可读时长。
     public static func formatElapsed(_ elapsed: String) -> String {
         let parts = elapsed.split(separator: "-")
         let dayText = parts.count == 2 ? "\(parts[0]) 天 " : ""
-        let clock = (parts.last ?? Substring(elapsed)).split(separator: ":").map(String.init)
-        guard clock.count == 3 else { return elapsed }
-        let (hour, minute) = (Int(clock[0]) ?? 0, Int(clock[1]) ?? 0)
-        if hour > 0 { return "\(dayText)\(hour) 小时 \(minute) 分" }
-        if minute > 0 { return "\(dayText)\(minute) 分" }
-        return "\(dayText)不到 1 分"
+        let clock = (parts.last ?? Substring(elapsed)).split(separator: ":").compactMap { Int($0) }
+        switch clock.count {
+        case 3:
+            if clock[0] > 0 { return "\(dayText)\(clock[0]) 小时 \(clock[1]) 分" }
+            if clock[1] > 0 { return "\(dayText)\(clock[1]) 分" }
+            return "\(dayText)不到 1 分"
+        case 2:
+            // 不满一小时 ps 只给 mm:ss，别把原始串直接甩给用户。
+            if clock[0] > 0 { return "\(dayText)\(clock[0]) 分" }
+            return "\(dayText)不到 1 分"
+        default:
+            return elapsed
+        }
     }
 }

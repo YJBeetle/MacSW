@@ -40,11 +40,33 @@ final class ProcessInventoryTests: XCTestCase {
 
     func testTotalsAndRunningState() {
         let processes = parsed()
-        XCTAssertEqual(ProcessInventory.totalResidentMB(processes), processes.reduce(0) { $0 + $1.residentMB })
         XCTAssertTrue(ProcessInventory.isSolidWorksRunning(processes))
         XCTAssertFalse(ProcessInventory.isSolidWorksRunning(
             ProcessInventory.parse("  1 200 00:10:00 C:\\windows\\sw_ui_daemon.exe", bottlePath: "", wineRuntimePath: "")
         ))
+    }
+
+    /// 合计必须从 KB 换算：逐行向上取整会把两个 600 KB 报成 2 MB。
+    func testTotalRoundsOnceInsteadOfPerRow() {
+        let small = [
+            WineProcess(name: "a.exe", pid: 1, residentKB: 600, elapsed: "00:00:01"),
+            WineProcess(name: "b.exe", pid: 2, residentKB: 600, elapsed: "00:00:01")
+        ]
+        XCTAssertEqual(small.map(\.residentMB), [1, 1])
+        XCTAssertEqual(ProcessInventory.totalResidentMB(small), 1)
+    }
+
+    /// 容器与 App 都可能装在带空格的路径里，宿主侧 wine 工具仍要认出来。
+    func testHostWineToolsAreFilteredEvenWithSpacesInTheRuntimePath() {
+        let runtime = "/Applications/My App/wine"
+        let command = "  7 100 00:00:01 \(runtime)/bin/wineloader \(runtime)/bin/wine reg import C:\\windows\\temp\\x.reg"
+        XCTAssertTrue(ProcessInventory.parse(command, bottlePath: "", wineRuntimePath: runtime).isEmpty)
+        XCTAssertEqual(
+            ProcessInventory.parse(
+                "  8 100 00:00:01 \(runtime)/bin/wineserver -w", bottlePath: "", wineRuntimePath: runtime
+            ).map(\.name),
+            ["wineserver"]
+        )
     }
 
     func testDisplayNameSurvivesSpacesInWindowsPaths() {
@@ -65,6 +87,7 @@ final class ProcessInventoryTests: XCTestCase {
         XCTAssertEqual(seconds("00:00:45"), 45)
         XCTAssertEqual(seconds("01:23:45"), 5025)
         XCTAssertEqual(seconds("1-02:03:04"), 93_784)
+        XCTAssertEqual(seconds("05:23"), 323, "不满一小时 ps 只给 mm:ss")
         XCTAssertEqual(seconds("乱码"), 0)
     }
 
@@ -73,5 +96,7 @@ final class ProcessInventoryTests: XCTestCase {
         XCTAssertEqual(ProcessInventory.formatElapsed("00:05:00"), "5 分")
         XCTAssertEqual(ProcessInventory.formatElapsed("00:00:45"), "不到 1 分")
         XCTAssertEqual(ProcessInventory.formatElapsed("1-02:03:04"), "1 天 2 小时 3 分")
+        XCTAssertEqual(ProcessInventory.formatElapsed("05:23"), "5 分")
+        XCTAssertEqual(ProcessInventory.formatElapsed("00:45"), "不到 1 分")
     }
 }
