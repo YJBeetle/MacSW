@@ -10,7 +10,7 @@ public enum BootstrapLicenseMode: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .unconfigured: return "暂不配置许可"
+        case .unconfigured: return "不配置"
         case .remoteServer: return "使用指定地址"
         case .managedFlexNet: return "托管 FlexNet 服务器"
         }
