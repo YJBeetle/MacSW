@@ -10,6 +10,28 @@ final class InstallSerialsTests: XCTestCase {
         )
     }
 
+    /// 全角、西里尔、重音字符在 Unicode 里都算"字母数字"，绝不能被当成 24 位留下来。
+    func testNormalizationDropsEverythingOutsideASCIIAlphanumeric() {
+        XCTAssertEqual(InstallSerials.normalized("　-／"), "")
+        XCTAssertEqual(InstallSerials.normalized("\u{00E9}"), "")      // 预组合 é：单个非 ASCII 标量
+        XCTAssertEqual(InstallSerials.normalized("e\u{0301}"), "E")    // 分解形式：组合记号被丢，ASCII 字母留下
+        XCTAssertEqual(InstallSerials.normalized("ß"), "")
+        XCTAssertEqual(InstallSerials.normalized("ＡＢＣＤ"), "")
+        XCTAssertEqual(InstallSerials.normalized("ВВВВ"), "")
+        XCTAssertEqual(InstallSerials.normalized("В1"), "1")
+        XCTAssertEqual(InstallSerials.normalized("１２３４"), "")
+        XCTAssertEqual(InstallSerials.normalized("١٢٣٤"), "")
+    }
+
+    func testNonASCIISerialIsRejectedAsMalformed() {
+        var serials = InstallSerials()
+        // 24 个全角数字：字形簇刚好 24，但一个 ASCII 字符都不是。
+        serials[.solidWorks] = "１２３４１２３４１２３４１２３４１２３４１２３４"
+        XCTAssertEqual(serials.invalidFields(), [.solidWorks])
+        XCTAssertFalse(serials.isComplete)
+        XCTAssertTrue(serials.msiProperties.isEmpty)
+    }
+
     func testMSIPropertiesAreDeterministicAndSkipEmptyFields() {
         var serials = InstallSerials()
         serials[.mbd] = "AAAA BBBB CCCC DDDD EEEE FFFF"
@@ -38,6 +60,15 @@ final class InstallSerialsTests: XCTestCase {
         XCTAssertEqual(InstallSerialField.forProduct(.mbd), .mbd)
         XCTAssertNil(InstallSerialField.forProduct(.plastics))
         XCTAssertNil(InstallSerialField.forProduct(.visualize))
+    }
+
+    /// 全角之类的垃圾输入是"填了但没填对"，不能被扫描结果悄悄盖掉。
+    func testMergingKeepsTypedButUnusableInput() {
+        var typed = InstallSerials(values: [.solidWorks: "\u{FF11}\u{FF12}\u{FF13}\u{FF14}"])
+        let discovered = InstallSerials(values: [.solidWorks: "DDDD DDDD DDDD DDDD DDDD DDDD"])
+        typed = typed.merging(discovered)
+        XCTAssertEqual(typed[.solidWorks], "\u{FF11}\u{FF12}\u{FF13}\u{FF14}")
+        XCTAssertEqual(typed.invalidFields(), [.solidWorks])
     }
 
     func testMergingFillsOnlyEmptyFields() {
