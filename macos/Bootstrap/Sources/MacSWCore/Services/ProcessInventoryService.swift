@@ -63,9 +63,19 @@ public enum ProcessInventory {
     }
 
     private static func belongsToContainer(command: String, bottlePath: String, wineRuntimePath: String) -> Bool {
+        // 我们自己起的 wine 命令行（reg import、taskkill 等）是宿主侧的临时工具，
+        // 不是容器里的程序；wineserver 例外，它代表容器还活着。
+        if isWineLauncher(command: command, wineRuntimePath: wineRuntimePath) { return false }
         if !bottlePath.isEmpty, command.localizedCaseInsensitiveContains(bottlePath) { return true }
         if !wineRuntimePath.isEmpty, command.localizedCaseInsensitiveContains(wineRuntimePath) { return true }
         return solidWorksProcesses.contains { command.contains($0) }
+    }
+
+    private static func isWineLauncher(command: String, wineRuntimePath: String) -> Bool {
+        guard !wineRuntimePath.isEmpty,
+              let executable = command.split(separator: " ").first,
+              executable.hasPrefix(wineRuntimePath) else { return false }
+        return (String(executable) as NSString).lastPathComponent != "wineserver"
     }
 
     /// Windows 客户进程的 argv[0] 会被改写成 `C:\...\X.exe`，参数跟在后面；

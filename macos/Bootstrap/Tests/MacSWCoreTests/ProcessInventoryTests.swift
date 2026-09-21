@@ -12,6 +12,7 @@ final class ProcessInventoryTests: XCTestCase {
       8241 192937984 01:23:40 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe
       8244 200704   01:23:30 C:\\Program Files\\SOLIDWORKS\\sldworks_fs.exe
       8250   13112  00:10:00 C:\\opt\\FlexNet\\lmgrd.exe -c \(bottle)/drive_c/opt/FlexNet/sw_d_SSQ.lic
+      8260    4096  00:00:02 \(wineRuntime)/bin/wineloader \(wineRuntime)/bin/wine reg import C:\\windows\\temp\\MacSW-316C1F25.reg
       51708  98304  02:00:00 /Applications/MacSW.app/Contents/MacOS/MacSW
       51709  12345  02:00:00 /usr/sbin/httpserver
       """
@@ -26,6 +27,8 @@ final class ProcessInventoryTests: XCTestCase {
         ])
         XCTAssertFalse(parsed().contains { $0.name == "MacSW" })
         XCTAssertFalse(parsed().contains { $0.name == "httpserver" })
+        // wine / wineloader 这些宿主侧命令行工具不该出现在容器表里
+        XCTAssertFalse(parsed().contains { $0.name.contains("wineloader") || $0.name.contains(".reg") })
     }
 
     func testSortedByResidentMemoryWithSolidWorksFirst() {
