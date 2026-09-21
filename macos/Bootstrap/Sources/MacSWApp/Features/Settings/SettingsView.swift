@@ -3,20 +3,26 @@ import MacSWCore
 import SwiftUI
 
 struct SettingsView: View {
+    /// 设置窗口按内容定高，进程列表只列最占内存的前若干项。
+    private static let visibleProcessLimit = 8
+
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
+    /// nil 表示还没手工选过，此时按容器里的真实状态推导。
+    @State private var chosenLicenseMode: BootstrapLicenseMode?
 
     var body: some View {
         TabView {
             generalSettings
                 .tabItem { Label("通用", systemImage: "gearshape") }
-            licenseSettings
-                .tabItem { Label("许可服务器", systemImage: "server.rack") }
+            maintenanceSettings
+                .tabItem { Label("维护", systemImage: "wrench.and.screwdriver") }
         }
-        .frame(width: 560, height: 390)
+        .frame(width: 560)
+        .fixedSize(horizontal: false, vertical: true)
         .padding(16)
         .alert("卸载托管 FlexNet？", isPresented: $confirmUninstall) {
             Button("取消", role: .cancel) { }
@@ -24,6 +30,7 @@ struct SettingsView: View {
         } message: {
             Text("只会删除 C:\\opt\\FlexNet，并从服务器列表移除对应的 localhost 地址；其他地址会保留。")
         }
+        .task { await runtime.refreshNow() }
     }
 
     private var generalSettings: some View {
@@ -34,7 +41,8 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("安装与部署") {
+            licenseSection
+            Section("安装") {
                 Button("安装或重新安装 SOLIDWORKS…") {
                     AppShell.shared.showBootstrapWindow()
                 }
@@ -42,6 +50,95 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var licenseSection: some View {
+        Section("许可服务器") {
+            Picker("许可服务器", selection: licenseMode) {
+                ForEach(BootstrapLicenseMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .horizontalRadioGroupLayout()
+            .labelsHidden()
+            Text(licenseMode.wrappedValue.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            switch licenseMode.wrappedValue {
+            case .unconfigured:
+                Button("清除当前许可配置") {
+                    licenseServer.addressInput = ""
+                    licenseServer.saveAddress()
+                }
+                .disabled(licenseServer.isOperating)
+            case .remoteServer:
+                addressEditor
+            case .managedFlexNet:
+                managedFlexNetEditor
+            }
+        }
+    }
+
+    private var addressEditor: some View {
+        Group {
+            TextField(
+                "服务器地址",
+                text: $licenseServer.addressInput,
+                prompt: Text("25734@license.example.com")
+            )
+                .labelsHidden()
+                .focused($addressFocused)
+                .onSubmit { licenseServer.saveAddress() }
+                .onChange(of: addressFocused) { focused in
+                    if !focused, !licenseServer.addressInput.isEmpty {
+                        _ = licenseServer.normalizeAddressInput()
+                    }
+                }
+            Text("优先使用 port@host；也接受 host:port 与 [IPv6]:port，多个服务器以分号分隔。写入 Wine 注册表，下次启动 SOLIDWORKS 时生效。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !licenseServer.addressNotice.isEmpty {
+                Text(licenseServer.addressNotice)
+                    .font(.caption)
+                    .foregroundStyle(licenseServer.addressHasError ? .red : .secondary)
+            }
+            Button("保存") { licenseServer.saveAddress() }
+                .disabled(licenseServer.isOperating)
+        }
+    }
+
+    private var managedFlexNetEditor: some View {
+        Group {
+            LabeledContent("运行状态") {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(flexNetStateColor)
+                        .frame(width: 7, height: 7)
+                    Text(flexNetStateText)
+                }
+            }
+            HStack {
+                if licenseServer.isInstalled {
+                    Button("启动") { licenseServer.start() }
+                    Button("停止") { licenseServer.stop() }
+                    Button("卸载…", role: .destructive) { confirmUninstall = true }
+                } else {
+                    Button("安装目录或压缩包…") {
+                        if let url = OpenPanelService.chooseFlexNetPackage() { licenseServer.install(from: url) }
+                    }
+                }
+            }
+            .disabled(licenseServer.isOperating)
+            Text(licenseServer.statusMessage).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var maintenanceSettings: some View {
+        Form {
             Section("Wine 工具") {
                 HStack {
                     Button("注册表编辑器") { runtime.openWineTool("regedit") }
@@ -51,66 +148,53 @@ struct SettingsView: View {
                     }
                 }
             }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var licenseSettings: some View {
-        Form {
-            Section("服务器地址") {
-                TextField(
-                    "服务器地址",
-                    text: $licenseServer.addressInput,
-                    prompt: Text("25734@license.example.com")
-                )
-                    .labelsHidden()
-                    .focused($addressFocused)
-                    .onSubmit { licenseServer.saveAddress() }
-                    .onChange(of: addressFocused) { focused in
-                        if !focused, !licenseServer.addressInput.isEmpty {
-                            _ = licenseServer.normalizeAddressInput()
+            Section("容器进程") {
+                if runtime.processes.isEmpty {
+                    Text("未检测到运行中的进程").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(runtime.processes.prefix(Self.visibleProcessLimit), id: \.pid) { process in
+                        LabeledContent(process.name) {
+                            Text("PID \(process.pid) · \(process.residentMB) MB · 已运行 \(ProcessInventory.formatElapsed(process.elapsed))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                Text("优先使用 port@host；也接受 host:port 与 [IPv6]:port，多个服务器以分号分隔。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("将写入 Wine 注册表，下次启动 SOLIDWORKS 时生效。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !licenseServer.addressNotice.isEmpty {
-                    Text(licenseServer.addressNotice)
-                        .font(.caption)
-                        .foregroundStyle(licenseServer.addressHasError ? .red : .secondary)
-                }
-                Button("保存") { licenseServer.saveAddress() }
-                    .disabled(licenseServer.isOperating)
-            }
-
-            Section("托管 FlexNet") {
-                LabeledContent("运行状态") {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(flexNetStateColor)
-                            .frame(width: 7, height: 7)
-                        Text(flexNetStateText)
+                    if runtime.processes.count > Self.visibleProcessLimit {
+                        Text("另有 \(runtime.processes.count - Self.visibleProcessLimit) 个进程未列出。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 HStack {
-                    if licenseServer.isInstalled {
-                        Button("启动") { licenseServer.start() }
-                        Button("停止") { licenseServer.stop() }
-                        Button("卸载…", role: .destructive) { confirmUninstall = true }
-                    } else {
-                        Button("安装目录或压缩包…") {
-                            if let url = OpenPanelService.chooseFlexNetPackage() { licenseServer.install(from: url) }
-                        }
-                    }
+                    Button("刷新") { Task { await runtime.refreshNow() } }
+                    Text("合计 \(ProcessInventory.totalResidentMB(runtime.processes)) MB · \(runtime.processes.count) 个进程")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .disabled(licenseServer.isOperating)
-                Text(licenseServer.statusMessage).font(.caption).foregroundStyle(.secondary)
+            }
+            Section("容器操作") {
+                Button("重启容器") { runtime.restartContainer() }
+                Button("强制终止全部进程", role: .destructive) { runtime.forceStop() }
+                Text("重启容器会结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。强制终止只杀进程，不结束 wineserver。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !runtime.statusMessage.isEmpty {
+                    Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 单选未手工选过时，按容器里的真实配置推导当前模式。
+    private var licenseMode: Binding<BootstrapLicenseMode> {
+        Binding {
+            if let chosenLicenseMode { return chosenLicenseMode }
+            if licenseServer.isInstalled { return .managedFlexNet }
+            return licenseServer.addressInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .unconfigured : .remoteServer
+        } set: { chosenLicenseMode = $0 }
     }
 
     private var flexNetStateText: String {

@@ -104,16 +104,24 @@ struct MenuBarPanelView: View {
                     .padding(.vertical, 4)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(runtime.processes, id: \.pid) { process in
+                    ForEach(runtime.processes.prefix(Self.visibleProcessLimit), id: \.pid) { process in
                         MenuBarProcessRow(process: process, share: share(of: process))
                     }
                 }
-                Text("合计 \(formattedTotalMemory) · 已运行 \(uptimeText)")
+                Text(summaryText)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 2)
             }
         }
+    }
+
+    private static let visibleProcessLimit = 8
+
+    private var summaryText: String {
+        let hidden = runtime.processes.count - Self.visibleProcessLimit
+        let suffix = hidden > 0 ? "（另有 \(hidden) 个未列出）" : ""
+        return "合计 \(formattedTotalMemory) · 已运行 \(uptimeText)\(suffix)"
     }
 
     private func share(of process: WineProcess) -> Double {
