@@ -77,18 +77,17 @@ struct SettingsView: View {
 
     private var addressEditor: some View {
         Group {
-            LabeledContent("服务器地址") {
-                HStack(spacing: 8) {
-                    TextField("25734@license.example.com", text: $licenseServer.addressInput)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                        .focused($addressFocused)
-                        .onSubmit { commitAddressIfNeeded() }
-                        .onChange(of: addressFocused) { focused in
-                            if !focused { commitAddressIfNeeded() }
-                        }
-                }
+            HStack(spacing: 8) {
+                Text("服务器地址")
+                TextField("25734@license.example.com", text: $licenseServer.addressInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($addressFocused)
+                    .onSubmit { commitAddressIfNeeded() }
+                    .onChange(of: addressFocused) { focused in
+                        if !focused { commitAddressIfNeeded() }
+                    }
             }
+            .disabled(licenseServer.isOperating)
             Text("port@host，也接受 host:port 与 [IPv6]:port；多个地址用分号分隔，写入后下次启动 SOLIDWORKS 生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
