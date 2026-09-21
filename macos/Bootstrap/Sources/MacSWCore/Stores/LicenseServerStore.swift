@@ -10,7 +10,6 @@ public final class LicenseServerStore: ObservableObject {
     @Published public private(set) var addressHasError = false
     @Published public private(set) var statusMessage = ""
     @Published public private(set) var isOperating = false
-    @Published public private(set) var appliedMode: BootstrapLicenseMode?
     /// 上一次真正写进注册表的内容，用来判断输入框是否需要再写一次。
     @Published public private(set) var appliedAddress: String?
     /// 安装 FlexNet 失败的原因，界面用它弹窗；非空即表示要弹。
@@ -20,7 +19,6 @@ public final class LicenseServerStore: ObservableObject {
     private let registry: RegistryService
     private let service: FlexNetService
     private let wine: WineService
-    private var launchedProcess: Process?
 
     public init(paths: AppPaths, wine: WineService = .shared) {
         self.paths = paths
@@ -117,7 +115,6 @@ public final class LicenseServerStore: ObservableObject {
     /// 因此不会出现用户连着切、旧写入盖掉新选择的情况。
     public func apply(mode: BootstrapLicenseMode) {
         guard !isOperating else { return }
-        appliedMode = mode
         Task {
             isOperating = true
             defer { isOperating = false }
@@ -125,7 +122,7 @@ public final class LicenseServerStore: ObservableObject {
                 switch mode {
                 case .unconfigured:
                     guard !addressInput.isEmpty else { return }
-                    try await registry.clearLicenseServers(prefix: paths.bottle)
+                    try await registry.clearLicenseServers(prefix: paths.bottle, includingServiceMarker: true)
                     addressInput = ""
                     appliedAddress = ""
                     statusMessage = "已清空许可服务器地址。"
@@ -289,7 +286,6 @@ public final class LicenseServerStore: ObservableObject {
         process.standardError = handle
         process.terminationHandler = { _ in try? handle.close() }
         try process.run()
-        launchedProcess = process
 
         for _ in 0..<30 {
             try Task.checkCancellation()
@@ -305,14 +301,18 @@ public final class LicenseServerStore: ObservableObject {
 
     private func stopAndWait() async throws {
         state = .stopping
-        let process = wine.makeProcess(arguments: ["taskkill", "/f", "/im", "lmgrd.exe", "/im", "SW_D.exe"], prefix: paths.bottle)
+        guard let installation else {
+            state = .notInstalled
+            return
+        }
+        // 守护进程名来自 .lic 的 VENDOR 行；写死 SW_D.exe 会放过别的发行版的守护进程。
+        let process = wine.makeProcess(arguments: [
+            "taskkill", "/f", "/im", "lmgrd.exe", "/im", installation.vendorDaemon
+        ], prefix: paths.bottle)
         _ = try await wine.runCancellable(process, log: paths.logs.appendingPathComponent("flexnet-stop.log"))
-        launchedProcess = nil
-        if let port = installation?.port {
-            for _ in 0..<10 {
-                if !(await isPortOpen(port)) { break }
-                try await Task.sleep(nanoseconds: 300_000_000)
-            }
+        for _ in 0..<10 {
+            if !(await isPortOpen(installation.port)) { break }
+            try await Task.sleep(nanoseconds: 300_000_000)
         }
         state = .stopped
         statusMessage = "FlexNet 已停止。"
