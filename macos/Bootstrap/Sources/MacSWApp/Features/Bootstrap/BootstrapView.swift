@@ -34,10 +34,7 @@ struct BootstrapView: View {
         .alert("清理不完整安装", isPresented: $showCleanupConfirmation) {
             Button("取消", role: .cancel) { }
             Button("停止容器并删除", role: .destructive) {
-                Task {
-                    do { try await store.cleanIncompleteInstallation() }
-                    catch { /* Store retains the user-facing state from the failed operation. */ }
-                }
+                store.requestCleanupOfIncompleteInstallation()
             }
         } message: {
             Text("将删除当前 Wine 容器内的不完整安装，无法撤销。")

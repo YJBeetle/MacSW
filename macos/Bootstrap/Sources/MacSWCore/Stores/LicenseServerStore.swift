@@ -225,6 +225,13 @@ public final class LicenseServerStore: ObservableObject {
         try await startAndWait()
     }
 
+    /// 覆盖安装前用：托管服务器还在跑就会占着要被覆盖的目录，FlexNet 那一步会在移动时失败。
+    /// 探端口而不是看 state：安装窗口这条路径上没人保证状态刚刷新过。
+    public func stopIfRunning() async throws {
+        guard let installation, await isPortOpen(installation.port) else { return }
+        try await stopAndWait()
+    }
+
     public func start() {
         guard !isOperating else { return }
         Task {

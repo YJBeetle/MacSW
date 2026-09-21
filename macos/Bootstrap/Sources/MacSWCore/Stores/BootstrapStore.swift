@@ -244,6 +244,14 @@ public final class BootstrapStore: ObservableObject {
         statusMessage = "可以调整选项后重新开始。"
     }
 
+    /// 界面入口：清理失败必须当场说出来，按钮点下去没反应比报错更糟。
+    public func requestCleanupOfIncompleteInstallation() {
+        Task {
+            do { try await cleanIncompleteInstallation() }
+            catch { statusMessage = "清理失败：\(error.localizedDescription)" }
+        }
+    }
+
     public func cleanIncompleteInstallation() async throws {
         guard paths.bottle.standardizedFileURL == paths.appSupportDirectory.appendingPathComponent("bottle").standardizedFileURL else {
             throw bootstrapError("容器路径异常，拒绝清理。")
@@ -306,6 +314,9 @@ public final class BootstrapStore: ObservableObject {
                 throw bootstrapError("介质缺少必需组件：\(missing.map(\.label).joined(separator: "、"))。")
             }
             report(.media, .completed, "官方 MSI、前置库与 Toolbox 齐备")
+            // 重新安装前先放开托管服务器占着的目录，否则 FlexNet 那一步会在移动时失败。
+            // 停不掉就不管：真占着的话装到那一步会给出明确错误。
+            try? await licensing.stopIfRunning()
             let installerMSI = media.appendingPathComponent(SilentInstallerPlan.coreMSIRelativePath)
 
             if cleanInstall, paths.bottleExists {
