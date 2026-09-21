@@ -16,6 +16,7 @@ public final class BootstrapStore: ObservableObject {
     @Published public var serialMotion = ""
     @Published public var serialMBD = ""
     @Published public var selectedLanguage: SolidWorksLanguage?
+    @Published public var licenseMode: BootstrapLicenseMode = .unconfigured
     @Published public var licenseServerAddress = ""
     @Published public var flexNetDirectory: URL?
     @Published public private(set) var flexNetCandidates: [URL] = []
@@ -76,13 +77,36 @@ public final class BootstrapStore: ObservableObject {
             && !isInspectingMedia
             && serials.isComplete
             && serials.invalidFields().isEmpty
+            && licenseRequest != nil
     }
 
     public var startHint: String? {
         let invalid = serials.invalidFields()
         if !invalid.isEmpty { return "\(invalid.map(\.title).joined(separator: "、")) 需要六组四字符。" }
         if !serials.isComplete { return "静默安装必须至少提供 SOLIDWORKS 序列号。" }
-        return nil
+        return licenseMissingInput
+    }
+
+    private var licenseMissingInput: String? {
+        licenseMode.missingInputMessage(address: licenseServerAddress, flexNetSource: flexNetDirectory)
+    }
+
+    /// 单选解析出的唯一许可动作；nil 表示当前模式的输入还不可用。
+    private var licenseRequest: LicenseRequest? {
+        guard licenseMissingInput == nil else { return nil }
+        switch licenseMode {
+        case .unconfigured: return .skip
+        case .remoteServer:
+            return .address(licenseServerAddress.trimmingCharacters(in: .whitespacesAndNewlines))
+        case .managedFlexNet:
+            return flexNetDirectory.map(LicenseRequest.managedFlexNet)
+        }
+    }
+
+    private enum LicenseRequest {
+        case skip
+        case address(String)
+        case managedFlexNet(URL)
     }
 
     public var showsCleanInstall: Bool { paths.bottleExists }
@@ -107,6 +131,7 @@ public final class BootstrapStore: ObservableObject {
         serialSources = [:]
         ambiguousSerialFields = []
         flexNetCandidates = []
+        flexNetDirectory = nil
         availableLanguages = LanguageCatalog.official
         if selectedLanguage == nil {
             selectedLanguage = LanguageCatalog.autoSelection(from: LanguageCatalog.official)
@@ -155,8 +180,11 @@ public final class BootstrapStore: ObservableObject {
         if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
         switch flexNet.count {
         case 0: break
-        case 1: notes.append("已自动识别 FlexNet 目录 \(flexNet[0].lastPathComponent)")
-        default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在安装选项里选择")
+        case 1:
+            // 唯一命中即按"托管"预置单选；用户已手工选过别的模式时不抢。
+            if licenseMode == .unconfigured { licenseMode = .managedFlexNet }
+            notes.append("已自动识别 FlexNet 目录 \(flexNet[0].lastPathComponent)，并预选为托管")
+        default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在许可方式里确认要托管的那个")
         }
         statusMessage = notes.joined(separator: "；") + "。"
     }
@@ -199,12 +227,12 @@ public final class BootstrapStore: ObservableObject {
 
     private func runInstallation() async {
         guard let selectedMedia, let resolved = resolvedMedia else { return }
+        guard let license = licenseRequest else { return }
         let request = InstallRequest(
             serials: serials,
             language: selectedLanguage,
             silent: silentInstall,
-            licenseAddress: licenseServerAddress,
-            flexNetSource: flexNetDirectory
+            license: license
         )
         state = .preparing
         stepStatuses = [:]
@@ -346,17 +374,17 @@ public final class BootstrapStore: ObservableObject {
             report(.wpfThemes, .completed, "五个 WPF 主题库已补齐")
 
             state = .installing(.licensing)
-            if request.licenseAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && request.flexNetSource == nil {
-                report(.licensing, .skipped, "未填写许可地址，也未选择 FlexNet 目录")
-            } else {
-                report(.licensing, .running, "正在写入许可服务器配置…")
-                try await licensing.configureDuringInstallation(
-                    address: request.licenseAddress,
-                    flexNetSource: request.flexNetSource
-                )
-                report(.licensing, .completed, request.flexNetSource == nil
-                    ? "许可服务器地址已写入容器"
-                    : "托管 FlexNet 已部署到 C:\\opt\\FlexNet 并启动")
+            switch request.license {
+            case .skip:
+                report(.licensing, .skipped, "按许可方式选择跳过")
+            case .address(let address):
+                report(.licensing, .running, "正在写入许可服务器地址…")
+                try await licensing.configureDuringInstallation(address: address, flexNetSource: nil)
+                report(.licensing, .completed, "许可服务器地址已写入容器")
+            case .managedFlexNet(let source):
+                report(.licensing, .running, "正在把 FlexNet 服务器装进容器…")
+                try await licensing.configureDuringInstallation(address: "", flexNetSource: source)
+                report(.licensing, .completed, "托管 FlexNet 已部署到 C:\\opt\\FlexNet 并启动")
             }
 
             state = .installing(.validation)
@@ -386,8 +414,7 @@ public final class BootstrapStore: ObservableObject {
         let serials: InstallSerials
         let language: SolidWorksLanguage?
         let silent: Bool
-        let licenseAddress: String
-        let flexNetSource: URL?
+        let license: LicenseRequest
     }
 
     private func msiFailureDetail(_ log: URL) -> String {
