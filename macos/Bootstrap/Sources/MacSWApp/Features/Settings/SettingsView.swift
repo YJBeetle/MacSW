@@ -210,65 +210,39 @@ struct SettingsView: View {
     }
 }
 
-/// 活动监视器风格的进程表：列对齐、固定高度、内部滚动。
+/// 活动监视器同款控件：可点表头排序、隔行底色、固定高度内嵌滚动。
 private struct ProcessTable: View {
     let processes: [WineProcess]
 
-    private static let rowHeight: CGFloat = 24
-    private static let visibleRows: CGFloat = 6
+    @State private var sortOrder: [KeyPathComparator<WineProcess>] = [KeyPathComparator(\WineProcess.name)]
+
+    var body: some View {
+        Table(processes.sorted(using: sortOrder), sortOrder: $sortOrder) {
+            TableColumn("进程名称", value: \.name)
+            TableColumn("PID", value: \.pid) { process in
+                Text(Self.grouping.string(from: NSNumber(value: process.pid)) ?? "\(process.pid)")
+            }
+            TableColumn("内存", value: \.residentMB) { process in
+                Text("\(process.residentMB) MB")
+            }
+            TableColumn("已运行", value: \.elapsedSeconds) { process in
+                Text(ProcessInventory.formatElapsed(process.elapsed))
+            }
+        }
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .frame(height: 176)
+        .overlay {
+            if processes.isEmpty {
+                Text("未检测到运行中的进程")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
     private static let grouping: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter
     }()
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Text("进程名称").frame(maxWidth: .infinity, alignment: .leading)
-                Text("PID").frame(width: 56, alignment: .trailing)
-                Text("内存").frame(width: 58, alignment: .trailing)
-                Text("已运行").frame(width: 76, alignment: .trailing)
-            }
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            Divider()
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if processes.isEmpty {
-                        Text("未检测到运行中的进程")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.vertical, 14)
-                    } else {
-                        ForEach(processes, id: \.pid) { process in
-                            row(process)
-                            Divider()
-                        }
-                    }
-                }
-            }
-            .frame(height: Self.rowHeight * Self.visibleRows)
-        }
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.quaternary.opacity(0.35)))
-    }
-
-    private func row(_ process: WineProcess) -> some View {
-        HStack(spacing: 10) {
-            Text(process.name)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(Self.grouping.string(from: NSNumber(value: process.pid)) ?? "\(process.pid)")
-                .frame(width: 56, alignment: .trailing)
-            Text("\(process.residentMB) MB").frame(width: 58, alignment: .trailing)
-            Text(ProcessInventory.formatElapsed(process.elapsed)).frame(width: 76, alignment: .trailing)
-        }
-        .font(.system(size: 11))
-        .padding(.horizontal, 8)
-        .frame(height: Self.rowHeight)
-    }
 }

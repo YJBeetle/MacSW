@@ -55,6 +55,16 @@ final class ProcessInventoryTests: XCTestCase {
         XCTAssertTrue(ProcessInventory.parse("garbage header", bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime).isEmpty)
     }
 
+    func testElapsedSecondsForTableSorting() {
+        func seconds(_ elapsed: String) -> Int {
+            WineProcess(name: "x", pid: 1, residentKB: 1, elapsed: elapsed).elapsedSeconds
+        }
+        XCTAssertEqual(seconds("00:00:45"), 45)
+        XCTAssertEqual(seconds("01:23:45"), 5025)
+        XCTAssertEqual(seconds("1-02:03:04"), 93_784)
+        XCTAssertEqual(seconds("乱码"), 0)
+    }
+
     func testElapsedFormatting() {
         XCTAssertEqual(ProcessInventory.formatElapsed("01:23:45"), "1 小时 23 分")
         XCTAssertEqual(ProcessInventory.formatElapsed("00:05:00"), "5 分")

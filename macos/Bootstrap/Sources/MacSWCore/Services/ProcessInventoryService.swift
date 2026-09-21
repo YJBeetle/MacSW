@@ -1,6 +1,6 @@
 import Foundation
 
-public struct WineProcess: Equatable, Sendable {
+public struct WineProcess: Identifiable, Equatable, Sendable {
     public let name: String
     public let pid: Int32
     public let residentKB: Int64
@@ -14,7 +14,18 @@ public struct WineProcess: Equatable, Sendable {
         self.elapsed = elapsed
     }
 
+    public var id: Int32 { pid }
+
     public var residentMB: Int64 { max(residentKB / 1024, 1) }
+
+    /// 表头排序用的秒数；解析不出来时退回 0，不影响显示。
+    public var elapsedSeconds: Int {
+        let parts = elapsed.split(separator: "-")
+        let days = parts.count == 2 ? Int(parts[0]) ?? 0 : 0
+        let clock = (parts.last ?? Substring(elapsed)).split(separator: ":").compactMap { Int($0) }
+        guard clock.count == 3 else { return days * 86_400 }
+        return days * 86_400 + clock[0] * 3600 + clock[1] * 60 + clock[2]
+    }
 }
 
 /// 用 macOS 侧 ps 读取容器进程，不经过 Wine，因此打开面板也能即时刷新。
