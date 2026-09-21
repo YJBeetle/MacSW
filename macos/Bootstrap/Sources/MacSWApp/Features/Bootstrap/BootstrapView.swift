@@ -78,11 +78,12 @@ struct BootstrapView: View {
                             if store.isInspectingMedia {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Image(systemName: "arrow.clockwise")
+                                Text("重新扫描")
                             }
                         }
+                        .controlSize(.small)
                         .disabled(store.selectedMedia == nil)
-                        .help("重新扫描介质与随附序列号文件")
+                        .help("重新扫描介质与同级的序列号、语言、FlexNet 资源")
                         Button(store.selectedMedia == nil ? "选择…" : "更换…") {
                             if let url = OpenPanelService.chooseInstallationMedia() { store.selectMedia(url) }
                         }
