@@ -181,7 +181,10 @@ public final class BootstrapStore: ObservableObject {
         if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
         switch flexNet.count {
         case 0: break
-        case 1: notes.append("已自动识别 FlexNet 目录")
+        case 1:
+            // 既然识别出来了就直接选中，用户之后手工改过别的模式则不再抢。
+            if licenseMode == .unconfigured { licenseMode = .managedFlexNet }
+            notes.append("已自动识别 FlexNet 目录并选中托管")
         default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在许可服务器里确认要托管的那个")
         }
         statusMessage = notes.joined(separator: "；") + "。"
