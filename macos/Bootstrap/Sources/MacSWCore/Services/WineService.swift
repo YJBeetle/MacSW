@@ -30,6 +30,11 @@ public final class WineService: @unchecked Sendable {
         runtimeURL.appendingPathComponent("bin/wineserver")
     }
 
+    /// 随 App 打包的界面守护进程，启动 SOLIDWORKS 时一起拉起来。
+    public var uiDaemonExecutable: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe")
+    }
+
     public func isRunning(prefix: URL) -> Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -264,27 +269,22 @@ public final class WineService: @unchecked Sendable {
         stateLock.unlock()
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let daemon = self.makeProcess(arguments: [
-                Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe").path
-            ], prefix: prefix, solidWorks: true)
+            let daemon = self.makeProcess(arguments: [self.uiDaemonExecutable.path], prefix: prefix, solidWorks: true)
+            var daemonHandle: FileHandle?
+            var launchHandle: FileHandle?
             defer {
                 if daemon.isRunning { daemon.terminate() }
+                try? daemonHandle?.close()
+                try? launchHandle?.close()
                 self.stateLock.lock()
                 self.activePrefixes.remove(prefix.path)
                 self.stateLock.unlock()
             }
             do {
-                let compatibility = self.makeProcess(arguments: Self.solidWorksCompatibilityArguments, prefix: prefix)
-                let compatibilityStatus = try self.run(
-                    compatibility,
-                    log: self.logDirectory(prefix.path).appendingPathComponent("solidworks-compatibility.log")
-                )
-                guard compatibilityStatus == 0 else {
-                    throw self.error("SOLIDWORKS 输入兼容设置失败。", compatibilityStatus)
-                }
-
+                // 输入兼容设置是一次性的注册表写入，安装链路已经做过；
+                // 每次启动再跑一个 wine 进程要多等 6 秒，还可能把能用的启动判成失败。
                 let daemonLog = self.logDirectory(prefix.path).appendingPathComponent("ui-daemon.log")
-                let daemonHandle = try self.logHandle(for: daemonLog)
+                daemonHandle = try self.logHandle(for: daemonLog)
                 daemon.standardOutput = daemonHandle ?? FileHandle.nullDevice
                 daemon.standardError = daemonHandle ?? FileHandle.nullDevice
                 try daemon.run()
@@ -292,18 +292,13 @@ public final class WineService: @unchecked Sendable {
                 let solidWorks = self.makeProcess(arguments: [executable.path], prefix: prefix, solidWorks: true)
                 solidWorks.currentDirectoryURL = executable.deletingLastPathComponent()
                 let launchLog = self.logDirectory(prefix.path).appendingPathComponent("sw_launch.log")
-                let handle = try self.logHandle(for: launchLog)
-                solidWorks.standardOutput = handle ?? FileHandle.nullDevice
-                solidWorks.standardError = handle ?? FileHandle.nullDevice
-                do { try solidWorks.run() } catch {
-                    try? handle?.close()
-                    throw error
-                }
+                launchHandle = try self.logHandle(for: launchLog)
+                solidWorks.standardOutput = launchHandle ?? FileHandle.nullDevice
+                solidWorks.standardError = launchHandle ?? FileHandle.nullDevice
+                try solidWorks.run()
                 DispatchQueue.main.async { onStarted() }
                 solidWorks.waitUntilExit()
                 let result = solidWorks.terminationStatus
-                try? handle?.close()
-                try? daemonHandle?.close()
                 DispatchQueue.main.async {
                     completion(result == 0, "SOLIDWORKS 已退出（\(result)）。")
                 }
