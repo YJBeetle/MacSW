@@ -19,6 +19,7 @@ public final class LicenseServerStore: ObservableObject {
     private let registry: RegistryService
     private let service: FlexNetService
     private let wine: WineService
+    private var didSyncFromContainer = false
 
     public init(paths: AppPaths, wine: WineService = .shared) {
         self.paths = paths
@@ -68,6 +69,18 @@ public final class LicenseServerStore: ObservableObject {
         default: break
         }
         state = await isPortOpen(installation.port) ? .running(installation.port) : .stopped
+    }
+
+    /// 读一次容器里的真实配置，让单选框显示的是注册表而不是"我们上次点了什么"。
+    /// 一次 `reg query` 要起一个 wine 进程（约 6 秒），所以每次运行默认只自动读一次，
+    /// 之后由用户显式要求再读；期间沿用写入的锁，免得读取结果盖掉刚选的东西。
+    public func syncFromContainer(force: Bool = false) async {
+        guard force || !didSyncFromContainer else { return }
+        guard !isOperating else { return }
+        isOperating = true
+        defer { isOperating = false }
+        await refresh()
+        didSyncFromContainer = true
     }
 
     @discardableResult

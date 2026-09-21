@@ -9,6 +9,7 @@ struct SettingsView: View {
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
     @State private var maintainsVisibility = false
+    @State private var generalVisible = false
     /// nil 表示还没手工选过，此时按容器里的真实状态推导。
     @State private var chosenLicenseMode: BootstrapLicenseMode?
 
@@ -56,6 +57,13 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
+        .onAppear { generalVisible = true }
+        .onDisappear { generalVisible = false }
+        // 打开设置才去容器里读一次真实配置：App 启动路径上不起 wine 进程。
+        .task(id: generalVisible) {
+            guard generalVisible else { return }
+            await licenseServer.syncFromContainer()
+        }
     }
 
     private var licenseSection: some View {
@@ -86,6 +94,16 @@ struct SettingsView: View {
             case .managedFlexNet:
                 managedFlexNetEditor
             }
+            // 手工改过注册表（维护页就能打开注册表编辑器）之后用这个把真实配置读回来。
+            Button("重新读取容器配置") {
+                Task {
+                    await licenseServer.syncFromContainer(force: true)
+                    // 手工选过的模式要让位给读回来的真实状态。
+                    chosenLicenseMode = nil
+                }
+            }
+            .disabled(licenseServer.isOperating)
+            .help("读取容器注册表里的许可服务器地址，需要几秒钟")
         }
     }
 
