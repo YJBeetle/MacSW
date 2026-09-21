@@ -3,9 +3,6 @@ import MacSWCore
 import SwiftUI
 
 struct SettingsView: View {
-    /// 设置窗口按内容定高，进程列表只列最占内存的前若干项。
-    private static let visibleProcessLimit = 8
-
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
@@ -149,22 +146,7 @@ struct SettingsView: View {
                 }
             }
             Section("容器进程") {
-                if runtime.processes.isEmpty {
-                    Text("未检测到运行中的进程").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    ForEach(runtime.processes.prefix(Self.visibleProcessLimit), id: \.pid) { process in
-                        LabeledContent(process.name) {
-                            Text("PID \(process.pid) · \(process.residentMB) MB · 已运行 \(ProcessInventory.formatElapsed(process.elapsed))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    if runtime.processes.count > Self.visibleProcessLimit {
-                        Text("另有 \(runtime.processes.count - Self.visibleProcessLimit) 个进程未列出。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                ProcessTable(processes: runtime.processes)
                 HStack {
                     Button("刷新") { Task { await runtime.refreshNow() } }
                     Text("合计 \(ProcessInventory.totalResidentMB(runtime.processes)) MB · \(runtime.processes.count) 个进程")
@@ -225,5 +207,68 @@ struct SettingsView: View {
         case .notInstalled, .stopped:
             return .secondary
         }
+    }
+}
+
+/// 活动监视器风格的进程表：列对齐、固定高度、内部滚动。
+private struct ProcessTable: View {
+    let processes: [WineProcess]
+
+    private static let rowHeight: CGFloat = 24
+    private static let visibleRows: CGFloat = 6
+    private static let grouping: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("进程名称").frame(maxWidth: .infinity, alignment: .leading)
+                Text("PID").frame(width: 56, alignment: .trailing)
+                Text("内存").frame(width: 58, alignment: .trailing)
+                Text("已运行").frame(width: 76, alignment: .trailing)
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
+            Divider()
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if processes.isEmpty {
+                        Text("未检测到运行中的进程")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 14)
+                    } else {
+                        ForEach(processes, id: \.pid) { process in
+                            row(process)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(height: Self.rowHeight * Self.visibleRows)
+        }
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.quaternary.opacity(0.35)))
+    }
+
+    private func row(_ process: WineProcess) -> some View {
+        HStack(spacing: 10) {
+            Text(process.name)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(Self.grouping.string(from: NSNumber(value: process.pid)) ?? "\(process.pid)")
+                .frame(width: 56, alignment: .trailing)
+            Text("\(process.residentMB) MB").frame(width: 58, alignment: .trailing)
+            Text(ProcessInventory.formatElapsed(process.elapsed)).frame(width: 76, alignment: .trailing)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 8)
+        .frame(height: Self.rowHeight)
     }
 }
