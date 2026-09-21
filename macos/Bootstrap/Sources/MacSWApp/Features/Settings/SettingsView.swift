@@ -122,7 +122,10 @@ struct SettingsView: View {
                 }
             }
             .disabled(licenseServer.isOperating)
-            Text(licenseServer.statusMessage).font(.caption).foregroundStyle(.secondary)
+            // 状态行已经说明"运行中/已停止"，这里只在失败时补一句原因，别重复播报。
+            if case .failed(let reason) = licenseServer.state {
+                Text(reason).font(.caption).foregroundStyle(.red)
+            }
         }
     }
 
@@ -173,7 +176,7 @@ struct SettingsView: View {
             while !Task.isCancelled {
                 // 只在设置窗口真的在前台时跑 ps，切到别的 App 就停。
                 if NSApp.isActive { await runtime.refreshNow() }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }
