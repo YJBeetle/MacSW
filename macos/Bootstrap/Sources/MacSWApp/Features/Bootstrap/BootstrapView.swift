@@ -44,6 +44,18 @@ struct BootstrapView: View {
         }
     }
 
+    /// 选择 FlexNet 目录后立刻给出的结构校验结果，不等开装才报错。
+    private var flexNetCheckText: (text: String, isError: Bool)? {
+        switch store.flexNetCheck {
+        case .empty: return nil
+        case .checking: return ("正在校验 lmgrd.exe 与 .lic…", false)
+        case .ready(let metadata):
+            return ("校验通过：端口 \(metadata.port)，许可证 \(metadata.licenseFile)，守护进程 \(metadata.vendorDaemon)。", false)
+        case .rejected(let reason): return (reason, true)
+        case .archiveNotChecked: return ("压缩包会在安装时解包后再校验结构。", false)
+        }
+    }
+
     private var header: some View {
         HStack(spacing: 14) {
             Image(systemName: "shippingbox.fill")
@@ -214,9 +226,15 @@ struct BootstrapView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     Button("选择…") {
                                         if let url = OpenPanelService.chooseFlexNetPackage() {
-                                            store.flexNetDirectory = url
+                                            store.chooseFlexNetDirectory(url)
                                         }
                                     }
+                                }
+                                if let feedback = flexNetCheckText {
+                                    Text(feedback.text)
+                                        .font(.caption2)
+                                        .foregroundStyle(feedback.isError ? Color.orange : Color.secondary)
+                                        .padding(.leading, 92)
                                 }
                             }
 

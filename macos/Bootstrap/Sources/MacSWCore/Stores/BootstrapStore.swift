@@ -5,6 +5,16 @@ public extension Notification.Name {
     static let macSWInstallationCompleted = Notification.Name("MacSWInstallationCompleted")
 }
 
+/// 选中的 FlexNet 目录是否满足托管安装的结构要求。
+public enum FlexNetPackageCheck: Equatable {
+    case empty
+    case checking
+    case ready(ManagedFlexNetInstallation)
+    case rejected(String)
+    /// 压缩包要等安装时解包后才能校验。
+    case archiveNotChecked
+}
+
 @MainActor
 public final class BootstrapStore: ObservableObject {
     @Published public private(set) var selectedMedia: URL?
@@ -20,6 +30,7 @@ public final class BootstrapStore: ObservableObject {
     @Published public var licenseServerAddress = ""
     @Published public var flexNetDirectory: URL?
     @Published public private(set) var flexNetCandidates: [URL] = []
+    @Published public private(set) var flexNetCheck: FlexNetPackageCheck = .empty
     @Published public private(set) var availableLanguages: [SolidWorksLanguage] = []
     @Published public private(set) var serialSources: [InstallSerialField: URL] = [:]
     @Published public private(set) var ambiguousSerialFields: [InstallSerialField] = []
@@ -35,8 +46,10 @@ public final class BootstrapStore: ObservableObject {
     private let registry: RegistryService
     private let iso: IsoService
     private let licensing: LicenseServerStore
+    private let flexNet: FlexNetService
     private var installationTask: Task<Void, Never>?
     private var inspectionTask: Task<Void, Never>?
+    private var flexNetCheckTask: Task<Void, Never>?
 
     public init(
         paths: AppPaths,
@@ -52,6 +65,7 @@ public final class BootstrapStore: ObservableObject {
         self.registry = registry ?? RegistryService(wine: wine)
         self.iso = iso
         self.licensing = licensing ?? LicenseServerStore(paths: paths)
+        self.flexNet = FlexNetService(paths: paths)
     }
 
     public var serials: InstallSerials {
@@ -92,7 +106,50 @@ public final class BootstrapStore: ObservableObject {
     }
 
     private var licenseMissingInput: String? {
-        licenseMode.missingInputMessage(address: licenseServerAddress, flexNetSource: flexNetDirectory)
+        if let message = licenseMode.missingInputMessage(
+            address: licenseServerAddress, flexNetSource: flexNetDirectory
+        ) { return message }
+        guard licenseMode == .managedFlexNet else { return nil }
+        switch flexNetCheck {
+        case .checking: return "正在校验 FlexNet 目录…"
+        case .rejected(let reason): return reason
+        default: return nil
+        }
+    }
+
+    /// 选定 FlexNet 目录（自动识别或用户手选）后立即校验结构，不等开装才报错。
+    public func chooseFlexNetDirectory(_ url: URL?) {
+        flexNetDirectory = url
+        validateFlexNetPackage()
+    }
+
+    private func validateFlexNetPackage() {
+        flexNetCheckTask?.cancel()
+        guard let url = flexNetDirectory else {
+            flexNetCheck = .empty
+            return
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            flexNetCheck = .rejected("所选 FlexNet 来源不存在。")
+            return
+        }
+        guard isDirectory.boolValue else {
+            flexNetCheck = .archiveNotChecked
+            return
+        }
+        flexNetCheck = .checking
+        let checker = flexNet
+        flexNetCheckTask = Task { [weak self] in
+            let result = await Task.detached {
+                Result { try checker.inspect(directory: url) }
+            }.value
+            guard let self, !Task.isCancelled, self.flexNetDirectory?.path == url.path else { return }
+            switch result {
+            case .success(let metadata): self.flexNetCheck = .ready(metadata)
+            case .failure(let error): self.flexNetCheck = .rejected(error.localizedDescription)
+            }
+        }
     }
 
     /// 单选解析出的唯一许可动作；nil 表示当前模式的输入还不可用。
@@ -103,7 +160,8 @@ public final class BootstrapStore: ObservableObject {
         case .remoteServer:
             return .address(licenseServerAddress.trimmingCharacters(in: .whitespacesAndNewlines))
         case .managedFlexNet:
-            return flexNetDirectory.map(LicenseRequest.managedFlexNet)
+            guard let flexNetDirectory else { return nil }
+            return .managedFlexNet(flexNetDirectory)
         }
     }
 
@@ -135,7 +193,7 @@ public final class BootstrapStore: ObservableObject {
         serialSources = [:]
         ambiguousSerialFields = []
         flexNetCandidates = []
-        flexNetDirectory = nil
+        chooseFlexNetDirectory(nil)
         availableLanguages = LanguageCatalog.official
         if selectedLanguage == nil {
             selectedLanguage = LanguageCatalog.autoSelection(from: LanguageCatalog.official)
@@ -178,7 +236,9 @@ public final class BootstrapStore: ObservableObject {
             notes.append("已通过 \(sources.joined(separator: "、")) 匹配序列号")
         }
         flexNetCandidates = flexNet
-        if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
+        let knownPackage = flexNetDirectory
+        if knownPackage == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
+        if knownPackage != flexNetDirectory { validateFlexNetPackage() }
         switch flexNet.count {
         case 0: break
         case 1:
