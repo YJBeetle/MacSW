@@ -5,6 +5,8 @@ public struct SerialDiscoveryResult: Equatable, Sendable {
     public var sources: [InstallSerialField: URL] = [:]
     public var ambiguousFields: [InstallSerialField] = []
     public var scannedFiles: [URL] = []
+    /// 候选文本文件到达上限时提前停止：可能还有没扫到的文件，界面要说明。
+    public var scanTruncated = false
 
     public var isEmpty: Bool { serials.isEmpty && ambiguousFields.isEmpty }
 }
@@ -32,8 +34,10 @@ public enum SerialDiscoveryService {
     ) -> SerialDiscoveryResult {
         var result = SerialDiscoveryResult()
         var matches: [InstallSerialField: [(value: String, source: URL)]] = [:]
+        let files = candidateFiles(in: roots, fileManager: fileManager)
+        result.scanTruncated = files.count >= maximumCandidateFiles
 
-        for file in candidateFiles(in: roots, fileManager: fileManager) {
+        for file in files {
             result.scannedFiles.append(file)
             guard let data = try? Data(contentsOf: file),
                   let text = PlainTextDecoder.decode(data),

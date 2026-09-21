@@ -116,4 +116,19 @@ final class SerialDiscoveryServiceTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
         XCTAssertEqual(result.scannedFiles.count, 1)
     }
+    /// 扫描有上限，撞到上限必须说出来：静默少扫会让"没找到序列号"变成假结论。
+    func testScanReportsTruncationWhenCandidateListHitsTheCap() throws {
+        for index in 0...(SerialDiscoveryService.maximumCandidateFiles) {
+            try write("docs/notes-\(index).txt", text: "没有序列号")
+        }
+        let result = SerialDiscoveryService.discover(in: [root])
+        XCTAssertTrue(result.scanTruncated)
+        XCTAssertEqual(result.scannedFiles.count, SerialDiscoveryService.maximumCandidateFiles)
+
+        let small = root.appendingPathComponent("small")
+        try fileManager.createDirectory(at: small, withIntermediateDirectories: true)
+        try write("only.txt", text: "没有序列号")
+        XCTAssertFalse(SerialDiscoveryService.discover(in: [small]).scanTruncated)
+    }
+
 }

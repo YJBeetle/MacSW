@@ -210,6 +210,10 @@ public final class BootstrapStore: ObservableObject {
         } else {
             notes.append("已通过 \(sources.joined(separator: "、")) 匹配序列号")
         }
+        // 静默少扫是最糟的失败方式：没找到序列号时至少要说清楚扫描到哪为止。
+        if discovery.scanTruncated {
+            notes.append("文本文件超过 \(SerialDiscoveryService.maximumCandidateFiles) 个，只扫描了前面的部分")
+        }
         flexNetCandidates = flexNet
         // 唯一命中就直接选中并校验；用户手工选过的不去抢。
         if flexNetDirectory == nil, flexNet.count == 1 { chooseFlexNetDirectory(flexNet[0]) }
