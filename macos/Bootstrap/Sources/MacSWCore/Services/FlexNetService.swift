@@ -18,6 +18,10 @@ public struct ManagedFlexNetInstallation: Codable, Equatable, Sendable {
 public final class FlexNetService: @unchecked Sendable {
     public static let serviceName = "SolidWorks Flexnet Server"
     public static let manifestName = ".macsw-flexnet.json"
+    /// 许可清单是纯文本，再大就不是许可文件。
+    static let maximumLicenseBytes = 1_024_000
+    /// 托管目录里的单个文件上限：FlexNet 组件是几十 MB 量级，超出的更像是误选的整个盘。
+    static let maximumPackageFileBytes: Int64 = 512 * 1024 * 1024
 
     private let paths: AppPaths
     private let wine: WineService
@@ -45,15 +49,23 @@ public final class FlexNetService: @unchecked Sendable {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { throw failure("无法读取所选 FlexNet 目录。") }
-        guard entries.contains(where: { $0.lastPathComponent.caseInsensitiveCompare("lmgrd.exe") == .orderedSame }) else {
-            throw failure("FlexNet 目录缺少 lmgrd.exe。")
+        // 只认真正有内容的普通文件：目录、符号链接、0 字节占位文件都不算 lmgrd.exe 或许可证。
+        let files = entries.compactMap { url -> (url: URL, size: Int64)? in
+            guard case .regularFile(let size)? = entryKind(of: url) else { return nil }
+            return (url, size)
+        }.filter { $0.size > 0 }
+
+        guard files.contains(where: { $0.url.lastPathComponent.caseInsensitiveCompare("lmgrd.exe") == .orderedSame }) else {
+            throw failure("FlexNet 目录缺少有效的 lmgrd.exe。")
         }
-        let licenses = entries.filter { $0.pathExtension.caseInsensitiveCompare("lic") == .orderedSame }
-        guard licenses.count == 1, let license = licenses.first else {
+        let licenses = files.filter { $0.url.pathExtension.caseInsensitiveCompare("lic") == .orderedSame }
+        guard let license = licenses.first, licenses.count == 1 else {
             throw failure("FlexNet 目录必须且只能包含一个 .lic 文件。")
         }
-        let text = try String(contentsOf: license, encoding: .utf8)
-        let lines = text.components(separatedBy: .newlines)
+        guard license.size <= Self.maximumLicenseBytes else {
+            throw failure("许可证文件超过 \(Self.maximumLicenseBytes / 1024) KB，不像许可清单。")
+        }
+        let lines = try licenseText(at: license.url).components(separatedBy: .newlines)
         guard let serverLine = lines.first(where: { $0.trimmingCharacters(in: .whitespaces).uppercased().hasPrefix("SERVER ") }),
               let portToken = serverLine.split(whereSeparator: \.isWhitespace).last,
               let port = UInt16(portToken), port > 0 else {
@@ -66,10 +78,37 @@ public final class FlexNetService: @unchecked Sendable {
             throw failure(".lic 缺少 VENDOR/DAEMON 定义。")
         }
         let vendor = String(vendorLine.split(whereSeparator: \.isWhitespace)[1])
-        guard let daemon = entries.first(where: {
-            $0.lastPathComponent.caseInsensitiveCompare("\(vendor).exe") == .orderedSame
+        guard let daemon = files.first(where: {
+            $0.url.lastPathComponent.caseInsensitiveCompare("\(vendor).exe") == .orderedSame
         }) else { throw failure("FlexNet 目录缺少许可证引用的 \(vendor).exe。") }
-        return ManagedFlexNetInstallation(port: port, licenseFile: license.lastPathComponent, vendorDaemon: daemon.lastPathComponent)
+        return ManagedFlexNetInstallation(
+            port: port,
+            licenseFile: license.url.lastPathComponent,
+            vendorDaemon: daemon.url.lastPathComponent
+        )
+    }
+
+    /// 许可文件只需要 ASCII 关键字；Windows 导出的 .lic 常带 ANSI/GBK 注释，
+    /// 严格 UTF-8 会整体失败并把可用文件判死，所以退到有损 UTF-8。
+    private func licenseText(at url: URL) throws -> String {
+        guard let data = try? Data(contentsOf: url) else { throw failure("无法读取许可证文件。") }
+        return PlainTextDecoder.decode(data) ?? String(decoding: data, as: UTF8.self)
+    }
+
+    /// 跟随符号链接会把 /dev/zero 之类的目标当成"有效的 exe"，所以统一用 lstat 判类型和大小。
+    private enum EntryKind {
+        case regularFile(Int64)
+        case directory
+    }
+
+    private func entryKind(of url: URL) -> EntryKind? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        switch info.st_mode & S_IFMT {
+        case S_IFREG: return .regularFile(Int64(info.st_size))
+        case S_IFDIR: return .directory
+        default: return nil
+        }
     }
 
     /// 托管即独占：写入的服务器列表只有这一条 `端口@localhost`，不与用户手填的地址混排。
@@ -77,6 +116,8 @@ public final class FlexNetService: @unchecked Sendable {
         let fileManager = FileManager.default
         let sourceDirectory: URL
         var extractionDirectory: URL?
+        // 解包之后到写入完成之前任何一步抛错都要清临时目录，所以 defer 必须紧跟在创建之后。
+        defer { if let extractionDirectory { try? fileManager.removeItem(at: extractionDirectory) } }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: source.path, isDirectory: &isDirectory) else {
             throw failure("所选 FlexNet 安装来源不存在。")
@@ -99,7 +140,6 @@ public final class FlexNetService: @unchecked Sendable {
             guard code == 0 else { throw failure("FlexNet 压缩包解压失败（\(code)）。") }
             sourceDirectory = try locatePackageRoot(in: temporary)
         }
-        defer { if let extractionDirectory { try? fileManager.removeItem(at: extractionDirectory) } }
 
         let metadata = try inspect(directory: sourceDirectory)
         try Task.checkCancellation()
@@ -112,7 +152,14 @@ public final class FlexNetService: @unchecked Sendable {
         do {
             for entry in try fileManager.contentsOfDirectory(at: sourceDirectory, includingPropertiesForKeys: nil) {
                 try Task.checkCancellation()
-                try fileManager.copyItem(at: entry, to: staging.appendingPathComponent(entry.lastPathComponent))
+                switch entryKind(of: entry) {
+                case .regularFile(let size) where size > Self.maximumPackageFileBytes:
+                    throw failure("\(entry.lastPathComponent) 有 \(size / (1024 * 1024)) MB，不像 FlexNet 组件。")
+                case .regularFile, .directory:
+                    try fileManager.copyItem(at: entry, to: staging.appendingPathComponent(entry.lastPathComponent))
+                case nil:
+                    continue
+                }
             }
             let data = try JSONEncoder().encode(metadata)
             try data.write(to: staging.appendingPathComponent(Self.manifestName), options: .atomic)
