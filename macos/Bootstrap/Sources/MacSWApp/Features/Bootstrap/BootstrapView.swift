@@ -143,7 +143,7 @@ struct BootstrapView: View {
                                 source: store.serialSources[.mbd],
                                 isAmbiguous: store.ambiguousSerialFields.contains(.mbd)
                             )
-                            Text("SOLIDWORKS 序列号必填；其余三项只登记对应产品的许可信息，不会改变实际安装的组件范围。")
+                            Text("SOLIDWORKS 序列号必填；其余三项由官方安装器写入容器注册表的 Licenses\\Serial Numbers，用于给随核心装上的 Simulation/Motion 授权，不改变组件范围。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

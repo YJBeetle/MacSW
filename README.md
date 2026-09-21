@@ -13,7 +13,9 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
   VC++/Login Manager/.NET 前置件与 Toolbox 载荷是否齐备。
 - 选择介质时只做目录判断与附属扫描，不挂载 ISO、不起子进程；挂载推迟到点“开始安装”之后。
 - 安装序列号按 SOLIDWORKS/Simulation/Motion/MBD 四项填写，直接作为 MSI 公共属性传入，不再预写注册表。
-  官方安装器只把它们当作对应产品的许可登记；实际安装的组件范围由 `ADDLOCAL` 特性树决定。
+  官方安装器会据此写入容器注册表 `HKLM\Software\SolidWorks\Licenses\Serial Numbers`
+  （`SolidWorks`/`COSMOSWorks`/`COSMOSMotion`/`MBD`），为随核心特性树装上的 Simulation、Motion 授权；
+  组件范围仍只由 `ADDLOCAL` 决定。注意 MSI 详细日志会明文带上这些序列号属性，日志目录须保持私人。
   附属资源只在**介质所在目录及其一级子目录**内查找（白名单文本、`*Flexnet*Server*` 目录），
   不进入 ISO 或介质目录内部；唯一的自动回填，存在多个不同取值的字段留空交给用户确认。
   `.reg` 只作为读取来源，不再导入容器。
