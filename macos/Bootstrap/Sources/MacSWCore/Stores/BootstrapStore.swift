@@ -72,6 +72,7 @@ public final class BootstrapStore: ObservableObject {
     public var canStart: Bool {
         selectedMedia != nil
             && !state.isActive
+            && !isInspectingMedia
             && serials.isComplete
             && serials.invalidFields().isEmpty
     }

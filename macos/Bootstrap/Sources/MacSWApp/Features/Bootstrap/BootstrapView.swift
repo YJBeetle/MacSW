@@ -89,6 +89,17 @@ struct BootstrapView: View {
                         }
                     }
                     .padding(.vertical, 6)
+
+                    if store.isInspectingMedia {
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.small)
+                            Text("正在挂载介质并扫描序列号、语言与 FlexNet 资源…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.top, 6)
+                    }
                 }
                 .modifier(FileDropArea { store.selectMedia($0) })
 
