@@ -75,16 +75,20 @@ public final class BootstrapStore: ObservableObject {
         resolvedMedia != nil
             && !state.isActive
             && !isInspectingMedia
-            && serials.isComplete
-            && serials.invalidFields().isEmpty
+            && serialsReady
             && licenseRequest != nil
     }
 
     public var startHint: String? {
         let invalid = serials.invalidFields()
-        if !invalid.isEmpty { return "\(invalid.map(\.title).joined(separator: "、")) 需要六组四字符。" }
-        if !serials.isComplete { return "静默安装必须至少提供 SOLIDWORKS 序列号。" }
+        if silentInstall, !invalid.isEmpty { return "\(invalid.map(\.title).joined(separator: "、")) 需要六组四字符。" }
+        if silentInstall, !serials.isComplete { return "静默安装必须至少提供 SOLIDWORKS 序列号。" }
         return licenseMissingInput
+    }
+
+    /// 交互安装的序列号由官方向导询问，这里不参与校验。
+    private var serialsReady: Bool {
+        !silentInstall || (serials.isComplete && serials.invalidFields().isEmpty)
     }
 
     private var licenseMissingInput: String? {
@@ -166,25 +170,19 @@ public final class BootstrapStore: ObservableObject {
         ambiguousSerialFields = discovery.ambiguousFields
 
         var notes: [String] = []
+        let sources = Set(discovery.sources.values.map(\.lastPathComponent)).sorted()
         let matched = InstallSerialField.allCases.filter { !discovery.serials[$0].isEmpty }
         if matched.isEmpty {
-            notes.append("未在介质同级或子级文本中找到序列号")
+            notes.append("未在介质同级或子级文本中找到序列号，请手工填写")
         } else {
-            let sources = Set(discovery.sources.values.map(\.lastPathComponent))
-            notes.append("已匹配 \(matched.map(\.title).joined(separator: "、"))（来自 \(sources.sorted().joined(separator: "、"))）")
-        }
-        if !ambiguousSerialFields.isEmpty {
-            notes.append("\(ambiguousSerialFields.map(\.title).joined(separator: "、")) 存在多个不同取值，请手工确认")
+            notes.append("已通过 \(sources.joined(separator: "、")) 匹配序列号")
         }
         flexNetCandidates = flexNet
         if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
         switch flexNet.count {
         case 0: break
-        case 1:
-            // 唯一命中即按"托管"预置单选；用户已手工选过别的模式时不抢。
-            if licenseMode == .unconfigured { licenseMode = .managedFlexNet }
-            notes.append("已自动识别 FlexNet 目录 \(flexNet[0].lastPathComponent)，并预选为托管")
-        default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在许可方式里确认要托管的那个")
+        case 1: notes.append("已自动识别 FlexNet 目录")
+        default: notes.append("发现 \(flexNet.count) 个 FlexNet 目录，请在许可服务器里确认要托管的那个")
         }
         statusMessage = notes.joined(separator: "；") + "。"
     }
@@ -321,10 +319,8 @@ public final class BootstrapStore: ObservableObject {
                     msi: installerMSI, log: msiLog, serials: request.serials
                 )
             } else {
-                // 交互安装由官方向导接管选择，序列号预写注册表供其预填。
+                // 组件选择与序列号都由官方向导接管，这里不预写任何注册表。
                 report(.installer, .running, "官方安装窗口已打开，请在其中完成选择…")
-                let assignments = SerialNumberService.registryAssignments(for: request.serials.parsedForRegistry)
-                if !assignments.isEmpty { try await registry.write(assignments, prefix: paths.bottle) }
                 installerArguments = SilentInstallerPlan.interactiveInstallArguments(
                     msi: installerMSI, log: msiLog
                 )

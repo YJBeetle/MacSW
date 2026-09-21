@@ -47,26 +47,4 @@ final class SerialNumberTests: XCTestCase {
         }
     }
 
-    func testSolidWorksRegistryAssignmentsIncludeSecuritySplit() {
-        let parsed = ParsedSerialNumbers(values: [
-            .solidWorks: "0018 0000 0010 9647 NKHW WBH3",
-            .cam: "ABCD EFGH IJKL MNOP QRST UVWX"
-        ])
-        let assignments = SerialNumberService.registryAssignments(for: parsed)
-        XCTAssertTrue(assignments.contains(RegistryAssignment(
-            key: "HKLM\\SOFTWARE\\SolidWorks\\Licenses\\Serial Numbers",
-            name: "SolidWorks",
-            value: "0018 0000 0010 9647 NKHW WBH3"
-        )))
-        XCTAssertTrue(assignments.contains(RegistryAssignment(
-            key: "HKLM\\SOFTWARE\\SolidWorks\\Security",
-            name: "Serial Number",
-            value: "0018 0000 0010 9647"
-        )))
-        XCTAssertTrue(assignments.contains(RegistryAssignment(
-            key: "HKLM\\SOFTWARE\\SolidWorks\\Security",
-            name: "Serial Number Extra",
-            value: "NKHW WBH3"
-        )))
-    }
 }

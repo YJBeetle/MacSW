@@ -98,7 +98,7 @@ struct BootstrapView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(store.silentInstall
                                 ? "官方安装器全程无人值守，序列号与组件选择直接作为 MSI 属性传入。"
-                                : "关闭后显示官方安装向导，由你在窗口内点选组件；序列号会预写注册表供其预填。")
+                                : "关闭后显示官方安装向导，由你在窗口内点选组件并填写序列号。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .padding(.leading, 20)
@@ -117,35 +117,33 @@ struct BootstrapView: View {
                             }
                         }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("安装序列号").fontWeight(.medium)
-                            SerialFieldRow(
-                                title: InstallSerialField.solidWorks.title,
-                                text: $store.serialSolidWorks,
-                                source: store.serialSources[.solidWorks],
-                                isAmbiguous: store.ambiguousSerialFields.contains(.solidWorks)
-                            )
-                            SerialFieldRow(
-                                title: InstallSerialField.simulation.title,
-                                text: $store.serialSimulation,
-                                source: store.serialSources[.simulation],
-                                isAmbiguous: store.ambiguousSerialFields.contains(.simulation)
-                            )
-                            SerialFieldRow(
-                                title: InstallSerialField.motion.title,
-                                text: $store.serialMotion,
-                                source: store.serialSources[.motion],
-                                isAmbiguous: store.ambiguousSerialFields.contains(.motion)
-                            )
-                            SerialFieldRow(
-                                title: InstallSerialField.mbd.title,
-                                text: $store.serialMBD,
-                                source: store.serialSources[.mbd],
-                                isAmbiguous: store.ambiguousSerialFields.contains(.mbd)
-                            )
-                            Text("SOLIDWORKS 序列号必填；其余三项由官方安装器写入容器注册表的 Licenses\\Serial Numbers，用于给随核心装上的 Simulation/Motion 授权，不改变组件范围。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        if store.silentInstall {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("安装序列号").fontWeight(.medium)
+                                SerialFieldRow(
+                                    title: InstallSerialField.solidWorks.title,
+                                    text: $store.serialSolidWorks,
+                                    isAmbiguous: store.ambiguousSerialFields.contains(.solidWorks)
+                                )
+                                SerialFieldRow(
+                                    title: InstallSerialField.simulation.title,
+                                    text: $store.serialSimulation,
+                                    isAmbiguous: store.ambiguousSerialFields.contains(.simulation)
+                                )
+                                SerialFieldRow(
+                                    title: InstallSerialField.motion.title,
+                                    text: $store.serialMotion,
+                                    isAmbiguous: store.ambiguousSerialFields.contains(.motion)
+                                )
+                                SerialFieldRow(
+                                    title: InstallSerialField.mbd.title,
+                                    text: $store.serialMBD,
+                                    isAmbiguous: store.ambiguousSerialFields.contains(.mbd)
+                                )
+                                Text("SOLIDWORKS 序列号必填；其余三项只负责给随核心装上的产品授权，不决定安装范围。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
@@ -164,13 +162,14 @@ struct BootstrapView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("许可方式").fontWeight(.medium)
-                            Picker("许可方式", selection: $store.licenseMode) {
+                            Text("许可服务器").fontWeight(.medium)
+                            Picker("许可服务器", selection: $store.licenseMode) {
                                 ForEach(BootstrapLicenseMode.allCases) { mode in
                                     Text(mode.title).tag(mode)
                                 }
                             }
                             .pickerStyle(.radioGroup)
+                            .horizontalRadioGroupLayout()
                             .labelsHidden()
 
                             switch store.licenseMode {
@@ -185,7 +184,6 @@ struct BootstrapView: View {
                                         .textFieldStyle(.roundedBorder)
                                         .font(.system(.caption, design: .monospaced))
                                 }
-                                .padding(.leading, 22)
                             case .managedFlexNet:
                                 HStack(spacing: 8) {
                                     Text("FlexNet 目录")
@@ -201,7 +199,6 @@ struct BootstrapView: View {
                                         }
                                     }
                                 }
-                                .padding(.leading, 22)
                             }
 
                             Text(store.licenseMode.detail)
@@ -339,7 +336,6 @@ private struct FileDropArea: ViewModifier {
 private struct SerialFieldRow: View {
     let title: String
     @Binding var text: String
-    let source: URL?
     let isAmbiguous: Bool
 
     var body: some View {
@@ -357,10 +353,6 @@ private struct SerialFieldRow: View {
                 Text("随附文件中存在多个不同取值，请确认后手工填写")
                     .font(.caption2)
                     .foregroundStyle(.orange)
-            } else if let source {
-                Text("已匹配：\(source.lastPathComponent)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
     }

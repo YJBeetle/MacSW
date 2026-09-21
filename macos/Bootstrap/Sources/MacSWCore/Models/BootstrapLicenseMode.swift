@@ -11,8 +11,8 @@ public enum BootstrapLicenseMode: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .unconfigured: return "暂不配置许可"
-        case .remoteServer: return "使用局域网许可服务器"
-        case .managedFlexNet: return "把 FlexNet 服务器装进容器（MacSW 托管）"
+        case .remoteServer: return "使用指定地址"
+        case .managedFlexNet: return "托管 FlexNet 服务器"
         }
     }
 
@@ -31,7 +31,7 @@ public enum BootstrapLicenseMode: String, CaseIterable, Identifiable, Sendable {
             return nil
         case .remoteServer:
             let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "已选择局域网许可服务器，请填写服务器地址。" }
+            guard !trimmed.isEmpty else { return "已选择使用指定地址，请填写许可服务器地址。" }
             guard (try? LicenseServerAddressService.parse(trimmed)) != nil else {
                 return "许可服务器地址格式应为“端口@主机”，多个地址用分号分隔。"
             }

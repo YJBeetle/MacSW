@@ -44,30 +44,6 @@ public enum SerialNumberService {
         return ParsedSerialNumbers(values: parsed)
     }
 
-    public static func registryAssignments(for serials: ParsedSerialNumbers) -> [RegistryAssignment] {
-        let serialKey = "HKLM\\SOFTWARE\\SolidWorks\\Licenses\\Serial Numbers"
-        var assignments = serials.values
-            .map { RegistryAssignment(key: serialKey, name: $0.key.rawValue, value: $0.value) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        if let value = serials.values[.solidWorks] {
-            let groups = value.split(separator: " ").map(String.init)
-            if groups.count == 6 {
-                assignments.append(RegistryAssignment(
-                    key: "HKLM\\SOFTWARE\\SolidWorks\\Security",
-                    name: "Serial Number",
-                    value: groups[0...3].joined(separator: " ")
-                ))
-                assignments.append(RegistryAssignment(
-                    key: "HKLM\\SOFTWARE\\SolidWorks\\Security",
-                    name: "Serial Number Extra",
-                    value: groups[4...5].joined(separator: " ")
-                ))
-            }
-        }
-        return assignments
-    }
-
     private static func uniqueSerials(in text: String, expression: NSRegularExpression) -> [String] {
         let range = NSRange(text.startIndex..., in: text)
         var values: [String] = []
