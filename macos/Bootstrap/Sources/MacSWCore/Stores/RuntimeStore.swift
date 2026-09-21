@@ -119,8 +119,16 @@ public final class RuntimeStore: ObservableObject {
     public func forceStop() {
         Task {
             let code = (try? await wine.forceStopSolidWorks(prefix: paths.bottle)) ?? -1
+            // wineserver 不是 Windows 进程，taskkill 打不掉它，需要单独收尾。
+            if await wine.waitWineserver(prefix: paths.bottle, seconds: 10) {
+                statusMessage = code == 0 ? "已强制终止全部容器进程。" : "容器进程已收尾（taskkill 返回 \(code)）。"
+            } else if (try? await wine.stopWineServerForCleanup(prefix: paths.bottle)) == true {
+                statusMessage = "已强制终止全部容器进程。"
+            } else {
+                statusMessage = "部分进程未能停止，请查看 solidworks-stop.log。"
+            }
             state = paths.solidWorksInstalled ? .stopped : .unavailable
-            statusMessage = code == 0 ? "已强制终止 SOLIDWORKS。" : "强制终止失败（\(code)）。"
+            await refreshState()
         }
     }
 
