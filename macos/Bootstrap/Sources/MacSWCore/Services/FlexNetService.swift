@@ -160,8 +160,7 @@ public final class FlexNetService: @unchecked Sendable {
             .appendingPathComponent(".FlexNet.uninstall-\(UUID().uuidString)")
         try FileManager.default.moveItem(at: target, to: backup)
         do {
-            try await registry.clearLicenseServers(prefix: paths.bottle)
-            await registry.removeManagedServiceMarker(prefix: paths.bottle)
+            try await registry.clearLicenseServers(prefix: paths.bottle, includingServiceMarker: true)
             try? FileManager.default.removeItem(at: backup)
         } catch {
             if !FileManager.default.fileExists(atPath: target.path) {
