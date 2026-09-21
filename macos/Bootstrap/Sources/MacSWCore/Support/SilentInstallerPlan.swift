@@ -24,6 +24,11 @@ public enum SilentInstallerPlan {
         msiexecArguments(msi: msi, log: log, properties: [])
     }
 
+    /// 关闭静默安装时只带日志参数，其余交给官方安装向导。
+    public static func interactiveInstallArguments(msi: URL, log: URL) -> [String] {
+        ["msiexec", "/i", msi.path, "DISABLEROLLBACK=1", "/l*v", log.path]
+    }
+
     static func msiexecArguments(msi: URL, log: URL, properties: [String]) -> [String] {
         var arguments = [
             "msiexec", "/i", msi.path, "/qb", "/norestart", "DISABLEROLLBACK=1",

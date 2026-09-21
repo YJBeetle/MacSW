@@ -9,6 +9,7 @@ public extension Notification.Name {
 public final class BootstrapStore: ObservableObject {
     @Published public var selectedMedia: URL?
     @Published public var cleanInstall = false
+    @Published public var silentInstall = true
     @Published public var serialSolidWorks = ""
     @Published public var serialSimulation = ""
     @Published public var serialMotion = ""
@@ -186,7 +187,7 @@ public final class BootstrapStore: ObservableObject {
 
     private func runInstallation() async {
         guard let selectedMedia else { return }
-        let request = SerialRequest(serials: serials, language: selectedLanguage)
+        let request = SerialRequest(serials: serials, language: selectedLanguage, silent: silentInstall)
         state = .preparing
         stepStatuses = [:]
         stepDetails = [:]
@@ -265,14 +266,24 @@ public final class BootstrapStore: ObservableObject {
             report(.loginManager, .completed, "托管 COM 注册已校验")
 
             state = .installing(.installer)
-            report(.installer, .running, "正在静默部署 SOLIDWORKS 主体，请勿关闭本窗口…")
             let msiLog = paths.logs.appendingPathComponent("install_msi.log")
+            let installerArguments: [String]
+            if request.silent {
+                report(.installer, .running, "正在静默部署 SOLIDWORKS 主体，请勿关闭本窗口…")
+                installerArguments = SilentInstallerPlan.coreInstallArguments(
+                    msi: installerMSI, log: msiLog, serials: request.serials
+                )
+            } else {
+                // 交互安装由官方向导接管选择，序列号预写注册表供其预填。
+                report(.installer, .running, "官方安装窗口已打开，请在其中完成选择…")
+                let assignments = SerialNumberService.registryAssignments(for: request.serials.parsedForRegistry)
+                if !assignments.isEmpty { try await registry.write(assignments, prefix: paths.bottle) }
+                installerArguments = SilentInstallerPlan.interactiveInstallArguments(
+                    msi: installerMSI, log: msiLog
+                )
+            }
             let installerCode = try await wine.runMSIExec(
-                arguments: SilentInstallerPlan.coreInstallArguments(
-                    msi: installerMSI,
-                    log: msiLog,
-                    serials: request.serials
-                ),
+                arguments: installerArguments,
                 prefix: paths.bottle,
                 log: paths.logs.appendingPathComponent("installer-wine.log")
             )
@@ -281,12 +292,14 @@ public final class BootstrapStore: ObservableObject {
                 throw bootstrapError("SOLIDWORKS 静默安装失败（\(installerCode)）。\(msiFailureDetail(msiLog))")
             }
             if await wine.waitWineserver(prefix: paths.bottle, seconds: 30) {
-                report(.installer, .completed, "官方 MSI 已静默完成（退出码 \(installerCode)）")
+                report(.installer, .completed, request.silent
+                    ? "官方 MSI 已静默完成（退出码 \(installerCode)）"
+                    : "官方安装向导已完成（退出码 \(installerCode)）")
             } else {
                 guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
                     throw bootstrapError("安装器遗留进程未能停止，容器仍处于锁定状态。")
                 }
-                report(.installer, .completed, "官方 MSI 已静默完成，已收敛遗留的 Wine 辅助进程")
+                report(.installer, .completed, "官方 MSI 已完成，已收敛遗留的 Wine 辅助进程")
             }
             try Task.checkCancellation()
 
@@ -339,6 +352,7 @@ public final class BootstrapStore: ObservableObject {
     private struct SerialRequest {
         let serials: InstallSerials
         let language: SolidWorksLanguage?
+        let silent: Bool
     }
 
     private func msiFailureDetail(_ log: URL) -> String {

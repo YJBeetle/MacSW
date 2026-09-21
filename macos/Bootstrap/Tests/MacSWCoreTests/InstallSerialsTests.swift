@@ -31,6 +31,23 @@ final class InstallSerialsTests: XCTestCase {
         XCTAssertTrue(serials.invalidFields().isEmpty)
     }
 
+    func testParsedForRegistrySkipsEmptyFieldsAndUsesProductNames() {
+        var serials = InstallSerials(values: [
+            .solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA",
+            .mbd: "  ",
+            .motion: "CCCC CCCC CCCC CCCC CCCC CCCC"
+        ])
+        serials[.simulation] = "BBBB BBBB BBBB BBBB BBBB BBBB"
+        let parsed = serials.parsedForRegistry
+        // mbd 只有空白字符，视为未填写。
+        XCTAssertEqual(Set(parsed.values.keys), [.solidWorks, .cosmosWorks, .cosmosMotion])
+        XCTAssertEqual(parsed.values[.cosmosWorks], "BBBB BBBB BBBB BBBB BBBB BBBB")
+        let assignments = SerialNumberService.registryAssignments(for: ParsedSerialNumbers(values: [
+            .solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA"
+        ]))
+        XCTAssertTrue(assignments.contains { $0.key == "HKLM\\SOFTWARE\\SolidWorks\\Security" && $0.name == "Serial Number Extra" })
+    }
+
     func testOnlyMSICapableProductsHaveFields() {
         XCTAssertEqual(InstallSerialField.forProduct(.solidWorks), .solidWorks)
         XCTAssertEqual(InstallSerialField.forProduct(.cosmosWorks), .simulation)

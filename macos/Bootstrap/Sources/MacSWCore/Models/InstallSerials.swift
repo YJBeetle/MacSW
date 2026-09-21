@@ -90,6 +90,15 @@ public struct InstallSerials: Equatable, Sendable {
     }
 
     /// 只回填用户尚未填写的字段，不覆盖手工输入。
+    /// 交互安装时用于预写注册表，让官方向导预填序列号。
+    public var parsedForRegistry: ParsedSerialNumbers {
+        ParsedSerialNumbers(values: Dictionary(uniqueKeysWithValues: InstallSerialField.allCases.compactMap { field in
+            let value = self[field].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+            return (field.product, value)
+        }))
+    }
+
     public func merging(_ discovered: InstallSerials) -> InstallSerials {
         var result = self
         for field in InstallSerialField.allCases where normalized(field).isEmpty {

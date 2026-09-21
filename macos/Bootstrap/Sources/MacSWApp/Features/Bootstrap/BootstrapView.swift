@@ -93,6 +93,17 @@ struct BootstrapView: View {
 
                 DisclosureGroup("安装选项", isExpanded: $additionalOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("静默安装", isOn: $store.silentInstall)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(store.silentInstall
+                                ? "官方安装器全程无人值守，序列号与组件选择直接作为 MSI 属性传入。"
+                                : "关闭后显示官方安装向导，由你在窗口内点选组件；序列号会预写注册表供其预填。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 20)
+                        }
+
                         if store.showsCleanInstall {
                             VStack(alignment: .leading, spacing: 6) {
                                 Toggle("全新安装", isOn: $store.cleanInstall)
@@ -178,7 +189,7 @@ struct BootstrapView: View {
         HStack {
             Button("查看日志") { openLogs() }
             Spacer()
-            Button("开始静默安装") { requestStart() }
+            Button(store.silentInstall ? "开始静默安装" : "开始安装") { requestStart() }
                 .buttonStyle(.borderedProminent)
                 .disabled(!store.canStart)
         }

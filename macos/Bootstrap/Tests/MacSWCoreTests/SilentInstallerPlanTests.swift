@@ -23,6 +23,17 @@ final class SilentInstallerPlanTests: XCTestCase {
         XCTAssertTrue(arguments.contains("SOLIDWORKSSERIALNUMBER=111122223333444455556666"))
     }
 
+    func testInteractiveArgumentsLeaveTheOfficialWizardInCharge() {
+        let arguments = SilentInstallerPlan.interactiveInstallArguments(
+            msi: URL(fileURLWithPath: "/media/swwi/data/solidworks.msi"),
+            log: URL(fileURLWithPath: "/logs/install_msi.log")
+        )
+        XCTAssertEqual(arguments, [
+            "msiexec", "/i", "/media/swwi/data/solidworks.msi", "DISABLEROLLBACK=1",
+            "/l*v", "/logs/install_msi.log"
+        ])
+    }
+
     func testLanguageArgumentsCarryNoCoreFeatureSelection() {
         let arguments = SilentInstallerPlan.languageInstallArguments(
             msi: URL(fileURLWithPath: "/media/swwi/lang/chinese-simplified/chinese-simplified.msi"),
