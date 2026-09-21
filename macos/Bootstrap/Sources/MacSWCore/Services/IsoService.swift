@@ -106,6 +106,6 @@ public final class IsoService: @unchecked Sendable {
     }
 
     private func error(_ message: String) -> NSError {
-        NSError(domain: "MacSW.ISO", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.ISO")
     }
 }

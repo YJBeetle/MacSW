@@ -347,6 +347,6 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     private func storeError(_ message: String) -> NSError {
-        NSError(domain: "MacSW.LicenseServerStore", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.LicenseServerStore")
     }
 }

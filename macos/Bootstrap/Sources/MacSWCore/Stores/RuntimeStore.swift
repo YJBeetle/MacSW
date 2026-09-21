@@ -194,6 +194,6 @@ public final class RuntimeStore: ObservableObject {
     }
 
     private func runtimeError(_ message: String) -> NSError {
-        NSError(domain: "MacSW.RuntimeStore", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.RuntimeStore")
     }
 }

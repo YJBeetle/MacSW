@@ -298,7 +298,7 @@ public final class PrerequisiteService: @unchecked Sendable {
     }
 
     private static func failure(_ message: String) -> NSError {
-        NSError(domain: "MacSW.Prerequisites", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.Prerequisites")
     }
 
     private func failure(_ message: String) -> NSError { Self.failure(message) }

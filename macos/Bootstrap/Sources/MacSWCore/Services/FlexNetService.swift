@@ -239,6 +239,6 @@ public final class FlexNetService: @unchecked Sendable {
     }
 
     private func failure(_ message: String) -> NSError {
-        NSError(domain: "MacSW.FlexNet", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.FlexNet")
     }
 }

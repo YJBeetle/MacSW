@@ -129,6 +129,6 @@ public final class RegistryService {
     ]
 
     private static func registryError(_ message: String) -> NSError {
-        NSError(domain: "MacSW.Registry", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.Registry")
     }
 }

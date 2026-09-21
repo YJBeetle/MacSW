@@ -541,6 +541,6 @@ public final class BootstrapStore: ObservableObject {
     }
 
     private func bootstrapError(_ message: String) -> NSError {
-        NSError(domain: "MacSW.Bootstrap", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.Bootstrap")
     }
 }

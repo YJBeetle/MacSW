@@ -355,6 +355,6 @@ public final class WineService: @unchecked Sendable {
     }
 
     private func error(_ message: String, _ code: Int32) -> NSError {
-        NSError(domain: "MacSW.Wine", code: Int(code), userInfo: [NSLocalizedDescriptionKey: message])
+        MacSWError.make(message, domain: "MacSW.Wine", code: Int(code))
     }
 }
