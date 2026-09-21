@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
+    @State private var maintainsVisibility = false
     /// nil 表示还没手工选过，此时按容器里的真实状态推导。
     @State private var chosenLicenseMode: BootstrapLicenseMode?
 
@@ -27,7 +28,6 @@ struct SettingsView: View {
         } message: {
             Text("只会删除 C:\\opt\\FlexNet，并从服务器列表移除对应的 localhost 地址；其他地址会保留。")
         }
-        .task { await runtime.refreshNow() }
     }
 
     private var generalSettings: some View {
@@ -39,14 +39,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             licenseSection
-            Section("安装") {
-                Button("安装或重新安装 SOLIDWORKS…") {
-                    AppShell.shared.showBootstrapWindow()
-                }
-                Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
@@ -148,7 +140,6 @@ struct SettingsView: View {
             Section("容器进程") {
                 ProcessTable(processes: runtime.processes)
                 HStack {
-                    Button("刷新") { Task { await runtime.refreshNow() } }
                     Text("合计 \(ProcessInventory.totalResidentMB(runtime.processes)) MB · \(runtime.processes.count) 个进程")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -164,9 +155,27 @@ struct SettingsView: View {
                     Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Section("安装") {
+                Button("安装或重新安装 SOLIDWORKS…") {
+                    AppShell.shared.showBootstrapWindow()
+                }
+                Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
+        .onAppear { maintainsVisibility = true }
+        .onDisappear { maintainsVisibility = false }
+        .task(id: maintainsVisibility) {
+            guard maintainsVisibility else { return }
+            while !Task.isCancelled {
+                // 只在设置窗口真的在前台时跑 ps，切到别的 App 就停。
+                if NSApp.isActive { await runtime.refreshNow() }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     /// 单选未手工选过时，按容器里的真实配置推导当前模式。
