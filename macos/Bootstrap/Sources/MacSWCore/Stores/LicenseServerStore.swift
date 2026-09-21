@@ -297,15 +297,16 @@ public final class LicenseServerStore: ObservableObject {
             executable.path, "-c", license.path, "-l", paths.logs.appendingPathComponent("flexnet.log").path
         ], prefix: paths.bottle)
         process.currentDirectoryURL = paths.managedFlexNet
-        let log = paths.logs.appendingPathComponent("flexnet-launch.log")
-        try FileManager.default.createDirectory(at: paths.logs, withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: log.path) { FileManager.default.createFile(atPath: log.path, contents: nil) }
-        let handle = try FileHandle(forWritingTo: log)
-        try handle.seekToEnd()
-        process.standardOutput = handle
-        process.standardError = handle
-        process.terminationHandler = { _ in try? handle.close() }
-        try process.run()
+        let handle = try wine.logHandle(for: paths.logs.appendingPathComponent("flexnet-launch.log"))
+        process.standardOutput = handle ?? FileHandle.nullDevice
+        process.standardError = handle ?? FileHandle.nullDevice
+        process.terminationHandler = { _ in try? handle?.close() }
+        do { try process.run() }
+        catch {
+            // 没跑起来的进程不会有 terminationHandler，句柄得自己关掉。
+            try? handle?.close()
+            throw error
+        }
 
         for _ in 0..<30 {
             try Task.checkCancellation()

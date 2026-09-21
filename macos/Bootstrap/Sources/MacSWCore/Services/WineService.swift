@@ -343,7 +343,8 @@ public final class WineService: @unchecked Sendable {
         }
     }
 
-    private func logHandle(for log: URL?) throws -> FileHandle? {
+    /// 打开（必要时创建）一个追加写的日志句柄；调用方负责关闭。
+    public func logHandle(for log: URL?) throws -> FileHandle? {
         guard let log else { return nil }
         try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: log.path) {
