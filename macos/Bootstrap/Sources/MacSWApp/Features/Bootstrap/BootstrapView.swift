@@ -66,7 +66,7 @@ struct BootstrapView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(store.selectedMedia?.lastPathComponent ?? "尚未选择")
                                 .fontWeight(.semibold)
-                            Text(store.selectedMedia?.path ?? "支持官方 ISO 或包含 swwi/data/solidworks.msi 的目录")
+                            Text(store.selectedMedia?.path ?? "把官方 ISO 或介质目录拖进来，也可点击选择")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
@@ -89,6 +89,7 @@ struct BootstrapView: View {
                     }
                     .padding(.vertical, 6)
                 }
+                .modifier(FileDropArea { store.selectMedia($0) })
 
                 DisclosureGroup("安装选项", isExpanded: $additionalOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 14) {
@@ -235,6 +236,40 @@ struct BootstrapView: View {
     private func openLogs() {
         try? FileManager.default.createDirectory(at: store.paths.logs, withIntermediateDirectories: true)
         NSWorkspace.shared.open(store.paths.logs)
+    }
+}
+
+/// 可拖入文件URL的区域：拖入时给出描边与底色反馈，禁用状态下不接收。
+private struct FileDropArea: ViewModifier {
+    let receive: (URL) -> Void
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .background(isTargeted && isEnabled ? Color.accentColor.opacity(0.12) : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isTargeted && isEnabled ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .allowsHitTesting(false)
+            )
+            .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isTargeted) { providers in
+                guard isEnabled, let provider = providers.first else { return false }
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                    guard error == nil, let url = url(from: item) else { return }
+                    DispatchQueue.main.async { receive(url) }
+                }
+                return true
+            }
+    }
+
+    /// 拖放载荷可能是 URL、其归档数据，也可能是纯字符串。
+    private func url(from item: Any?) -> URL? {
+        if let value = item as? URL { return value }
+        if let data = item as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
+        if let value = item as? String { return URL(string: value) }
+        return nil
     }
 }
 
