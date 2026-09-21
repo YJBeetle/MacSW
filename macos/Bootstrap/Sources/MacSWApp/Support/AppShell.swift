@@ -12,6 +12,14 @@ final class AppShell: ObservableObject {
     private var rootViewFactory: (() -> AnyView)?
     private var presenter: BootstrapWindowPresenter?
 
+    /// 有可见窗口时才要 Dock 图标；两个都关掉就回到纯菜单栏。
+    @MainActor var bootstrapWindowVisible = false {
+        didSet { refreshActivationPolicy() }
+    }
+    @MainActor var settingsWindowVisible = false {
+        didSet { refreshActivationPolicy() }
+    }
+
     private init(paths: AppPaths = .live()) {
         installedAtLaunch = paths.solidWorksInstalled
     }
@@ -35,6 +43,12 @@ final class AppShell: ObservableObject {
     @MainActor func closeBootstrapWindow() {
         presenter?.close()
     }
+
+    @MainActor func refreshActivationPolicy() {
+        guard NSApp.isRunning else { return }
+        let wantsDockTile = bootstrapWindowVisible || settingsWindowVisible
+        NSApp.setActivationPolicy(wantsDockTile || !installedAtLaunch ? .regular : .accessory)
+    }
 }
 
 @MainActor
@@ -48,7 +62,7 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
 
     func show() {
         if let window {
-            NSApp.setActivationPolicy(.regular)
+            AppShell.shared.bootstrapWindowVisible = true
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
@@ -68,7 +82,7 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
         window.delegate = self
         window.setFrameAutosaveName("MacSW.BootstrapWindow")
         window.center()
-        NSApp.setActivationPolicy(.regular)
+        AppShell.shared.bootstrapWindowVisible = true
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         self.window = window
@@ -77,15 +91,10 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
     /// 只隐藏不销毁：窗口与内容视图在进程存活期内复用。
     func close() {
         window?.orderOut(nil)
-        restoreActivationPolicy()
+        AppShell.shared.bootstrapWindowVisible = false
     }
 
     func windowWillClose(_ notification: Notification) {
-        restoreActivationPolicy()
-    }
-
-    private func restoreActivationPolicy() {
-        guard NSApp.isRunning else { return }
-        NSApp.setActivationPolicy(AppShell.shared.installedAtLaunch ? .accessory : .regular)
+        AppShell.shared.bootstrapWindowVisible = false
     }
 }

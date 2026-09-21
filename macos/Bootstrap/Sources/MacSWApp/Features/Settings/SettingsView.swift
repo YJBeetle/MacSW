@@ -21,6 +21,7 @@ struct SettingsView: View {
         }
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
+        .background(SettingsWindowLifecycle())
         .padding(16)
         .alert("卸载托管 FlexNet？", isPresented: $confirmUninstall) {
             Button("取消", role: .cancel) { }
