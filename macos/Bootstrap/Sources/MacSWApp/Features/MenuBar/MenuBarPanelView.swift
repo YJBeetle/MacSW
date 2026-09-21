@@ -25,12 +25,11 @@ struct MenuBarPanelView: View {
         .padding(10)
         .frame(width: 296, alignment: .leading)
         .background(MenuBarWindowReader { panelWindow = $0 })
-        .onAppear { panelVisible = true }
-        .onDisappear { panelVisible = false }
         .task { await refresh() }
         .onReceive(Self.tick) { _ in
-            // 面板收起后停止轮询；刷新未回来时不叠加任务。
-            guard panelVisible, !isRefreshing else { return }
+            // 面板收起即停止轮询：直接看承载窗口的可见性，
+            // MenuBarExtra 的窗口关闭不保证会触发 onDisappear。
+            guard panelWindow?.isVisible == true, !isRefreshing else { return }
             Task { await refresh() }
         }
     }
