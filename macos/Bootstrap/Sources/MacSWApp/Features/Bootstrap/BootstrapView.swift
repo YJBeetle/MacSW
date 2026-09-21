@@ -164,32 +164,54 @@ struct BootstrapView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("许可（两项都可留空）").fontWeight(.medium)
-                            HStack(spacing: 8) {
-                                Text("局域网地址")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .frame(width: 84, alignment: .leading)
-                                TextField("25734@192.168.1.20", text: $store.licenseServerAddress)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(.caption, design: .monospaced))
-                            }
-                            HStack(spacing: 8) {
-                                Text("FlexNet 目录")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .frame(width: 84, alignment: .leading)
-                                Text(store.flexNetDirectory?.lastPathComponent ?? "未选择")
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Button("选择…") {
-                                    if let url = OpenPanelService.chooseFlexNetPackage() { store.flexNetDirectory = url }
+                            Text("许可方式").fontWeight(.medium)
+                            Picker("许可方式", selection: $store.licenseMode) {
+                                ForEach(BootstrapLicenseMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
                                 }
                             }
-                            Text(store.flexNetCandidates.count > 1
-                                ? "在介质同级与一级子目录里发现 \(store.flexNetCandidates.count) 个 FlexNet 目录，请确认要使用的那个。"
-                                : "填了地址就在安装后写入服务器列表；选了目录则再复制进容器 C:\\opt\\FlexNet 并启动服务。")
+                            .pickerStyle(.radioGroup)
+                            .labelsHidden()
+
+                            switch store.licenseMode {
+                            case .unconfigured:
+                                EmptyView()
+                            case .remoteServer:
+                                HStack(spacing: 8) {
+                                    Text("服务器地址")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .frame(width: 84, alignment: .leading)
+                                    TextField("25734@192.168.1.20", text: $store.licenseServerAddress)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(.caption, design: .monospaced))
+                                }
+                                .padding(.leading, 22)
+                            case .managedFlexNet:
+                                HStack(spacing: 8) {
+                                    Text("FlexNet 目录")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .frame(width: 84, alignment: .leading)
+                                    Text(store.flexNetDirectory?.lastPathComponent ?? "未选择")
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Button("选择…") {
+                                        if let url = OpenPanelService.chooseFlexNetPackage() {
+                                            store.flexNetDirectory = url
+                                        }
+                                    }
+                                }
+                                .padding(.leading, 22)
+                            }
+
+                            Text(store.licenseMode.detail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if store.licenseMode == .managedFlexNet && store.flexNetCandidates.count > 1 {
+                                Text("介质附近发现 \(store.flexNetCandidates.count) 个 FlexNet 目录，请用“选择…”确认要部署的那个。")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
                     .padding(.top, 12)
