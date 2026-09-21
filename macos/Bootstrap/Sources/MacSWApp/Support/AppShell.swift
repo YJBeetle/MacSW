@@ -8,7 +8,7 @@ import SwiftUI
 final class AppShell: ObservableObject {
     static let shared = AppShell()
 
-    let installedAtLaunch: Bool
+    private let paths: AppPaths
     private var rootViewFactory: (() -> AnyView)?
     private var presenter: BootstrapWindowPresenter?
 
@@ -21,11 +21,15 @@ final class AppShell: ObservableObject {
     }
 
     private init(paths: AppPaths = .live()) {
-        installedAtLaunch = paths.solidWorksInstalled
+        self.paths = paths
     }
 
+    /// 装没装读实时状态（结果由 AppPaths 缓存，不是每次扫盘）：
+    /// 首次安装完成之后要能从"引导中"的 .regular 切回纯菜单栏，启动快照做不到。
+    var solidWorksInstalled: Bool { paths.solidWorksInstalled }
+
     var activationPolicyAtLaunch: NSApplication.ActivationPolicy {
-        installedAtLaunch ? .accessory : .regular
+        solidWorksInstalled ? .accessory : .regular
     }
 
     /// 在 App.init 里登记内容；窗口本身只在主线程真正需要时才创建。
@@ -47,7 +51,7 @@ final class AppShell: ObservableObject {
     @MainActor func refreshActivationPolicy() {
         guard NSApp.isRunning else { return }
         let wantsDockTile = bootstrapWindowVisible || settingsWindowVisible
-        NSApp.setActivationPolicy(wantsDockTile || !installedAtLaunch ? .regular : .accessory)
+        NSApp.setActivationPolicy(wantsDockTile || !solidWorksInstalled ? .regular : .accessory)
     }
 }
 

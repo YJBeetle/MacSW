@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shell = AppShell.shared
         NSApp.setActivationPolicy(shell.activationPolicyAtLaunch)
         // 未安装时引导安装是唯一入口；已安装时只保留菜单栏，需要时由菜单或设置打开。
-        if !shell.installedAtLaunch {
+        if !shell.solidWorksInstalled {
             shell.showBootstrapWindow()
         }
     }
@@ -20,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MacSWApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @StateObject private var bootstrap: BootstrapStore
     @StateObject private var licenseServer: LicenseServerStore
     @StateObject private var runtime: RuntimeStore
@@ -34,11 +33,7 @@ struct MacSWApplication: App {
         _licenseServer = StateObject(wrappedValue: licenseServer)
         _runtime = StateObject(wrappedValue: runtime)
         AppShell.shared.configure {
-            AnyView(BootstrapSceneRoot(
-                store: bootstrap,
-                runtime: runtime,
-                autoLaunchSolidWorks: AppPreferences.autoLaunchSolidWorks()
-            ))
+            AnyView(BootstrapSceneRoot(store: bootstrap, runtime: runtime))
         }
         let autoLaunch = AppPreferences.autoLaunchSolidWorks()
         Task { @MainActor in
