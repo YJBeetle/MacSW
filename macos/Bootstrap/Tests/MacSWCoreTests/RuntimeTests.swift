@@ -104,6 +104,28 @@ final class RuntimeTests: XCTestCase {
         XCTAssertEqual(SolidWorksRuntimeState.running.applying(observedRunning: false, installed: false), .unavailable)
     }
 
+    /// 进程状态只有退出码的低 8 位：3010 = 0xBC2 → 194，1638 = 0x666 → 102。
+    /// 两边都归一之后再比，列表里写四位码还是写截断值都不会漏判。
+    func testInstallerStatusesCompareTheLowEightBits() {
+        XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(0))
+        XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(194), "3010 需要重启")
+        XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(102), "1638 另一个安装进行中")
+        XCTAssertTrue(WineService.isSuccessfulInstallerStatus(194))
+        XCTAssertFalse(WineService.isSuccessfulInstallerStatus(67))
+        XCTAssertTrue(WineService.isCancelledInstallerStatus(66), "1602 用户取消")
+        XCTAssertTrue(WineService.isCancelledInstallerStatus(15), "SIGTERM")
+        XCTAssertFalse(WineService.isCancelledInstallerStatus(16))
+    }
+
+    func testMSIReturnCodeComesFromTheVerboseLog() {
+        let log = """
+        Action ended 22:20:18: InstallFinalPackage. Return value 3.
+        MSI (s) (CC:2C) [12:34:56:789]: MainEngineThread is returning 1603
+        """
+        XCTAssertEqual(InstallerDiagnostics.msiReturnCode(log), 1603)
+        XCTAssertNil(InstallerDiagnostics.msiReturnCode("Action ended. Return value 1."))
+    }
+
     func testStopCommandsCoverTheWholeProcessFamily() {
         XCTAssertEqual(
             WineService.taskkillArguments(force: false),

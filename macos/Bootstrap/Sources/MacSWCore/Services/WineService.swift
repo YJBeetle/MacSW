@@ -36,17 +36,24 @@ public final class WineService: @unchecked Sendable {
         return activePrefixes.contains(prefix.path)
     }
 
+    /// `Process.terminationStatus` 只有退出码的低 8 位：msiexec 的 1603 到这里是 67，
+    /// 3010（需要重启）是 194，1638 是 102。两边都归一到 8 位再比，
+    /// 成功码列表里写四位码还是写截断值都不会漏判。
+    private static func statusMatches(_ code: Int32, _ accepted: [Int32]) -> Bool {
+        accepted.contains { ($0 & 0xFF) == (code & 0xFF) }
+    }
+
     public static func isSuccessfulPrerequisiteStatus(_ code: Int32) -> Bool {
-        [Int32(0), 3010, 194, 1638, 102].contains(code)
+        statusMatches(code, [0, 3010, 194, 1638, 102])
     }
 
     public static func isSuccessfulInstallerStatus(_ code: Int32) -> Bool {
-        [Int32(0), 3010, 194].contains(code)
+        statusMatches(code, [0, 3010, 194])
     }
 
     public static func isCancelledInstallerStatus(_ code: Int32) -> Bool {
-        // Windows ERROR_INSTALL_USEREXIT (1602) is truncated to 66 by a Unix process status.
-        [Int32(1602), 66, 15].contains(code)
+        // Windows ERROR_INSTALL_USEREXIT (1602) 截断成 66；被信号打死时是信号号 15。
+        statusMatches(code, [1602, 66, 15])
     }
 
     public static func isSuccessfulCleanupStop(killStatus: Int32, waitStatus: Int32) -> Bool {

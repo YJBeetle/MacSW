@@ -136,6 +136,26 @@ final class InstallerDiagnosticsTests: XCTestCase {
         XCTAssertTrue(summary[0].hasPrefix("SW MESSAGE|ERROR|"))
     }
 
+    /// 进程退出码只剩低 8 位，失败说明必须带上日志里的真实 MSI 返回码。
+    func testFailureDetailCarriesTheRealMSIReturnCodeAndErrorLines() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-msi-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let log = directory.appendingPathComponent("install_msi.log")
+        try """
+        Info 1603. Error 1603. Configuration failure Failed to install assembly
+        MSI (s) (CC:2C) [12:34:56:789]: MainEngineThread is returning 1603
+        """.data(using: .utf8)!.write(to: log)
+        let detail = InstallerDiagnostics.failureDetail(log: log)
+        XCTAssertTrue(detail.contains("MSI 返回 1603。"), detail)
+        XCTAssertTrue(detail.contains("Configuration failure"), detail)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("install_msi_errors.log").path))
+        XCTAssertTrue(
+            InstallerDiagnostics.failureDetail(log: directory.appendingPathComponent("absent.log"))
+                .contains("请查看")
+        )
+    }
+
     func testErrorSummaryNeverLeaksSerialNumbersOrLicenseServers() {
         let log = """
         Property(S): SOLIDWORKSSERIALNUMBER = AAAA BBBB CCCC DDDD EEEE FFFF cannot find

@@ -375,7 +375,9 @@ public final class BootstrapStore: ObservableObject {
             )
             if WineService.isCancelledInstallerStatus(installerCode) { throw CancellationError() }
             guard WineService.isSuccessfulInstallerStatus(installerCode) else {
-                throw bootstrapError("SOLIDWORKS 静默安装失败（\(installerCode)）。\(msiFailureDetail(msiLog))")
+                // 失败日志可能有几十 MB，读取与正则在后台做，别把界面钉在主线程上。
+                let detail = await Task.detached(priority: .utility) { InstallerDiagnostics.failureDetail(log: msiLog) }.value
+                throw bootstrapError("SOLIDWORKS 安装失败（进程退出码 \(installerCode)）。\(detail)")
             }
             if await wine.waitWineserver(prefix: paths.bottle, seconds: 30) {
                 report(.installer, .completed, request.silent
@@ -471,17 +473,6 @@ public final class BootstrapStore: ObservableObject {
         let language: SolidWorksLanguage?
         let silent: Bool
         let license: LicenseRequest
-    }
-
-    private func msiFailureDetail(_ log: URL) -> String {
-        guard let data = try? Data(contentsOf: log), let text = PlainTextDecoder.decode(data) else {
-            return " 请查看 \(log.path)。"
-        }
-        let summary = InstallerDiagnostics.msiErrorSummary(text)
-        guard !summary.isEmpty else { return " 请查看 \(log.path)。" }
-        let errors = paths.logs.appendingPathComponent("install_msi_errors.log")
-        try? summary.joined(separator: "\n").data(using: .utf8)?.write(to: errors)
-        return " 关键错误：\n\(summary.suffix(6).joined(separator: "\n"))\n完整摘要见 \(errors.path)。"
     }
 
     private func report(_ step: InstallationStep, _ status: InstallationStepStatus, _ detail: String) {
