@@ -15,8 +15,6 @@ struct SettingsView: View {
                 .tabItem { Label("通用", systemImage: "gearshape") }
             licenseSettings
                 .tabItem { Label("许可服务器", systemImage: "server.rack") }
-            advancedSettings
-                .tabItem { Label("Wine 工具", systemImage: "wrench.and.screwdriver") }
         }
         .frame(width: 560, height: 390)
         .padding(16)
@@ -43,6 +41,15 @@ struct SettingsView: View {
                 Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Wine 工具") {
+                HStack {
+                    Button("注册表编辑器") { runtime.openWineTool("regedit") }
+                    Button("Wine 配置") { runtime.openWineTool("winecfg") }
+                    Button("浏览虚拟 C 盘") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: runtime.paths.bottle.appendingPathComponent("drive_c").path)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -134,26 +141,5 @@ struct SettingsView: View {
         case .notInstalled, .stopped:
             return .secondary
         }
-    }
-
-    private var advancedSettings: some View {
-        Form {
-            Section("Wine") {
-                HStack {
-                    Button("注册表编辑器") { runtime.openWineTool("regedit") }
-                    Button("Wine 配置") { runtime.openWineTool("winecfg") }
-                    Button("浏览虚拟 C 盘") {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: runtime.paths.bottle.appendingPathComponent("drive_c").path)
-                    }
-                }
-            }
-            Section("故障处理") {
-                Button("强制终止 SOLIDWORKS", role: .destructive) { runtime.forceStop() }
-                Text("仅在 SOLIDWORKS 无法正常退出时使用，未保存的内容可能丢失。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
     }
 }
