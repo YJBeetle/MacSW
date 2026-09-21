@@ -34,6 +34,7 @@ public struct AppPaths: Sendable {
 
     private static let memoLock = NSLock()
     private static var executableMemo: [String: URL] = [:]
+    private static var memoGeneration = 0
 
     /// 解析结果按容器路径缓存：system.reg 有十几 MB，逐行扫描不能出现在界面刷新路径上。
     public static func resolveSolidWorksExecutable(in bottle: URL, fileManager: FileManager = .default) -> URL {
@@ -43,10 +44,12 @@ public struct AppPaths: Sendable {
             memoLock.unlock()
             return cached
         }
+        let generation = memoGeneration
         memoLock.unlock()
         let resolved = locateSolidWorksExecutable(in: bottle, fileManager: fileManager)
         memoLock.lock()
-        executableMemo[key] = resolved
+        // 扫描期间磁盘状态变过（安装写入、容器被删），这份结果已经过期，留下就会一直指错。
+        if generation == memoGeneration { executableMemo[key] = resolved }
         memoLock.unlock()
         return resolved
     }
@@ -55,6 +58,7 @@ public struct AppPaths: Sendable {
     public static func invalidateInstallationState() {
         memoLock.lock()
         executableMemo.removeAll()
+        memoGeneration += 1
         memoLock.unlock()
     }
 
