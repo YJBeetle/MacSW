@@ -18,5 +18,4 @@ public enum AppPreferences {
 public enum BootstrapWindowIdentity {
     /// 用于在 13/14 上精确关闭引导窗口，避免按标题字符串匹配。
     public static let identifier = "MacSW.bootstrap"
-    public static let sceneID = "bootstrap"
 }

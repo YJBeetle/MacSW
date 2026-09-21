@@ -66,10 +66,6 @@ public final class WineService: @unchecked Sendable {
         [Int32(0), 1].contains(killStatus) && waitStatus == 0
     }
 
-    public static func quote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     public func environment(winePrefix: URL, solidWorks: Bool = false) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         for key in [
@@ -90,14 +86,6 @@ public final class WineService: @unchecked Sendable {
                 .joined(separator: ";")
         }
         return environment
-    }
-
-    public func buildEnvironmentScript(winePrefix: URL) -> String {
-        let values = environment(winePrefix: winePrefix)
-        return "unset WINEDLLPATH CX_ROOT CX_BOTTLE DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH WINEDLLOVERRIDES MONO_ENV_OPTIONS\n" +
-            ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG", "WINE_MONO_AOT"]
-                .map { "export \($0)=\(Self.quote(values[$0]!))" }
-                .joined(separator: "\n")
     }
 
     public func logDirectory(_ prefix: String) -> URL {

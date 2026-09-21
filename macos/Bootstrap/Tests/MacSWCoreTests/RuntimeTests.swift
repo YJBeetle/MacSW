@@ -3,7 +3,7 @@ import XCTest
 @testable import MacSWCore
 
 final class RuntimeTests: XCTestCase {
-    func testEnvironmentIsolationOverridesAndShellQuoting() throws {
+    func testEnvironmentIsolationKeepsHostOutOfWineEnvironment() throws {
         let wine = WineService.shared
         let prefix = URL(fileURLWithPath: "/tmp/MacSW test's bottle")
         let env = wine.environment(winePrefix: prefix, solidWorks: true)
@@ -31,11 +31,6 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(WineService.isSuccessfulCleanupStop(killStatus: 1, waitStatus: 0))
         XCTAssertFalse(WineService.isSuccessfulCleanupStop(killStatus: 2, waitStatus: 0))
         XCTAssertFalse(WineService.isSuccessfulCleanupStop(killStatus: 0, waitStatus: 1))
-
-        let shell = Process()
-        shell.executableURL = URL(fileURLWithPath: "/bin/bash")
-        shell.arguments = ["-c", wine.buildEnvironmentScript(winePrefix: prefix) + "\n[ \"$WINEPREFIX\" = " + WineService.quote(prefix.path) + " ]"]
-        XCTAssertEqual(try wine.run(shell), 0)
 
         let missing = Process()
         missing.executableURL = URL(fileURLWithPath: "/nonexistent/macsw-test")

@@ -18,7 +18,8 @@ public final class BootstrapStore: ObservableObject {
     @Published public var selectedLanguage: SolidWorksLanguage?
     @Published public var licenseMode: BootstrapLicenseMode = .unconfigured
     @Published public var licenseServerAddress = ""
-    @Published public var flexNetDirectory: URL?
+    /// 只能通过 `chooseFlexNetDirectory` 改：赋值必须伴随结构校验，否则许可步骤会拿到一个没检查过的路径。
+    @Published public private(set) var flexNetDirectory: URL?
     @Published public private(set) var flexNetCandidates: [URL] = []
     @Published public private(set) var flexNetCheck: FlexNetPackageCheck = .empty
     @Published public private(set) var availableLanguages: [SolidWorksLanguage] = []
@@ -210,9 +211,8 @@ public final class BootstrapStore: ObservableObject {
             notes.append("已通过 \(sources.joined(separator: "、")) 匹配序列号")
         }
         flexNetCandidates = flexNet
-        let knownPackage = flexNetDirectory
-        if knownPackage == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
-        if knownPackage != flexNetDirectory { validateFlexNetPackage() }
+        // 唯一命中就直接选中并校验；用户手工选过的不去抢。
+        if flexNetDirectory == nil, flexNet.count == 1 { chooseFlexNetDirectory(flexNet[0]) }
         switch flexNet.count {
         case 0: break
         case 1:

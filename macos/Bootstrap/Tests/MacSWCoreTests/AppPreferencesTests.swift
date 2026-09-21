@@ -16,8 +16,10 @@ final class AppPreferencesTests: XCTestCase {
         suite.removePersistentDomain(forName: suiteName)
     }
 
+    /// 没写过这个键就等于没选过：打开 App 不能顺手把 SOLIDWORKS 拉起来。
     func testAutoLaunchDefaultsToOffSoOpeningTheAppStaysLightweight() {
-        XCTAssertFalse(AppPreferences.autoLaunchSolidWorksDefault)
+        XCTAssertFalse(AppPreferences.autoLaunchSolidWorks(defaults: suite))
+        suite.set(true, forKey: "MacSW.somethingElse")
         XCTAssertFalse(AppPreferences.autoLaunchSolidWorks(defaults: suite))
     }
 
