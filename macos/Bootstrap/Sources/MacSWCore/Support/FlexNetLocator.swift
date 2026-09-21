@@ -1,23 +1,23 @@
 import Foundation
 
-/// 在介质同级与其一级子目录里寻找随附的 FlexNet 服务器目录。
+/// 在附属资源目录（介质所在目录）及其一级子目录里寻找随附的 FlexNet 服务器目录。
 public enum FlexNetLocator {
-    public static let nameMarker = "flexnet_server"
     public static let maximumDepth = 2
 
+    /// 目录名形如 *Flexnet*Server*（不区分大小写）。
     public static func matches(_ directoryName: String) -> Bool {
-        directoryName.lowercased().contains(nameMarker)
+        let lowered = directoryName.lowercased()
+        return lowered.contains("flexnet") && lowered.contains("server")
     }
 
     /// 返回按路径排序的候选目录；调用方只在唯一命中时自动选中。
     public static func discover(
-        near mediaSource: URL,
+        in root: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        let parent = mediaSource.deletingLastPathComponent()
-        let rootPath = parent.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
         guard let enumerator = fileManager.enumerator(
-            at: parent,
+            at: root,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return [] }

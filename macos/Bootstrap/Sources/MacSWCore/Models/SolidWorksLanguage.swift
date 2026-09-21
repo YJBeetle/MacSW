@@ -35,6 +35,14 @@ public enum LanguageCatalog {
         "turkish": "Türkçe"
     ]
 
+    /// 官方介质 swwi/lang 提供的语言；下拉直接用这份，避免为了列清单去挂载介质。
+    /// 安装时仍会校验所选语言在介质中确实存在。
+    public static let official: [SolidWorksLanguage] = [
+        "chinese", "chinese-simplified", "czech", "french", "german", "italian",
+        "japanese", "korean", "polish", "portuguese-brazilian", "russian", "spanish", "turkish"
+    ].map { SolidWorksLanguage(directoryName: $0, msiFileName: "\($0).msi", displayName: displayName(for: $0)) }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
     public static func displayName(for directoryName: String) -> String {
         displayNames[directoryName.lowercased()] ?? directoryName
     }

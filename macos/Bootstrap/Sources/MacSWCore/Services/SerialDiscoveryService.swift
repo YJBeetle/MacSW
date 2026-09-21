@@ -14,7 +14,8 @@ public struct SerialDiscoveryResult: Equatable, Sendable {
 public enum SerialDiscoveryService {
     public static let maximumTextFileSize = 1_048_576
     public static let maximumCandidateFiles = 200
-    public static let maximumWalkDepth = 3
+    /// 只扫当前级与一级子级。
+    public static let maximumWalkDepth = 2
     public static let textFileExtensions: Set<String> = [
         "txt", "reg", "lic", "license", "key", "keys", "serial", "csv", "md"
     ]

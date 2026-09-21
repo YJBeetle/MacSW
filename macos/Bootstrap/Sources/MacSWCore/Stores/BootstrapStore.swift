@@ -7,7 +7,8 @@ public extension Notification.Name {
 
 @MainActor
 public final class BootstrapStore: ObservableObject {
-    @Published public var selectedMedia: URL?
+    @Published public private(set) var selectedMedia: URL?
+    @Published public private(set) var resolvedMedia: ResolvedMedia?
     @Published public var cleanInstall = false
     @Published public var silentInstall = true
     @Published public var serialSolidWorks = ""
@@ -70,7 +71,7 @@ public final class BootstrapStore: ObservableObject {
     }
 
     public var canStart: Bool {
-        selectedMedia != nil
+        resolvedMedia != nil
             && !state.isActive
             && !isInspectingMedia
             && serials.isComplete
@@ -86,64 +87,58 @@ public final class BootstrapStore: ObservableObject {
 
     public var showsCleanInstall: Bool { paths.bottleExists }
 
+    /// 只做纯目录判断与附属文件扫描：不挂载 ISO，也不起任何子进程。
     public func selectMedia(_ url: URL) {
-        var isDirectory: ObjCBool = false
-        guard url.isFileURL,
-              FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue || url.pathExtension.caseInsensitiveCompare("iso") == .orderedSame else {
-            statusMessage = "安装介质仅支持 ISO 文件或目录。"
+        guard url.isFileURL else {
+            statusMessage = "只能选择本机上的 ISO 文件、setup.exe 或目录。"
             return
         }
-        selectedMedia = url
-        availableLanguages = []
-        selectedLanguage = nil
+        guard let resolved = InstallationMediaResolver.resolve(url) else {
+            resolvedMedia = nil
+            selectedMedia = nil
+            availableLanguages = []
+            selectedLanguage = nil
+            flexNetCandidates = []
+            statusMessage = "找不到安装介质：请在其中提供 setup.exe 或 .iso（可在所选目录的一级子目录内）。"
+            return
+        }
+        resolvedMedia = resolved
+        selectedMedia = resolved.displayURL
         serialSources = [:]
         ambiguousSerialFields = []
-        statusMessage = "已选择：\(url.lastPathComponent)；正在读取介质与随附序列号文件…"
-        inspectMedia(url)
+        flexNetCandidates = []
+        availableLanguages = LanguageCatalog.official
+        if selectedLanguage == nil {
+            selectedLanguage = LanguageCatalog.autoSelection(from: LanguageCatalog.official)
+        }
+        statusMessage = resolved.isIso
+            ? "已识别 ISO 介质：\(resolved.displayURL.lastPathComponent)"
+            : "已识别介质目录：\(resolved.displayURL.lastPathComponent)"
+        inspectAttachments(in: resolved)
     }
 
-    public func rescanSerials() {
-        guard let selectedMedia else { return }
-        inspectMedia(selectedMedia)
-    }
-
-    private func inspectMedia(_ url: URL) {
+    private func inspectAttachments(in media: ResolvedMedia) {
         inspectionTask?.cancel()
         isInspectingMedia = true
+        let root = media.attachmentDirectory
         inspectionTask = Task { [weak self] in
             guard let self else { return }
-            var mounted: URL?
-            var result: (discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage], flexNet: [URL])?
-            do {
-                if url.pathExtension.caseInsensitiveCompare("iso") == .orderedSame {
-                    mounted = try await self.iso.mount(url)
-                }
-                let mediaRoot = mounted ?? url
-                let searchRoots = [url.deletingLastPathComponent(), mediaRoot]
-                result = await Task.detached {
-                    (
-                        SerialDiscoveryService.discover(in: searchRoots),
-                        LanguageCatalog.discover(in: mediaRoot),
-                        FlexNetLocator.discover(near: url)
-                    )
-                }.value
-            } catch {
-                statusMessage = "介质读取失败：\(error.localizedDescription)"
-            }
-            if let mounted { self.iso.unmount(mounted) }
+            let result = await Task.detached {
+                (
+                    SerialDiscoveryService.discover(in: [root]),
+                    FlexNetLocator.discover(in: root)
+                )
+            }.value
+            guard !Task.isCancelled, self.resolvedMedia == media else { return }
             self.isInspectingMedia = false
-            guard let result, !Task.isCancelled, self.selectedMedia == url else { return }
-            apply(discovery: result.discovery, languages: result.languages, flexNet: result.flexNet)
+            self.apply(discovery: result.0, flexNet: result.1)
         }
     }
 
-    private func apply(discovery: SerialDiscoveryResult, languages: [SolidWorksLanguage], flexNet: [URL]) {
+    private func apply(discovery: SerialDiscoveryResult, flexNet: [URL]) {
         serials = serials.merging(discovery.serials)
         serialSources = discovery.sources
         ambiguousSerialFields = discovery.ambiguousFields
-        availableLanguages = languages
-        if selectedLanguage == nil { selectedLanguage = LanguageCatalog.autoSelection(from: languages) }
 
         var notes: [String] = []
         let matched = InstallSerialField.allCases.filter { !discovery.serials[$0].isEmpty }
@@ -156,7 +151,6 @@ public final class BootstrapStore: ObservableObject {
         if !ambiguousSerialFields.isEmpty {
             notes.append("\(ambiguousSerialFields.map(\.title).joined(separator: "、")) 存在多个不同取值，请手工确认")
         }
-        notes.append(languages.isEmpty ? "介质内未发现可选语言资源" : "语言资源 \(languages.count) 项可选")
         flexNetCandidates = flexNet
         if flexNetDirectory == nil, flexNet.count == 1 { flexNetDirectory = flexNet[0] }
         switch flexNet.count {
@@ -204,7 +198,7 @@ public final class BootstrapStore: ObservableObject {
     }
 
     private func runInstallation() async {
-        guard let selectedMedia else { return }
+        guard let selectedMedia, let resolved = resolvedMedia else { return }
         let request = InstallRequest(
             serials: serials,
             language: selectedLanguage,
@@ -229,11 +223,12 @@ public final class BootstrapStore: ObservableObject {
 
         do {
             let media: URL
-            if selectedMedia.pathExtension.caseInsensitiveCompare("iso") == .orderedSame {
-                media = try await iso.mount(selectedMedia)
+            switch resolved {
+            case .iso(let url):
+                media = try await iso.mount(url)
                 mountedByApp = media
-            } else {
-                media = selectedMedia
+            case .directory(let url, _):
+                media = url
             }
             try Task.checkCancellation()
 

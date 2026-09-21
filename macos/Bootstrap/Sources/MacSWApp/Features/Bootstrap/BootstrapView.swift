@@ -66,24 +66,12 @@ struct BootstrapView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(store.selectedMedia?.lastPathComponent ?? "尚未选择")
                                 .fontWeight(.semibold)
-                            Text(store.selectedMedia?.path ?? "把官方 ISO 或介质目录拖进来，也可点击选择")
+                            Text(store.selectedMedia?.path ?? "把官方 ISO、setup.exe 或介质目录拖进来，也可点击选择")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
                         Spacer()
-                        Button {
-                            store.rescanSerials()
-                        } label: {
-                            if store.isInspectingMedia {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text("重新扫描")
-                            }
-                        }
-                        .controlSize(.small)
-                        .disabled(store.selectedMedia == nil)
-                        .help("重新扫描介质与同级的序列号、语言、FlexNet 资源")
                         Button(store.selectedMedia == nil ? "选择…" : "更换…") {
                             if let url = OpenPanelService.chooseInstallationMedia() { store.selectMedia(url) }
                         }
@@ -310,7 +298,8 @@ private struct FileDropArea: ViewModifier {
                 guard isEnabled, let provider = providers.first else { return false }
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                     guard error == nil, let url = url(from: item) else { return }
-                    DispatchQueue.main.async { receive(url) }
+                    // 拖放会话仍在事件跟踪循环里；等它收尾再处理，否则窗口会不吃鼠标事件。
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { receive(url) }
                 }
                 return true
             }

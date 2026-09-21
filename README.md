@@ -7,12 +7,15 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 
 - 固定使用唯一容器 `~/Library/Application Support/MacSW/bottle`，不提供容器切换。
 - 使用 [`config/versions.env`](config/versions.env) 固定的 Gcenx Wine，并校验下载归档的 SHA-256。
-- Bootstrap 全程静默部署官方介质：主体 MSI 以 `/qb` 加已验证的属性树安装，无需在安装窗口内点击，
-  安装过程仍可终止。支持 ISO 或包含 `swwi/data/solidworks.msi` 的介质目录，开装前先校验官方 MSI、
+- Bootstrap 默认全程静默部署官方介质：主体 MSI 以 `/qb` 加已验证的属性树安装，无需在安装窗口内点击；
+  设置里可关掉静默，改由官方向导接管。介质可以拖入或选择：ISO 文件、`setup.exe`、或含 `setup.exe`
+  /`swwi/data/solidworks.msi` 的目录（在本级与一级子目录内定位）。开装前先校验官方 MSI、
   VC++/Login Manager/.NET 前置件与 Toolbox 载荷是否齐备。
+- 选择介质时只做目录判断与附属扫描，不挂载 ISO、不起子进程；挂载推迟到点“开始安装”之后。
 - 安装序列号按 SOLIDWORKS/Simulation/Motion/MBD 四项填写，直接作为 MSI 公共属性传入，不再预写注册表。
-  选择介质时会扫描其同级与介质内部（最深三层）的文本与注册表导出并匹配取值：唯一的自动回填，
-  存在多个不同取值的字段留空交给用户确认。`.reg` 只作为读取来源，不再导入容器。
+  附属资源只在**介质所在目录及其一级子目录**内查找（白名单文本、`*Flexnet*Server*` 目录），
+  不进入 ISO 或介质目录内部；唯一的自动回填，存在多个不同取值的字段留空交给用户确认。
+  `.reg` 只作为读取来源，不再导入容器。
 - 界面语言按 macOS 语言偏好从介质 `swwi/lang` 实际提供的官方语言 MSI 中自动预选，可在安装界面改；
   不追加语言资源时即介质自带的英文。语言 MSI 在主体安装完成后静默安装。
 - 正常运行时只显示菜单栏启动器；打开 App 不会自动拉起 SOLIDWORKS（设置里可勾选“启动 MacSW 时自动启动”，
