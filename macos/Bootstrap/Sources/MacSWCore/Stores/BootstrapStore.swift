@@ -300,7 +300,7 @@ public final class BootstrapStore: ObservableObject {
         stepDetails = [:]
         report(.media, .running, "正在校验官方安装介质…")
         statusMessage = "正在校验安装介质…"
-        var mountedByApp: URL?
+        var mountedByApp: MountedMedia?
         var desktopRedirections: [PrerequisiteService.DesktopRedirection] = []
         defer {
             if !desktopRedirections.isEmpty {
@@ -314,8 +314,9 @@ public final class BootstrapStore: ObservableObject {
             let media: URL
             switch resolved {
             case .iso(let url):
-                media = try await iso.mount(url)
-                mountedByApp = media
+                let mounted = try await iso.mount(url)
+                mountedByApp = mounted
+                media = mounted.mountPoint
             case .directory(let url, _):
                 media = url
             }
