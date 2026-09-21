@@ -17,14 +17,20 @@ public struct WineProcess: Equatable, Sendable {
     public var residentMB: Int64 { max(residentKB / 1024, 1) }
 }
 
-/// 用 macOS 侧 ps 读取容器进程，不经过 Wine，因此打开菜单面板也能即时刷新。
+/// 用 macOS 侧 ps 读取容器进程，不经过 Wine，因此打开面板也能即时刷新。
 public enum ProcessInventory {
-    public static let monitoredProcesses = [
-        "SLDWORKS.exe", "sldworks_fs.exe", "sw_ui_daemon.exe", "wineserver"
-    ]
     public static let primaryProcess = "SLDWORKS.exe"
+    /// SOLIDWORKS 自身的进程；命令行里只有 Windows 路径，只能按名字认。
+    public static let solidWorksProcesses = ["SLDWORKS.exe", "sldworks_fs.exe", "sw_ui_daemon.exe"]
 
-    public static func parse(_ psOutput: String) -> [WineProcess] {
+    /// 属于本容器的进程：命令行里带容器路径（我们启动托管进程时传的就是宿主路径），
+    /// 或带本 App 的 Wine 运行时路径，或是 SOLIDWORKS 自己的进程。
+    /// Wine 会把客户进程重新挂到 launchd 下，所以不能靠父子进程关系判断。
+    public static func parse(
+        _ psOutput: String,
+        bottlePath: String,
+        wineRuntimePath: String
+    ) -> [WineProcess] {
         var found: [WineProcess] = []
         for line in psOutput.split(separator: "\n") {
             let columns = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
@@ -32,19 +38,47 @@ public enum ProcessInventory {
                   let pid = Int32(columns[0]),
                   let resident = Int64(columns[1]) else { continue }
             let command = columns[3...].joined(separator: " ")
-            guard let name = monitoredProcesses.first(where: { command.contains($0) }) else { continue }
-            if found.contains(where: { $0.name == name }) { continue }
-            found.append(WineProcess(name: name, pid: pid, residentKB: resident, elapsed: columns[2]))
+            guard belongsToContainer(
+                command: command, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath
+            ) else { continue }
+            found.append(WineProcess(
+                name: displayName(of: command),
+                pid: pid,
+                residentKB: resident,
+                elapsed: columns[2]
+            ))
         }
-        return monitoredProcesses.compactMap { name in found.first { $0.name == name } }
+        return found.sorted { $0.residentKB > $1.residentKB }
+    }
+
+    private static func belongsToContainer(command: String, bottlePath: String, wineRuntimePath: String) -> Bool {
+        if !bottlePath.isEmpty, command.localizedCaseInsensitiveContains(bottlePath) { return true }
+        if !wineRuntimePath.isEmpty, command.localizedCaseInsensitiveContains(wineRuntimePath) { return true }
+        return solidWorksProcesses.contains { command.contains($0) }
+    }
+
+    /// Windows 客户进程的 argv[0] 会被改写成 `C:\...\X.exe`，参数跟在后面；
+    /// 宿主进程则是可执行文件路径。两种都取到真正的程序名。
+    private static func displayName(of command: String) -> String {
+        let path: String
+        if let exe = command.range(of: ".exe", options: [.caseInsensitive]) {
+            path = String(command[..<exe.upperBound])
+        } else if let flags = command.range(of: " -") {
+            path = String(command[..<flags.lowerBound])
+        } else {
+            path = command
+        }
+        return path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
     }
 
     /// 在后台执行器上跑 ps 并等待退出，避免非隔离 async 函数沿用主线程导致界面卡顿。
-    public static func snapshot() async -> [WineProcess] {
-        await Task.detached(priority: .utility) { collect() }.value
+    public static func snapshot(bottlePath: String, wineRuntimePath: String) async -> [WineProcess] {
+        await Task.detached(priority: .utility) {
+            collect(bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+        }.value
     }
 
-    private static func collect() -> [WineProcess] {
+    private static func collect(bottlePath: String, wineRuntimePath: String) -> [WineProcess] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["axo", "pid=,rss=,etime=,command="]
@@ -54,11 +88,11 @@ public enum ProcessInventory {
         do { try process.run() } catch { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return parse(String(decoding: data, as: UTF8.self))
+        return parse(String(decoding: data, as: UTF8.self), bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
     }
 
     public static func isSolidWorksRunning(_ snapshot: [WineProcess]) -> Bool {
-        snapshot.contains { $0.name == primaryProcess }
+        snapshot.contains { $0.name.caseInsensitiveCompare(primaryProcess) == .orderedSame }
     }
 
     public static func totalResidentMB(_ snapshot: [WineProcess]) -> Int64 {

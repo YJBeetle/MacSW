@@ -132,13 +132,35 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
+    /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。
+    public func restartContainer() {
+        let wasRunning = isRunning
+        Task {
+            _ = try? await wine.forceStopSolidWorks(prefix: paths.bottle)
+            let settled = await wine.waitWineserver(prefix: paths.bottle, seconds: 15)
+            if !settled {
+                _ = try? await wine.stopWineServerForCleanup(prefix: paths.bottle)
+            }
+            await refreshState()
+            if wasRunning {
+                statusMessage = "容器已重启，正在重新拉起 SOLIDWORKS。"
+                launch()
+            } else {
+                statusMessage = "容器已完全停止，下次启动等于冷启动。"
+            }
+        }
+    }
+
     public func openWineTool(_ name: String) {
         do { try wine.launchTool(name, prefix: paths.bottle) }
         catch { statusMessage = error.localizedDescription }
     }
 
     private func refreshState() async {
-        let snapshot = await ProcessInventory.snapshot()
+        let snapshot = await ProcessInventory.snapshot(
+            bottlePath: paths.bottle.path,
+            wineRuntimePath: wine.runtimeURL.path
+        )
         if snapshot != processes { processes = snapshot }
         state = ProcessInventory.isSolidWorksRunning(snapshot)
             ? .running
