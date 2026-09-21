@@ -89,6 +89,21 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(survived)
     }
 
+    /// 轮询观测要与用户意图合并，不能反向覆盖。
+    func testPollingNeverOverridesUserIntent() {
+        let failed = SolidWorksRuntimeState.failed("启动失败")
+        XCTAssertEqual(SolidWorksRuntimeState.starting.applying(observedRunning: false, installed: true), .starting)
+        XCTAssertEqual(SolidWorksRuntimeState.starting.applying(observedRunning: true, installed: true), .running)
+        XCTAssertEqual(SolidWorksRuntimeState.stopping.applying(observedRunning: true, installed: true), .stopping)
+        XCTAssertEqual(SolidWorksRuntimeState.stopping.applying(observedRunning: false, installed: true), .stopped)
+        XCTAssertEqual(SolidWorksRuntimeState.stopping.applying(observedRunning: false, installed: false), .unavailable)
+        XCTAssertEqual(failed.applying(observedRunning: false, installed: true), failed)
+        XCTAssertEqual(failed.applying(observedRunning: true, installed: true), .running)
+        // 没有意图的状态一律以观测为准。
+        XCTAssertEqual(SolidWorksRuntimeState.unknown.applying(observedRunning: false, installed: true), .stopped)
+        XCTAssertEqual(SolidWorksRuntimeState.running.applying(observedRunning: false, installed: false), .unavailable)
+    }
+
     func testStopCommandsCoverTheWholeProcessFamily() {
         XCTAssertEqual(
             WineService.taskkillArguments(force: false),

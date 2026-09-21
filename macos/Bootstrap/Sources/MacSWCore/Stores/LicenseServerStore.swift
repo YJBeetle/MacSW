@@ -39,24 +39,35 @@ public final class LicenseServerStore: ObservableObject {
     public func refreshInstallation() async {
         let service = self.service
         installation = await Task.detached(priority: .utility) { service.installed }.value
-        if installation == nil { state = .notInstalled }
+        guard installation == nil else { return }
+        switch state {
+        case .starting, .stopping, .failed: break
+        default: state = .notInstalled
+        }
     }
 
     /// 只探测许可端口（不读注册表、不启动 Wine），供菜单栏面板高频刷新使用。
     public func refreshRunningState() async {
         await refreshInstallation()
-        guard let installation else { return }
-        state = await isPortOpen(installation.port) ? .running(installation.port) : .stopped
+        await updateObservedState()
     }
 
-    /// 完整刷新：会读取容器注册表并探测许可端口，只在用户查看状态或需要启动时调用。
+    /// 完整刷新：读容器注册表里的许可服务器列表并探测端口。要起一个 wine 进程，
+    /// 所以只在用户显式要求"重新读取"时调用，不进启动路径。
     public func refresh() async {
         await refreshInstallation()
         let servers = await registry.readLicenseServers(prefix: paths.bottle)
         addressInput = servers.canonical
-        guard let installation else {
-            state = .notInstalled
-            return
+        appliedAddress = servers.canonical
+        await updateObservedState()
+    }
+
+    private func updateObservedState() async {
+        guard let installation else { return }
+        // 启动中/停止中/报错都是用户点出来的意图，端口探测一次就把状态冲掉会让按钮闪、错误消失。
+        switch state {
+        case .starting, .stopping, .failed: return
+        default: break
         }
         state = await isPortOpen(installation.port) ? .running(installation.port) : .stopped
     }

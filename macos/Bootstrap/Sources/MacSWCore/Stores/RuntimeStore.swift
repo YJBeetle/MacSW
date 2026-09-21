@@ -138,6 +138,7 @@ public final class RuntimeStore: ObservableObject {
     /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。
     public func restartContainer() {
         let wasRunning = isRunning
+        if wasRunning { state = .stopping }
         Task {
             _ = try? await wine.forceStopSolidWorks(prefix: paths.bottle)
             let settled = await wine.waitWineserver(prefix: paths.bottle, seconds: 15)
@@ -182,9 +183,14 @@ public final class RuntimeStore: ObservableObject {
             wineRuntimePath: wine.runtimeURL.path
         )
         if snapshot != processes { processes = snapshot }
-        state = ProcessInventory.isSolidWorksRunning(snapshot)
-            ? .running
-            : (paths.solidWorksInstalled ? .stopped : .unavailable)
+        apply(observingRunning: ProcessInventory.isSolidWorksRunning(snapshot))
+    }
+
+    /// 进程表是唯一证据，但 `starting/stopping/failed` 是用户刚点出来的意图，
+    /// 合并规则在 `SolidWorksRuntimeState.applying` 里。
+    private func apply(observingRunning running: Bool) {
+        let next = state.applying(observedRunning: running, installed: paths.solidWorksInstalled)
+        if next != state { state = next }
     }
 
     private func runtimeError(_ message: String) -> NSError {
