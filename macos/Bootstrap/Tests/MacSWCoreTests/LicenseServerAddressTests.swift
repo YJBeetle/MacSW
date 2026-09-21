@@ -18,10 +18,9 @@ final class LicenseServerAddressTests: XCTestCase {
         XCTAssertEqual(list.canonical, "27000@backup;25734@server")
     }
 
-    func testManagedLocalServerIsMergedAndRemovedWithoutChangingOthers() throws {
-        let existing = try LicenseServerAddressService.parse("27000@backup;25734@127.0.0.1;28000@other")
-        let installed = existing.addingManagedLocal(port: 25734)
-        XCTAssertEqual(installed.canonical, "25734@localhost;27000@backup;28000@other")
-        XCTAssertEqual(installed.removingManagedLocal(port: 25734).canonical, "27000@backup;28000@other")
+    func testManagedInstallationOwnsTheListWithASingleLoopbackAddress() {
+        let metadata = ManagedFlexNetInstallation(port: 25734, licenseFile: "sw_d_SSQ.lic", vendorDaemon: "sw_d.exe")
+        XCTAssertEqual(metadata.managedAddress, "25734@localhost")
+        XCTAssertEqual(LicenseServerList(endpoints: [LicenseServerEndpoint(port: 25734, host: "localhost")]).canonical, "25734@localhost")
     }
 }

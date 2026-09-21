@@ -37,16 +37,6 @@ public struct LicenseServerList: Equatable, Sendable {
     public var canonical: String {
         endpoints.map(\.canonical).joined(separator: ";")
     }
-
-    public func addingManagedLocal(port: UInt16) -> LicenseServerList {
-        let local = LicenseServerEndpoint(port: port, host: "localhost")
-        let others = endpoints.filter { !($0.port == port && $0.isLoopback) }
-        return LicenseServerList(endpoints: [local] + others)
-    }
-
-    public func removingManagedLocal(port: UInt16) -> LicenseServerList {
-        LicenseServerList(endpoints: endpoints.filter { !($0.port == port && $0.isLoopback) })
-    }
 }
 
 public enum LicenseServerAddressError: LocalizedError, Equatable {

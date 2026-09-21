@@ -106,10 +106,9 @@ public final class LicenseServerStore: ObservableObject {
             statusMessage = "正在验证并安装 FlexNet…"
             defer { isOperating = false }
             do {
-                let existing = await registry.readLicenseServers(prefix: paths.bottle)
-                let metadata = try await service.install(from: source, existingServers: existing)
+                let metadata = try await service.install(from: source)
                 installation = metadata
-                addressInput = existing.addingManagedLocal(port: metadata.port).canonical
+                addressInput = metadata.managedAddress
                 statusMessage = "FlexNet 已安装到 C:\\opt\\FlexNet。"
                 state = .stopped
                 try await startAndWait()
@@ -130,12 +129,11 @@ public final class LicenseServerStore: ObservableObject {
             defer { isOperating = false }
             do {
                 try await stopAndWait()
-                let existing = await registry.readLicenseServers(prefix: paths.bottle)
-                let remaining = try await service.uninstall(existingServers: existing)
-                addressInput = remaining.canonical
+                try await service.uninstall()
+                addressInput = ""
                 installation = nil
                 state = .notInstalled
-                statusMessage = "托管 FlexNet 已卸载，其他服务器地址已保留。"
+                statusMessage = "托管 FlexNet 已卸载，许可服务器列表已清空。"
             } catch {
                 state = .failed(error.localizedDescription)
                 statusMessage = error.localizedDescription
@@ -152,10 +150,9 @@ public final class LicenseServerStore: ObservableObject {
             addressInput = servers.canonical
         }
         guard let flexNetSource else { return }
-        let existing = await registry.readLicenseServers(prefix: paths.bottle)
-        let metadata = try await service.install(from: flexNetSource, existingServers: existing)
+        let metadata = try await service.install(from: flexNetSource)
         installation = metadata
-        addressInput = existing.addingManagedLocal(port: metadata.port).canonical
+        addressInput = metadata.managedAddress
         state = .stopped
         try await startAndWait()
     }

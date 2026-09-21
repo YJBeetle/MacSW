@@ -10,6 +10,9 @@ public struct ManagedFlexNetInstallation: Codable, Equatable, Sendable {
         self.licenseFile = licenseFile
         self.vendorDaemon = vendorDaemon
     }
+
+    /// 托管即独占：容器注册表里只写这一条。
+    public var managedAddress: String { "\(port)@localhost" }
 }
 
 public final class FlexNetService: @unchecked Sendable {
@@ -69,7 +72,8 @@ public final class FlexNetService: @unchecked Sendable {
         return ManagedFlexNetInstallation(port: port, licenseFile: license.lastPathComponent, vendorDaemon: daemon.lastPathComponent)
     }
 
-    public func install(from source: URL, existingServers: LicenseServerList) async throws -> ManagedFlexNetInstallation {
+    /// 托管即独占：写入的服务器列表只有这一条 `端口@localhost`，不与用户手填的地址混排。
+    public func install(from source: URL) async throws -> ManagedFlexNetInstallation {
         let fileManager = FileManager.default
         let sourceDirectory: URL
         var extractionDirectory: URL?
@@ -130,9 +134,12 @@ public final class FlexNetService: @unchecked Sendable {
             throw error
         }
 
-        let merged = existingServers.addingManagedLocal(port: metadata.port)
         do {
-            try await registry.writeLicenseServers(merged, prefix: paths.bottle, serviceName: Self.serviceName)
+            try await registry.writeLicenseServers(
+                LicenseServerList(endpoints: [LicenseServerEndpoint(port: metadata.port, host: "localhost")]),
+                prefix: paths.bottle,
+                serviceName: Self.serviceName
+            )
             if replacedExistingInstallation { try? fileManager.removeItem(at: backup) }
         } catch {
             try? fileManager.removeItem(at: paths.managedFlexNet)
@@ -142,9 +149,9 @@ public final class FlexNetService: @unchecked Sendable {
         return metadata
     }
 
-    public func uninstall(existingServers: LicenseServerList) async throws -> LicenseServerList {
-        guard let metadata = installed else { return existingServers }
-        let remaining = existingServers.removingManagedLocal(port: metadata.port)
+    /// 卸载即清空列表：托管时它就是唯一一条地址，没有"保留其他地址"这回事。
+    public func uninstall() async throws {
+        guard installed != nil else { return }
         let target = paths.managedFlexNet.standardizedFileURL
         guard target == paths.bottle.appendingPathComponent("drive_c/opt/FlexNet").standardizedFileURL else {
             throw failure("托管 FlexNet 路径异常，拒绝删除。")
@@ -153,7 +160,7 @@ public final class FlexNetService: @unchecked Sendable {
             .appendingPathComponent(".FlexNet.uninstall-\(UUID().uuidString)")
         try FileManager.default.moveItem(at: target, to: backup)
         do {
-            try await registry.writeLicenseServers(remaining, prefix: paths.bottle)
+            try await registry.clearLicenseServers(prefix: paths.bottle)
             await registry.removeManagedServiceMarker(prefix: paths.bottle)
             try? FileManager.default.removeItem(at: backup)
         } catch {
@@ -162,7 +169,6 @@ public final class FlexNetService: @unchecked Sendable {
             }
             throw error
         }
-        return remaining
     }
 
     private func locatePackageRoot(in source: URL) throws -> URL {
