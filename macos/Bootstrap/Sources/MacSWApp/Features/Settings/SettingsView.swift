@@ -79,7 +79,8 @@ struct SettingsView: View {
         Group {
             HStack(spacing: 8) {
                 Text("服务器地址")
-                TextField("25734@license.example.com", text: $licenseServer.addressInput)
+                TextField("", text: $licenseServer.addressInput, prompt: Text("25734@license.example.com"))
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .focused($addressFocused)
                     .onSubmit { commitAddressIfNeeded() }
