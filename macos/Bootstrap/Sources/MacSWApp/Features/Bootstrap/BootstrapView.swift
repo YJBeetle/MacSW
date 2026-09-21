@@ -20,7 +20,8 @@ struct BootstrapView: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 620, minHeight: 560)
+        .frame(minWidth: 620)
+        .autoHeightWindow()
         .alert("全新安装会删除现有容器", isPresented: $showCleanInstallConfirmation) {
             Button("取消", role: .cancel) { }
             Button("删除并安装", role: .destructive) { store.start() }
@@ -232,7 +233,9 @@ struct BootstrapView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+            .reportScrollContentHeight()
         }
+        .reportViewportHeight()
 
         HStack {
             Button("查看日志") { openLogs() }
@@ -256,7 +259,9 @@ struct BootstrapView: View {
                         )
                     }
                 }
+                .reportScrollContentHeight()
             }
+            .reportViewportHeight()
             Text(store.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
