@@ -37,7 +37,8 @@ public enum InstallerDiagnostics {
             guard expression.firstMatch(in: line, options: [], range: range) != nil else { return nil }
             return line
         }
-        return Array(matched.suffix(Self.summaryLimit))
+        // 截断留前面的：MSI 失败时第一条才是根因，后面多是级联的"return value 3"。
+        return Array(matched.prefix(Self.summaryLimit))
     }
 
     /// 安装失败的完整说明：日志里才有真正的 MSI 返回码，摘要另存一份便于回看。
@@ -51,7 +52,7 @@ public enum InstallerDiagnostics {
         guard !summary.isEmpty else { return code + "请查看 \(log.path)。" }
         let errors = log.deletingLastPathComponent().appendingPathComponent("install_msi_errors.log")
         try? summary.joined(separator: "\n").data(using: .utf8)?.write(to: errors)
-        return code + "关键错误：\n\(summary.suffix(6).joined(separator: "\n"))\n完整摘要见 \(errors.path)。"
+        return code + "最先出现的错误：\n\(summary.prefix(6).joined(separator: "\n"))\n完整摘要见 \(errors.path)。"
     }
 
     /// 真正的 MSI 返回码只写在 `/l*v` 日志里：Unix 进程状态只保留低 8 位，

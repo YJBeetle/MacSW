@@ -7,6 +7,8 @@ public final class WineService: @unchecked Sendable {
     private let stateLock = NSLock()
     private var activePrefixes = Set<String>()
 
+    /// 单个日志文件的大小上限，超过就从头写。
+    static let maximumLogBytes: Int64 = 4 * 1024 * 1024
     public static let vcLibraries = [
         "concrt140", "msvcp140", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait",
         "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"
@@ -335,9 +337,17 @@ public final class WineService: @unchecked Sendable {
     /// 打开（必要时创建）一个追加写的日志句柄；调用方负责关闭。
     public func logHandle(for log: URL?) throws -> FileHandle? {
         guard let log else { return nil }
-        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: log.path) {
-            FileManager.default.createFile(atPath: log.path, contents: nil)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: log.path) {
+            fileManager.createFile(atPath: log.path, contents: nil)
+        } else if let size = (try? fileManager.attributesOfItem(atPath: log.path))?[.size] as? NSNumber,
+                  size.int64Value > Self.maximumLogBytes {
+            // wine 的输出每次都往上追加，几 MB 之后查看器只剩卡顿；旧内容已经没价值了。
+            if let truncate = try? FileHandle(forWritingTo: log) {
+                try? truncate.truncate(atOffset: 0)
+                try? truncate.close()
+            }
         }
         let handle = try FileHandle(forWritingTo: log)
         try handle.seekToEnd()

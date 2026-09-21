@@ -121,6 +121,22 @@ final class RuntimeTests: XCTestCase {
         XCTAssertNil(InstallerDiagnostics.msiReturnCode("Action ended. Return value 1."))
     }
 
+    /// 日志是追加写的，不设上限就会一直长到几 MB。
+    func testOversizedLogIsRestartedBeforeAppending() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-log-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let log = directory.appendingPathComponent("wineboot.log")
+        try Data(repeating: 0x41, count: Int(WineService.maximumLogBytes) + 1).write(to: log)
+        let handle = try XCTUnwrap(WineService.shared.logHandle(for: log))
+        XCTAssertEqual(try? log.resourceValues(forKeys: [.fileSizeKey]).fileSize, 0)
+        try? handle.close()
+
+        let fresh = directory.appendingPathComponent("fresh.log")
+        XCTAssertNotNil(try WineService.shared.logHandle(for: fresh))
+        XCTAssertNil(try WineService.shared.logHandle(for: nil))
+    }
+
     func testStopCommandsCoverTheWholeProcessFamily() {
         XCTAssertEqual(
             WineService.taskkillArguments(force: false),
