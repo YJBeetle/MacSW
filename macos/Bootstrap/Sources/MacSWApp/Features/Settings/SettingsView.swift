@@ -91,11 +91,6 @@ struct SettingsView: View {
             Text("port@host，也接受 host:port 与 [IPv6]:port；多个地址用分号分隔，写入后下次启动 SOLIDWORKS 生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if licenseServer.isInstalled {
-                Text("容器里还装着托管 FlexNet；一旦启动它，这份列表会被覆盖成那一条地址。")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
             if !licenseServer.addressNotice.isEmpty {
                 Text(licenseServer.addressNotice)
                     .font(.caption)
