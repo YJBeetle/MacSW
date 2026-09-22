@@ -77,11 +77,26 @@ struct SettingsView: View {
                 .pickerStyle(.radioGroup)
                 .horizontalRadioGroupLayout()
                 .labelsHidden()
+                Spacer()
                 // 写入注册表期间整块锁住，顺便转个菊花表示"在做事"。
                 if licenseServer.isOperating {
                     ProgressView()
                         .controlSize(.small)
                 }
+                // 手工改过注册表（维护页就能打开注册表编辑器）之后用这个把真实配置读回来。
+                Button {
+                    Task {
+                        await licenseServer.syncFromContainer(force: true)
+                        // 手工选过的模式要让位给读回来的真实状态。
+                        chosenLicenseMode = nil
+                    }
+                } label: {
+                    Label("重新读取容器配置", systemImage: "arrow.clockwise")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("从容器注册表读回许可服务器地址，需要几秒钟")
             }
             .disabled(licenseServer.isOperating)
             switch licenseMode.wrappedValue {
@@ -94,16 +109,6 @@ struct SettingsView: View {
             case .managedFlexNet:
                 managedFlexNetEditor
             }
-            // 手工改过注册表（维护页就能打开注册表编辑器）之后用这个把真实配置读回来。
-            Button("重新读取容器配置") {
-                Task {
-                    await licenseServer.syncFromContainer(force: true)
-                    // 手工选过的模式要让位给读回来的真实状态。
-                    chosenLicenseMode = nil
-                }
-            }
-            .disabled(licenseServer.isOperating)
-            .help("读取容器注册表里的许可服务器地址，需要几秒钟")
         }
     }
 
