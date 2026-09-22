@@ -1,6 +1,6 @@
 import Foundation
 
-public final class RegistryService {
+public final class RegistryService: @unchecked Sendable {
     private let wine: WineService
 
     public init(wine: WineService = .shared) {
@@ -102,16 +102,23 @@ public final class RegistryService {
             + [RegistryAssignment(key: serviceKey, name: "Service", value: serviceName ?? "")]
     }
 
-    public func readLicenseServers(prefix: URL) async -> LicenseServerList {
+    public func readLicenseServers(prefix: URL) async throws -> LicenseServerList {
         let process = wine.makeProcess(arguments: [
             "reg", "query", "HKLM\\SOFTWARE\\FLEXlm License Manager", "/v", "SW_D_LICENSE_FILE"
         ], prefix: prefix)
-        guard let (code, output) = try? await wine.captureCancellable(process), code == 0,
-              let marker = output.range(of: "REG_SZ", options: .caseInsensitive) else {
-            return LicenseServerList(endpoints: [])
+        let (code, output) = try await wine.captureCancellable(process)
+        return try Self.licenseServers(fromQueryStatus: code, output: output)
+    }
+
+    static func licenseServers(fromQueryStatus code: Int32, output: String) throws -> LicenseServerList {
+        if code == 1 { return LicenseServerList(endpoints: []) }
+        guard code == 0 else { throw Self.registryError("读取许可服务器注册表失败（\(code)）。") }
+        guard let marker = output.range(of: "REG_SZ", options: .caseInsensitive) else {
+            throw Self.registryError("许可服务器注册表返回了无法识别的内容。")
         }
         let value = output[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        return (try? LicenseServerAddressService.parse(value)) ?? LicenseServerList(endpoints: [])
+        guard !value.isEmpty else { return LicenseServerList(endpoints: []) }
+        return try LicenseServerAddressService.parse(value)
     }
 
     /// 清空即写空串（跟刚装完的容器状态一致），六个值一次导入搞定。

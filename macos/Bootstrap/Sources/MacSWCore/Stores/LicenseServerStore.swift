@@ -55,7 +55,14 @@ public final class LicenseServerStore: ObservableObject {
     /// 所以只在用户显式要求"重新读取"时调用，不进启动路径。
     public func refresh() async {
         await refreshInstallation()
-        let servers = await registry.readLicenseServers(prefix: paths.bottle)
+        let servers: LicenseServerList
+        do {
+            servers = try await registry.readLicenseServers(prefix: paths.bottle)
+        } catch {
+            guard !Task.isCancelled else { return }
+            statusMessage = "读取许可服务器失败：\(error.localizedDescription)"
+            return
+        }
         // 被取消的那次读回来的是空列表，写进输入框会把已有地址抹掉、把单选框骗成"不配置"。
         guard !Task.isCancelled else { return }
         addressInput = servers.canonical
@@ -131,14 +138,12 @@ public final class LicenseServerStore: ObservableObject {
     /// 写入期间 isOperating 为真，界面上整块随之锁住并转菊花，
     /// 因此不会出现用户连着切、旧写入盖掉新选择的情况。
     public func apply(mode: BootstrapLicenseMode) {
-        guard !isOperating else { return }
+        guard startOperationIfIdle() else { return }
         Task {
-            isOperating = true
             defer { isOperating = false }
             do {
                 switch mode {
                 case .unconfigured:
-                    guard !addressInput.isEmpty else { return }
                     try await registry.clearLicenseServers(prefix: paths.bottle, includingServiceMarker: true)
                     addressInput = ""
                     appliedAddress = ""
@@ -176,9 +181,8 @@ public final class LicenseServerStore: ObservableObject {
     public func dismissInstallProblem() { installProblem = nil }
 
     public func install(from source: URL) {
-        guard !isOperating else { return }
+        guard startOperationIfIdle() else { return }
         Task {
-            isOperating = true
             statusMessage = "正在验证并安装 FlexNet…"
             defer { isOperating = false }
             if case .rejected(let reason) = await checkedPackage(at: source) {
@@ -205,9 +209,8 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     public func uninstall() {
-        guard !isOperating, installation != nil else { return }
+        guard installation != nil, startOperationIfIdle() else { return }
         Task {
-            isOperating = true
             statusMessage = "正在卸载托管 FlexNet…"
             defer { isOperating = false }
             do {
@@ -250,9 +253,8 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     public func start() {
-        guard !isOperating else { return }
+        guard startOperationIfIdle() else { return }
         Task {
-            isOperating = true
             defer { isOperating = false }
             do { try await startAndWait() }
             catch {
@@ -263,9 +265,8 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     public func stop() {
-        guard !isOperating else { return }
+        guard startOperationIfIdle() else { return }
         Task {
-            isOperating = true
             defer { isOperating = false }
             do { try await stopAndWait() }
             catch {
@@ -277,7 +278,7 @@ public final class LicenseServerStore: ObservableObject {
 
     public func ensureRunningIfNeeded() async throws {
         guard let installation else { return }
-        let servers = await registry.readLicenseServers(prefix: paths.bottle)
+        let servers = try await registry.readLicenseServers(prefix: paths.bottle)
         addressInput = servers.canonical
         guard servers.endpoints.contains(where: { $0.port == installation.port && $0.isLoopback }) else { return }
         if await isPortOpen(installation.port) {
@@ -353,6 +354,12 @@ public final class LicenseServerStore: ObservableObject {
             process.arguments = ["-z", "-w", "1", "127.0.0.1", String(port)]
             return ((try? await wine.runCancellable(process)) ?? -1) == 0
         }.value
+    }
+
+    func startOperationIfIdle() -> Bool {
+        guard !isOperating else { return false }
+        isOperating = true
+        return true
     }
 
     private func storeError(_ message: String) -> NSError {

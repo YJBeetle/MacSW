@@ -3,6 +3,23 @@ import XCTest
 @testable import MacSWCore
 
 final class RegistryServiceTests: XCTestCase {
+    func testLicenseServerQueryDistinguishesMissingValueFromFailures() throws {
+        XCTAssertTrue(try RegistryService.licenseServers(fromQueryStatus: 1, output: "").endpoints.isEmpty)
+        XCTAssertThrowsError(try RegistryService.licenseServers(fromQueryStatus: 2, output: "failed"))
+        XCTAssertThrowsError(try RegistryService.licenseServers(fromQueryStatus: 0, output: "unexpected"))
+        XCTAssertThrowsError(try RegistryService.licenseServers(
+            fromQueryStatus: 0,
+            output: "SW_D_LICENSE_FILE    REG_SZ    not-a-server"
+        ))
+        XCTAssertEqual(
+            try RegistryService.licenseServers(
+                fromQueryStatus: 0,
+                output: "SW_D_LICENSE_FILE    REG_SZ    25734@localhost"
+            ).canonical,
+            "25734@localhost"
+        )
+    }
+
     func testRegistryFileUsesFullHiveAndGroupsValuesUnderOneKey() throws {
         let text = try RegistryService.registryFileText([
             RegistryAssignment(key: "HKLM\\SOFTWARE\\FLEXlm License Manager", name: "SW_D_LICENSE_FILE", value: "25734@localhost"),
