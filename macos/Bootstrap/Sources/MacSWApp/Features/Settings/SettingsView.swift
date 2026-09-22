@@ -142,13 +142,13 @@ struct SettingsView: View {
             Text(BootstrapLicenseMode.managedFlexNet.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            LabeledContent("运行状态") {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(flexNetStateColor)
-                        .frame(width: 7, height: 7)
-                    Text(flexNetStateText)
-                }
+            // 状态紧跟标签，不用眼睛横穿整行去找它属于谁。
+            HStack(spacing: 6) {
+                Text("运行状态")
+                Circle()
+                    .fill(flexNetStateColor)
+                    .frame(width: 7, height: 7)
+                Text(flexNetStateText)
             }
             HStack {
                 if licenseServer.isInstalled {
@@ -194,15 +194,24 @@ struct SettingsView: View {
                 }
             }
             Section("容器操作") {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                // 两个动作各占一行，说明写在各自按钮右边，读的人不用再去下面找对应关系。
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button("重启容器") { runtime.restartContainer() }
+                    Text("结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button(role: .destructive) { runtime.forceStop() } label: {
                         // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
                         Text("强制终止全部进程").foregroundStyle(.red)
                     }
-                    Text("重启容器会结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。强制终止只杀进程，不结束 wineserver。")
+                    Text("只杀容器里的进程，不结束 wineserver。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !runtime.statusMessage.isEmpty {
