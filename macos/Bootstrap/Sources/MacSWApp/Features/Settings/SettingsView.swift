@@ -194,14 +194,17 @@ struct SettingsView: View {
                 }
             }
             Section("容器操作") {
-                Button("重启容器") { runtime.restartContainer() }
-                Button(role: .destructive) { runtime.forceStop() } label: {
-                    // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
-                    Text("强制终止全部进程").foregroundStyle(.red)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Button("重启容器") { runtime.restartContainer() }
+                    Button(role: .destructive) { runtime.forceStop() } label: {
+                        // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
+                        Text("强制终止全部进程").foregroundStyle(.red)
+                    }
+                    Text("重启容器会结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。强制终止只杀进程，不结束 wineserver。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("重启容器会结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。强制终止只杀进程，不结束 wineserver。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 if !runtime.statusMessage.isEmpty {
                     Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary)
                 }
