@@ -27,4 +27,42 @@ final class AppPathsInstallationCacheTests: XCTestCase {
         AppPaths.invalidateInstallationState()
         XCTAssertEqual(AppPaths.resolveSolidWorksExecutable(in: bottle), installed, "失效后应重新解析到新路径")
     }
+
+    /// 主路径是注册表里的 "SolidWorks Folder"，兜底路径只是"常见位置"。
+    func testRegistryValueDecidesTheInstallLocation() throws {
+        AppPaths.invalidateInstallationState()
+        let installed = bottle.appendingPathComponent("drive_c/Program Files/Custom/SLDWORKS.exe")
+        try fileManager.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("exe".utf8).write(to: installed)
+        try "#32# Software registry\n[\n\"SolidWorks Folder\"=\"C:\\\\Program Files\\\\Custom\"\n]\n"
+            .write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(AppPaths.resolveSolidWorksExecutable(in: bottle), installed)
+    }
+
+    /// BOM 与转义都要处理：读不出来就会退回"常见位置"，装在非默认目录的 SOLIDWORKS 就找不到了。
+    func testRegistryHiveIsReadRegardlessOfEncoding() throws {
+        AppPaths.invalidateInstallationState()
+        let installed = bottle.appendingPathComponent("drive_c/SWDir/SLDWORKS.exe")
+        try fileManager.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("exe".utf8).write(to: installed)
+        var bytes = Data([0xFF, 0xFE])
+        for unit in "[\n\"SolidWorks Folder\"=\"C:\\\\SWDir\"\n]\n".utf16 {
+            bytes.append(UInt8(unit & 0xFF))
+            bytes.append(UInt8(unit >> 8))
+        }
+        try bytes.write(to: bottle.appendingPathComponent("system.reg"))
+        XCTAssertEqual(AppPaths.resolveSolidWorksExecutable(in: bottle), installed)
+    }
+
+    /// 注册表指向的目录里没有主程序时不能照着它返回，退回常见位置。
+    func testRegistryValueIsIgnoredWhenThatPathHasNoExecutable() throws {
+        AppPaths.invalidateInstallationState()
+        try "[\n\"SolidWorks Folder\"=\"C:\\\\Nowhere\"\n]\n"
+            .write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
+        let fallback = bottle.appendingPathComponent("drive_c/Program Files/SOLIDWORKS Corp/SOLIDWORKS/SLDWORKS.exe")
+        try fileManager.createDirectory(at: fallback.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("exe".utf8).write(to: fallback)
+        XCTAssertEqual(AppPaths.resolveSolidWorksExecutable(in: bottle), fallback)
+    }
 }

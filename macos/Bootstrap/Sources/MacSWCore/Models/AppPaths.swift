@@ -64,7 +64,8 @@ public struct AppPaths: Sendable {
 
     private static func locateSolidWorksExecutable(in bottle: URL, fileManager: FileManager) -> URL {
         let systemRegistry = bottle.appendingPathComponent("system.reg")
-        if let contents = try? String(contentsOf: systemRegistry, encoding: .utf8) {
+        // 注册表文本 hive 的编码不止一种（BOM/传统代码页都见过），按解码器兜底读。
+        if let contents = (try? Data(contentsOf: systemRegistry)).flatMap(PlainTextDecoder.decode) {
             for line in contents.split(separator: "\n") {
                 let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard text.hasPrefix("\"SolidWorks Folder\"="), let separator = text.firstIndex(of: "=") else { continue }
