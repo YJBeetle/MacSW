@@ -48,12 +48,6 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         Form {
-            Section("启动") {
-                Toggle("启动 MacSW 时自动启动 SOLIDWORKS", isOn: $autoLaunchSolidWorks)
-                Text("打开时自动启动前，若托管 FlexNet 的地址指向 localhost 会先尝试拉起它；起不来只提示，不阻止 SOLIDWORKS 启动。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             personalizationSection
             licenseSection
         }
@@ -125,6 +119,10 @@ struct SettingsView: View {
 
     private var personalizationSection: some View {
         Section("个性化") {
+            Toggle("启动 MacSW 时自动启动 SOLIDWORKS", isOn: $autoLaunchSolidWorks)
+            Text("打开时自动启动前，若托管 FlexNet 的地址指向 localhost 会先尝试拉起它；起不来只提示，不阻止 SOLIDWORKS 启动。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Toggle("禁用 sldProcMon", isOn: resourceMonitorDisabled)
                 .disabled(!resourceMonitor.canChange)
             Text("阻止 SOLIDWORKS Resource Monitor 启动。开启后将 sldProcMon.exe 重命名为 sldProcMon.exe.disable，关闭时恢复；若 SOLIDWORKS 正在运行，将在下次启动时生效。")
