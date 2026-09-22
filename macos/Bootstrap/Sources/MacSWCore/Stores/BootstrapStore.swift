@@ -38,8 +38,11 @@ public final class BootstrapStore: ObservableObject {
     private let iso: IsoService
     private let licensing: LicenseServerStore
     private var installationTask: Task<Void, Never>?
+    var installationGeneration: UUID?
     private var inspectionTask: Task<Void, Never>?
+    private var inspectionGeneration: UUID?
     private var flexNetCheckTask: Task<Void, Never>?
+    private var autoDiscoveredSerials = InstallSerials()
 
     public init(
         paths: AppPaths,
@@ -150,6 +153,8 @@ public final class BootstrapStore: ObservableObject {
 
     /// 只做纯目录判断与附属文件扫描：不挂载 ISO，也不起任何子进程。
     public func selectMedia(_ url: URL) {
+        resetMediaInspection()
+        clearPreviousAutoDiscoveredSerials()
         guard url.isFileURL else {
             statusMessage = "只能选择本机上的 ISO 文件、setup.exe 或目录。"
             return
@@ -180,8 +185,9 @@ public final class BootstrapStore: ObservableObject {
     }
 
     private func inspectAttachments(in media: ResolvedMedia) {
-        inspectionTask?.cancel()
         isInspectingMedia = true
+        let generation = UUID()
+        inspectionGeneration = generation
         let root = media.attachmentDirectory
         inspectionTask = Task { [weak self] in
             guard let self else { return }
@@ -191,15 +197,49 @@ public final class BootstrapStore: ObservableObject {
                     FlexNetLocator.discover(in: root)
                 )
             }.value
-            guard !Task.isCancelled, self.resolvedMedia == media else { return }
+            guard !Task.isCancelled,
+                  self.inspectionGeneration == generation,
+                  self.resolvedMedia == media else { return }
             self.isInspectingMedia = false
+            self.inspectionTask = nil
             self.apply(discovery: result.0, flexNet: result.1)
         }
     }
 
+    private func resetMediaInspection() {
+        inspectionTask?.cancel()
+        inspectionTask = nil
+        inspectionGeneration = nil
+        isInspectingMedia = false
+    }
+
+    private func clearPreviousAutoDiscoveredSerials() {
+        var current = serials
+        for field in InstallSerialField.allCases {
+            let previous = autoDiscoveredSerials[field]
+            guard !InstallSerials.normalized(previous).isEmpty,
+                  InstallSerials.normalized(current[field]) == InstallSerials.normalized(previous) else { continue }
+            current[field] = ""
+        }
+        serials = current
+        autoDiscoveredSerials = InstallSerials()
+    }
+
     private func apply(discovery: SerialDiscoveryResult, flexNet: [URL]) {
-        serials = serials.merging(discovery.serials)
-        serialSources = discovery.sources
+        var merged = serials
+        var accepted = InstallSerials()
+        for field in InstallSerialField.allCases
+        where merged[field].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let value = discovery.serials[field]
+            guard !InstallSerials.normalized(value).isEmpty else { continue }
+            merged[field] = value
+            accepted[field] = value
+        }
+        serials = merged
+        autoDiscoveredSerials = accepted
+        serialSources = discovery.sources.filter {
+            !InstallSerials.normalized(accepted[$0.key]).isEmpty
+        }
         ambiguousSerialFields = discovery.ambiguousFields
 
         var notes: [String] = []
@@ -229,8 +269,28 @@ public final class BootstrapStore: ObservableObject {
     }
 
     public func start() {
-        guard canStart else { return }
-        installationTask = Task { await runInstallation() }
+        guard canStart,
+              installationTask == nil,
+              let selectedMedia,
+              let resolvedMedia,
+              let license = licenseRequest else { return }
+        let request = InstallRequest(
+            serials: serials,
+            language: selectedLanguage,
+            silent: silentInstall,
+            license: license
+        )
+        let generation = UUID()
+        installationGeneration = generation
+        state = .preparing
+        installationTask = Task {
+            await runInstallation(
+                selectedMedia: selectedMedia,
+                resolved: resolvedMedia,
+                request: request,
+                generation: generation
+            )
+        }
     }
 
     public func cancel() {
@@ -272,16 +332,12 @@ public final class BootstrapStore: ObservableObject {
         statusMessage = "不完整安装已清理。"
     }
 
-    private func runInstallation() async {
-        guard let selectedMedia, let resolved = resolvedMedia else { return }
-        guard let license = licenseRequest else { return }
-        let request = InstallRequest(
-            serials: serials,
-            language: selectedLanguage,
-            silent: silentInstall,
-            license: license
-        )
-        state = .preparing
+    private func runInstallation(
+        selectedMedia: URL,
+        resolved: ResolvedMedia,
+        request: InstallRequest,
+        generation: UUID
+    ) async {
         stepStatuses = [:]
         stepDetails = [:]
         report(.media, .running, "正在校验官方安装介质…")
@@ -298,7 +354,10 @@ public final class BootstrapStore: ObservableObject {
                     statusMessage += " 安装镜像未能自动弹出（\(code)），请在访达中推出“\(mountedByApp.mountPoint.lastPathComponent)”。"
                 }
             }
-            installationTask = nil
+            if installationGeneration == generation {
+                installationTask = nil
+                installationGeneration = nil
+            }
         }
 
         do {
