@@ -41,7 +41,11 @@ final class SilentInstallerPlanTests: XCTestCase {
         )
         XCTAssertFalse(arguments.contains { $0.hasPrefix("ADDLOCAL") })
         XCTAssertFalse(arguments.contains { $0.hasPrefix("INSTALLLEVEL") })
-        XCTAssertEqual(arguments.count, 8)
+        // 语言包也只安静地装，但不再挑主体功能树。
+        XCTAssertEqual(arguments.prefix(3), ["msiexec", "/i", "/media/swwi/lang/chinese-simplified/chinese-simplified.msi"])
+        XCTAssertTrue(arguments.contains("/qb"))
+        XCTAssertTrue(arguments.contains("/norestart"))
+        XCTAssertTrue(arguments.contains("/logs/language.log"))
     }
 }
 

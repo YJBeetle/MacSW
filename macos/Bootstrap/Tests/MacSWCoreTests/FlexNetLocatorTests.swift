@@ -112,7 +112,8 @@ final class InstallationMediaResolverTests: XCTestCase {
             return XCTFail("一级子目录内的 setup.exe 应当被识别")
         }
         XCTAssertEqual(resolved.mediaDirectory.lastPathComponent, "dvd2")
-        XCTAssertFalse(resolved.attachmentDirectory.lastPathComponent == "dvd2")
+        // 附属文件（序列号文本、FlexNet 目录）从用户选的那个目录找，不是 setup.exe 所在处。
+        XCTAssertEqual(real(resolved.attachmentDirectory), real(root.appendingPathComponent("chosen")))
     }
 
     func testIsoInsideSelectedFolderIsUsedWhenNoSetupExeExists() throws {
