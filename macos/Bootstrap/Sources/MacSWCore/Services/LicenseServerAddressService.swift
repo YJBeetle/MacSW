@@ -44,12 +44,22 @@ public enum LicenseServerAddressService {
 
     private static func endpoint(port: String, host: String, original: String) throws -> LicenseServerEndpoint {
         let cleanHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanHost.isEmpty, !cleanHost.contains(";") else {
-            throw LicenseServerAddressError.invalidEntry(original)
-        }
+        guard isValidHost(cleanHost) else { throw LicenseServerAddressError.invalidEntry(original) }
         guard let value = UInt16(port), value > 0 else {
             throw LicenseServerAddressError.invalidPort(port)
         }
         return LicenseServerEndpoint(port: value, host: cleanHost)
+    }
+
+    /// 主机部分只接受主机名 / IP / 方括号 IPv6 的常见字符：这个串会进容器注册表，
+    /// 也会被本机端口探测当参数用，空白与控制字符属于打错的输入而不是少见写法。
+    private static let allowedHostCharacters = CharacterSet(charactersIn:
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:[]")
+
+    private static func isValidHost(_ host: String) -> Bool {
+        guard !host.isEmpty, host.utf8.count <= 253 else { return false }
+        guard host.unicodeScalars.allSatisfy(allowedHostCharacters.contains) else { return false }
+        if host.hasPrefix("[") { return host.hasSuffix("]") && host.count > 2 }
+        return !host.contains("[") && !host.contains("]")
     }
 }
