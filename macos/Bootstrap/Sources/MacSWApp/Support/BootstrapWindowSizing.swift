@@ -9,7 +9,7 @@ struct WindowHeights: Equatable {
 }
 
 private struct WindowHeightsKey: PreferenceKey {
-    static var defaultValue = WindowHeights()
+    static let defaultValue = WindowHeights()
 
     static func reduce(value: inout WindowHeights, nextValue: () -> WindowHeights) {
         let next = nextValue()

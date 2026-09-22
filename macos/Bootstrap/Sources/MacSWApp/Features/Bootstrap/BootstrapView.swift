@@ -352,7 +352,7 @@ private struct FileDropArea: ViewModifier {
             .onDrop(of: [UTType.fileURL.identifier], isTargeted: $isTargeted) { providers in
                 guard isEnabled, let provider = providers.first else { return false }
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
-                    guard error == nil, let url = url(from: item) else { return }
+                    guard error == nil, let url = Self.url(from: item) else { return }
                     // 拖放会话仍在事件跟踪循环里；等它收尾再处理，否则窗口会不吃鼠标事件。
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { receive(url) }
                 }
@@ -361,7 +361,7 @@ private struct FileDropArea: ViewModifier {
     }
 
     /// 拖放载荷可能是 URL、其归档数据，也可能是纯字符串。
-    private func url(from item: Any?) -> URL? {
+    private nonisolated static func url(from item: Any?) -> URL? {
         if let value = item as? URL { return value }
         if let data = item as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
         if let value = item as? String { return URL(string: value) }

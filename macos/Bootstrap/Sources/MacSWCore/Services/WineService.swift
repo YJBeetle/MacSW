@@ -231,8 +231,8 @@ public final class WineService: @unchecked Sendable {
     public func launchSolidWorks(
         executable: URL,
         prefix: URL,
-        onStarted: @escaping () -> Void,
-        completion: @escaping (Bool, String) -> Void
+        onStarted: @escaping @MainActor @Sendable () -> Void,
+        completion: @escaping @MainActor @Sendable (Bool, String) -> Void
     ) {
         stateLock.lock()
         guard !activePrefixes.contains(prefix.path) else {

@@ -37,34 +37,38 @@ public struct AppPaths: Sendable {
         FileManager.default.fileExists(atPath: solidWorksExecutable.path)
     }
 
-    private static let memoLock = NSLock()
-    private static var executableMemo: [String: URL] = [:]
-    private static var memoGeneration = 0
+    private final class ExecutableCache: @unchecked Sendable {
+        let lock = NSLock()
+        var values: [String: URL] = [:]
+        var generation = 0
+    }
+
+    private static let executableCache = ExecutableCache()
 
     /// 解析结果按容器路径缓存：system.reg 有十几 MB，逐行扫描不能出现在界面刷新路径上。
     public static func resolveSolidWorksExecutable(in bottle: URL, fileManager: FileManager = .default) -> URL {
         let key = bottle.standardizedFileURL.path
-        memoLock.lock()
-        if let cached = executableMemo[key] {
-            memoLock.unlock()
+        executableCache.lock.lock()
+        if let cached = executableCache.values[key] {
+            executableCache.lock.unlock()
             return cached
         }
-        let generation = memoGeneration
-        memoLock.unlock()
+        let generation = executableCache.generation
+        executableCache.lock.unlock()
         let resolved = locateSolidWorksExecutable(in: bottle, fileManager: fileManager)
-        memoLock.lock()
+        executableCache.lock.lock()
         // 扫描期间磁盘状态变过（安装写入、容器被删），这份结果已经过期，留下就会一直指错。
-        if generation == memoGeneration { executableMemo[key] = resolved }
-        memoLock.unlock()
+        if generation == executableCache.generation { executableCache.values[key] = resolved }
+        executableCache.lock.unlock()
         return resolved
     }
 
     /// 安装完成、容器被删除等改变磁盘状态之后必须调用。
     public static func invalidateInstallationState() {
-        memoLock.lock()
-        executableMemo.removeAll()
-        memoGeneration += 1
-        memoLock.unlock()
+        executableCache.lock.lock()
+        executableCache.values.removeAll()
+        executableCache.generation += 1
+        executableCache.lock.unlock()
     }
 
     private static func locateSolidWorksExecutable(in bottle: URL, fileManager: FileManager) -> URL {

@@ -5,6 +5,7 @@ import SwiftUI
 /// 应用外壳状态：启动时是「引导安装」还是「菜单栏常驻」的唯一判定处。
 /// 引导窗口由 AppKit 托管，不参与 SwiftUI 的窗口恢复，因此不会出现
 /// 「已安装却每次启动闪出安装窗口」的情况。
+@MainActor
 final class AppShell: ObservableObject {
     static let shared = AppShell()
 
@@ -13,10 +14,10 @@ final class AppShell: ObservableObject {
     private var presenter: BootstrapWindowPresenter?
 
     /// 有可见窗口时才要 Dock 图标；两个都关掉就回到纯菜单栏。
-    @MainActor var bootstrapWindowVisible = false {
+    var bootstrapWindowVisible = false {
         didSet { refreshActivationPolicy() }
     }
-    @MainActor var settingsWindowVisible = false {
+    var settingsWindowVisible = false {
         didSet { refreshActivationPolicy() }
     }
 
@@ -37,18 +38,18 @@ final class AppShell: ObservableObject {
         rootViewFactory = bootstrapRootView
     }
 
-    @MainActor func showBootstrapWindow() {
+    func showBootstrapWindow() {
         if presenter == nil, let rootViewFactory {
             presenter = BootstrapWindowPresenter(makeRootView: rootViewFactory)
         }
         presenter?.show()
     }
 
-    @MainActor func closeBootstrapWindow() {
+    func closeBootstrapWindow() {
         presenter?.close()
     }
 
-    @MainActor func refreshActivationPolicy() {
+    func refreshActivationPolicy() {
         guard NSApp.isRunning else { return }
         let wantsDockTile = bootstrapWindowVisible || settingsWindowVisible
         NSApp.setActivationPolicy(wantsDockTile || !solidWorksInstalled ? .regular : .accessory)

@@ -31,7 +31,7 @@ final class SerialDiscoveryServiceTests: XCTestCase {
     }
 
     func testHeadingsFillMSIFieldsAndIgnoreAddinsWithoutProperties() throws {
-        let file = try write("serials.txt", text: """
+        try write("serials.txt", text: """
         SolidWorks           \(Self.core)
         COSMOSWorks          \(Self.simulation)
         COSMOSMotion         \(Self.motion)
@@ -76,7 +76,7 @@ final class SerialDiscoveryServiceTests: XCTestCase {
     }
 
     func testRepeatedIdenticalValueIsNotAmbiguousAndKeepsTheShallowestSource() throws {
-        let shallow = try write("keys.txt", text: "SolidWorks \(Self.core)")
+        try write("keys.txt", text: "SolidWorks \(Self.core)")
         try write("nested/deep.txt", text: "SOLIDWORKS: \(Self.core)")
         let result = SerialDiscoveryService.discover(in: [root])
         XCTAssertTrue(result.ambiguousFields.isEmpty)

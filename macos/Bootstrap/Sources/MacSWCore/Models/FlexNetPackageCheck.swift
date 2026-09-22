@@ -1,7 +1,7 @@
 import Foundation
 
 /// 选中的 FlexNet 目录是否满足托管安装的结构要求。
-public enum FlexNetPackageCheck: Equatable {
+public enum FlexNetPackageCheck: Equatable, Sendable {
     case empty
     case checking
     case ready(ManagedFlexNetInstallation)

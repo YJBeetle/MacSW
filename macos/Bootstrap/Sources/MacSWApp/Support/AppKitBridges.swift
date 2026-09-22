@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 private let bootstrapWindowIdentifier = NSUserInterfaceItemIdentifier(BootstrapWindowIdentity.identifier)
 
+@MainActor
 enum AppLifecycleBridge {
     static func openLegacySettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
@@ -28,6 +29,7 @@ enum AppLifecycleBridge {
     }
 }
 
+@MainActor
 enum OpenPanelService {
     static func chooseInstallationMedia() -> URL? {
         let panel = NSOpenPanel()

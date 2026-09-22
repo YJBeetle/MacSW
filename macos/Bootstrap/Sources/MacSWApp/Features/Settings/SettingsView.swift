@@ -309,10 +309,10 @@ struct SettingsView: View {
 private struct ProcessTable: View {
     let processes: [WineProcess]
 
-    @State private var sortOrder: [KeyPathComparator<WineProcess>] = [KeyPathComparator(\WineProcess.name)]
+    @State private var sortOrder: [KeyPathComparator<WineProcess>] = []
 
     var body: some View {
-        Table(processes.sorted(using: sortOrder), sortOrder: $sortOrder) {
+        Table(sortedProcesses, sortOrder: $sortOrder) {
             TableColumn("进程名称", value: \.name)
             TableColumn("PID", value: \.pid) { process in
                 Text(Self.grouping.string(from: NSNumber(value: process.pid)) ?? "\(process.pid)")
@@ -333,6 +333,13 @@ private struct ProcessTable: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    private var sortedProcesses: [WineProcess] {
+        guard !sortOrder.isEmpty else {
+            return processes.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        return processes.sorted(using: sortOrder)
     }
 
     private static let grouping: NumberFormatter = {
