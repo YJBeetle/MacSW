@@ -133,6 +133,11 @@ public enum ProcessInventory {
         snapshot.reduce(Int64(0)) { $0 + $1.residentKB } / 1024
     }
 
+    /// MB 数字超过 1 GB 时换成 GB 显示。
+    public static func formatMegabytes(_ megabytes: Int64) -> String {
+        megabytes >= 1024 ? String(format: "%.1f GB", Double(megabytes) / 1024) : "\(megabytes) MB"
+    }
+
     /// ps 的 etime 转成中文可读时长。
     public static func formatElapsed(_ elapsed: String) -> String {
         let parts = elapsed.split(separator: "-")

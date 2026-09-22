@@ -84,7 +84,7 @@ final class BootstrapWindowPresenter: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: makeRootView())
         window.delegate = self
-        window.setFrameAutosaveName("MacSW.BootstrapWindow")
+        // 高度随内容变化，位置每次都居中：留着 autosave 只会给人"位置会记住"的错觉。
         window.center()
         AppShell.shared.bootstrapWindowVisible = true
         NSApp.activate(ignoringOtherApps: true)

@@ -183,7 +183,7 @@ struct SettingsView: View {
             Section("容器进程") {
                 ProcessTable(processes: runtime.processes)
                 HStack {
-                    Text("合计 \(ProcessInventory.totalResidentMB(runtime.processes)) MB · \(runtime.processes.count) 个进程")
+                    Text("合计 \(ProcessInventory.formatMegabytes(ProcessInventory.totalResidentMB(runtime.processes))) · \(runtime.processes.count) 个进程")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

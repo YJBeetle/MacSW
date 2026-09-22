@@ -127,19 +127,13 @@ struct MenuBarPanelView: View {
     private var summaryText: String {
         let hidden = runtime.processes.count - Self.visibleProcessLimit
         let suffix = hidden > 0 ? "（另有 \(hidden) 个未列出）" : ""
-        return "合计 \(formattedTotalMemory) · 已运行 \(uptimeText)\(suffix)"
+        return "合计 \(ProcessInventory.formatMegabytes(ProcessInventory.totalResidentMB(runtime.processes))) · 已运行 \(uptimeText)\(suffix)"
     }
 
     private func share(of process: WineProcess) -> Double {
         let peak = runtime.processes.map(\.residentKB).max() ?? 1
         guard peak > 0 else { return 0 }
         return min(Double(process.residentKB) / Double(peak), 1)
-    }
-
-    private var formattedTotalMemory: String {
-        let megabytes = ProcessInventory.totalResidentMB(runtime.processes)
-        if megabytes >= 1024 { return String(format: "%.1f GB", Double(megabytes) / 1024) }
-        return "\(megabytes) MB"
     }
 
     private var uptimeText: String {
