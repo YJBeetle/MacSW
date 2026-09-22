@@ -1,6 +1,11 @@
 import Foundation
 
 public struct AppPaths: Sendable {
+    /// 托管 FlexNet 在容器里的位置：宿主相对路径与 Windows 写法都只在这里定义一次，
+    /// 界面文案引用同一个常量，就不会出现说法和实际位置对不上的情况。
+    public static let managedFlexNetRelativePath = "drive_c/opt/FlexNet"
+    public static let managedFlexNetWindowsPath = #"C:\opt\FlexNet"#
+
     public let appSupportDirectory: URL
     public let bottle: URL
     public let logs: URL
@@ -10,7 +15,7 @@ public struct AppPaths: Sendable {
         self.appSupportDirectory = appSupportDirectory.standardizedFileURL
         self.bottle = self.appSupportDirectory.appendingPathComponent("bottle", isDirectory: true)
         self.logs = self.appSupportDirectory.appendingPathComponent("logs", isDirectory: true)
-        self.managedFlexNet = self.bottle.appendingPathComponent("drive_c/opt/FlexNet", isDirectory: true)
+        self.managedFlexNet = self.bottle.appendingPathComponent(Self.managedFlexNetRelativePath, isDirectory: true)
     }
 
     public static func live(fileManager: FileManager = .default) -> AppPaths {

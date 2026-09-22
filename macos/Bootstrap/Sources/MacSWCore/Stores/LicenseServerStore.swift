@@ -187,7 +187,7 @@ public final class LicenseServerStore: ObservableObject {
                 installation = metadata
                 addressInput = metadata.managedAddress
                 appliedAddress = metadata.managedAddress
-                statusMessage = "FlexNet 已安装到 C:\\opt\\FlexNet。"
+                statusMessage = "FlexNet 已安装到 \(AppPaths.managedFlexNetWindowsPath)。"
                 state = .stopped
                 try await startAndWait()
             } catch is CancellationError {

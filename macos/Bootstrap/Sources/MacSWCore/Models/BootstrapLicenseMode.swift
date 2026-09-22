@@ -20,7 +20,7 @@ public enum BootstrapLicenseMode: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .unconfigured: return "不写入许可服务器地址；SOLIDWORKS 启动时会询问激活方式。"
         case .remoteServer: return "把地址写入容器注册表，许可服务由别的机器运行。"
-        case .managedFlexNet: return "把 FlexNet 装进容器 C:\\opt\\FlexNet 并启动，停止与卸载由 MacSW 接管。"
+        case .managedFlexNet: return "把 FlexNet 装进容器 \(AppPaths.managedFlexNetWindowsPath) 并启动，停止与卸载由 MacSW 接管。"
         }
     }
 

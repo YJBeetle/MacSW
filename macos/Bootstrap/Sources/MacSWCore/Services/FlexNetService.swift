@@ -200,7 +200,7 @@ public final class FlexNetService: @unchecked Sendable {
     public func uninstall() async throws {
         guard installed != nil else { return }
         let target = paths.managedFlexNet.standardizedFileURL
-        guard target == paths.bottle.appendingPathComponent("drive_c/opt/FlexNet").standardizedFileURL else {
+        guard target == paths.bottle.appendingPathComponent(AppPaths.managedFlexNetRelativePath).standardizedFileURL else {
             throw failure("托管 FlexNet 路径异常，拒绝删除。")
         }
         let backup = target.deletingLastPathComponent()

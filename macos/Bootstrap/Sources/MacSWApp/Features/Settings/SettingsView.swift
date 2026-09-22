@@ -28,7 +28,7 @@ struct SettingsView: View {
             Button("取消", role: .cancel) { }
             Button("停止并卸载", role: .destructive) { licenseServer.uninstall() }
         } message: {
-            Text("会停止并删除 C:\\opt\\FlexNet，并清空许可服务器列表——托管时它就是唯一一条地址。")
+            Text("会停止并删除 \(AppPaths.managedFlexNetWindowsPath)，并清空许可服务器列表——托管时它就是唯一一条地址。")
         }
         .alert("无法安装 FlexNet 服务器", isPresented: installProblemShown) {
             Button("好", role: .cancel) { licenseServer.dismissInstallProblem() }

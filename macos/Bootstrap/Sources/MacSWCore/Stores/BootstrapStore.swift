@@ -440,7 +440,7 @@ public final class BootstrapStore: ObservableObject {
             case .managedFlexNet(let source):
                 report(.licensing, .running, "正在把 FlexNet 服务器装进容器…")
                 try await licensing.configureDuringInstallation(address: "", flexNetSource: source)
-                report(.licensing, .completed, "托管 FlexNet 已部署到 C:\\opt\\FlexNet 并启动")
+                report(.licensing, .completed, "托管 FlexNet 已部署到 \(AppPaths.managedFlexNetWindowsPath) 并启动")
             }
 
             state = .installing(.validation)
