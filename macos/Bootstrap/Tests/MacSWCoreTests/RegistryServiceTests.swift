@@ -25,6 +25,15 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertEqual(RegistryService.escape(#"a\b"c"#), #"a\\b\"c"#)
     }
 
+    /// HKCR/HKCU/HKLM 都要展开成 .reg 认识的完整根名，已经是全名的不重复加工。
+    func testFullHiveExpandsShortRootsAndLeavesLongOnesAlone() {
+        XCTAssertEqual(RegistryService.fullHive(#"HKCU\Software\X"#), #"HKEY_CURRENT_USER\Software\X"#)
+        XCTAssertEqual(RegistryService.fullHive(#"HKLM\SOFTWARE"#), #"HKEY_LOCAL_MACHINE\SOFTWARE"#)
+        XCTAssertEqual(RegistryService.fullHive(#"HKEY_CLASSES_ROOT\SldWorks.Application"#), #"HKEY_CLASSES_ROOT\SldWorks.Application"#)
+        // 没见过的短写保持原样：.reg 会自己报错，比在这里猜一个根更安全。
+        XCTAssertEqual(RegistryService.fullHive(#"HKCU\Software\X"#).hasPrefix("HKEY_"), true)
+    }
+
     /// .reg 的行格式装不下含换行的值：必须在生成阶段拒绝，而不是写坏注册表。
     func testValuesWithNewlinesAreRejectedBeforeBeingWritten() {
         let illegal = [RegistryAssignment(key: "HKLM\\SOFTWARE\\X", name: "V", value: "a\nb")]

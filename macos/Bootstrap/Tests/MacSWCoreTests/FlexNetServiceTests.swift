@@ -90,6 +90,22 @@ final class FlexNetServiceTests: XCTestCase {
         )
     }
 
+    /// Windows 记事本存的 UTF-16 许可文件：BOM 不让首行的 SERVER 匹配落空。
+    func testUTF16LicenseWithByteOrderMarkStillParses() throws {
+        try write("PE", as: "lmgrd.exe")
+        try write("PE", as: "SW_D.exe")
+        var bytes: [UInt8] = [0xFF, 0xFE]
+        for unit in "SERVER this_host ANY 25734\nVENDOR SW_D".utf16 {
+            bytes.append(UInt8(unit & 0xFF))
+            bytes.append(UInt8(unit >> 8))
+        }
+        try write(bytes, as: "license.lic")
+        XCTAssertEqual(
+            try service.inspect(directory: root),
+            ManagedFlexNetInstallation(port: 25734, licenseFile: "license.lic", vendorDaemon: "SW_D.exe")
+        )
+    }
+
     func testVendorDaemonNamedByLicenseMustExist() throws {
         try makePackage(license: "SERVER this_host ANY 25734\nVENDOR OTHERD")
         XCTAssertThrowsError(try service.inspect(directory: root))
