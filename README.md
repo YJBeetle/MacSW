@@ -63,6 +63,12 @@ SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.d
 让真正的缓冲交换只发生在 SwapBuffers 路径；调查与回归证据见
 [`docs/opengl-front-buffer.md`](docs/opengl-front-buffer.md)。
 
+Wine GUI 进程使用内嵌 `MacSW` bundle 元数据的 loader，并由 `wine -> MacSW` 兼容链接满足
+Wine 后续重新执行 loader 的固定路径。相关修改见
+[`0005-winemac-macsw-branding.patch`](patches/wine-crossover/0005-winemac-macsw-branding.patch)。
+这样无需改动 `ntdll` 或 `winemac.drv`，Dock 与应用菜单都会显示 `MacSW`；图标仍完全沿用 Wine
+原生的 EXE 图标传递路径，SOLIDWORKS 等程序继续显示各自提供的图标。
+
 [`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理
 普通对话框与浮动工具窗口层级，以及离屏窗口找回。它不依赖 .NET/Wine-Mono，也不改写
 FeatureManager 或视口尺寸，并且不会隐藏致命的前置组件错误。Login Manager 相关根因见
@@ -106,15 +112,16 @@ make ci                   # 测试并生成归档
 - 编译 SwiftUI 启动程序；
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
-- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so` 与 `win32u.so`；前者修复原生
-  图层裁剪和前缓冲刷新，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
+- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`、`win32u.so` 与 Wine loader；
+  `winemac.so` 修复原生图层裁剪和前缓冲刷新，`win32u.so` 提供由 App 为 SOLIDWORKS 单独启用
+  的鼠标捕获兼容路径，loader 内嵌 MacSW 的 macOS bundle 身份；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
-`build_winemac.sh` 会按 Wine 版本、源码校验值、三份补丁、配置和构建脚本内容缓存产物。
+`build_winemac.sh` 会按 Wine 版本、源码校验值、四份补丁、配置和构建脚本内容缓存产物。
 重建 `win32u.so` 需要 Homebrew 的 Bison 与 FreeType 头文件；打包后的运行时仍使用包内固定的
 x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
 GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、

@@ -13,6 +13,9 @@ MONO_REGASM_X86="${RUNTIME_DIR}/lib/wine/i386-windows/regasm.exe"
 MONO_REGASM_X64="${RUNTIME_DIR}/lib/wine/x86_64-windows/regasm.exe"
 WINEMAC_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/winemac.so"
 WIN32U_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/win32u.so"
+NTDLL_UNIX="${RUNTIME_DIR}/lib/wine/x86_64-unix/ntdll.so"
+BRANDED_WINE_LOADER="${RUNTIME_DIR}/lib/wine/x86_64-unix/MacSW"
+WINE_LOADER_COMPAT="${RUNTIME_DIR}/lib/wine/x86_64-unix/wine"
 STDOLE_DLL="${CONTENTS_DIR}/Resources/managed/stdole.dll"
 BUILD_MANIFEST="${CONTENTS_DIR}/Resources/BuildManifest.plist"
 SWCLI_DIR="${CONTENTS_DIR}/Resources/SWCLI"
@@ -57,8 +60,11 @@ test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA25
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacOpenGLPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacBrandingPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0005-winemac-macsw-branding.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WINEMAC_DRIVER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WIN32U_DRIVER}" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineNtdllModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${NTDLL_UNIX}" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineLoaderSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoPatchRelease' "${BUILD_MANIFEST}")" = "${MONO_PATCH_RELEASE}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoPatchSourceCommit' "${BUILD_MANIFEST}")" = "${MONO_PATCH_SOURCE_COMMIT}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoPatchSHA256' "${BUILD_MANIFEST}")" = "${MONO_PATCH_SHA256}"
@@ -76,6 +82,9 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPyWin32Version' "${BUILD_MANIFES
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPyWin32WheelSHA256' "${BUILD_MANIFEST}")" = "${SWCLI_PYWIN32_WHEEL_SHA256}"
 test -x "${RUNTIME_DIR}/bin/wineloader"
 test -x "${RUNTIME_DIR}/bin/wineserver"
+test -x "${BRANDED_WINE_LOADER}"
+test -L "${WINE_LOADER_COMPAT}"
+test "$(readlink "${WINE_LOADER_COMPAT}")" = "MacSW"
 test "$(shasum -a 256 "${MONO_DLL}" | awk '{print $1}')" = "${MONO_PATCH_SHA256}"
 test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB_SHA256}"
 test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}"
@@ -87,11 +96,18 @@ file "${SWCLI_PATH_HELPER}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/python.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${WINEMAC_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
 file "${WIN32U_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
+file "${NTDLL_UNIX}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
+file "${BRANDED_WINE_LOADER}" | grep -q 'Mach-O 64-bit executable x86_64'
+otool -l "${BRANDED_WINE_LOADER}" | grep -A2 '__info_plist' | grep -q '__TEXT'
+strings "${BRANDED_WINE_LOADER}" | grep -q '<string>com.macsw.winehost</string>'
+test "$(strings "${BRANDED_WINE_LOADER}" | grep -c '<string>MacSW</string>')" -ge 3
 otool -l "${WIN32U_DRIVER}" | grep -A2 LC_RPATH | grep -q '@loader_path/../../'
 codesign --verify --verbose=2 "${WINEMAC_DRIVER}"
 codesign --verify --verbose=2 "${WIN32U_DRIVER}"
+codesign --verify --verbose=2 "${NTDLL_UNIX}"
+codesign --verify --verbose=2 "${BRANDED_WINE_LOADER}"
 
-ACTUAL_WINE_VERSION="$("${RUNTIME_DIR}/bin/wineloader" --version)"
+ACTUAL_WINE_VERSION="$("${BRANDED_WINE_LOADER}" --version)"
 test "${ACTUAL_WINE_VERSION}" = "wine-${WINE_VERSION}" || {
     echo "Packaged Wine version mismatch: ${ACTUAL_WINE_VERSION}" >&2
     exit 1

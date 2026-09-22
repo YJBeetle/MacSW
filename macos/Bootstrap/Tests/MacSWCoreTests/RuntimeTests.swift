@@ -9,9 +9,12 @@ final class RuntimeTests: XCTestCase {
         let env = wine.environment(winePrefix: prefix, solidWorks: true)
 
         XCTAssertEqual(env["WINEPREFIX"], prefix.path)
-        XCTAssertTrue(env["WINELOADER"]?.hasSuffix("/Contents/Frameworks/wine/bin/wineloader") == true)
+        XCTAssertTrue(env["WINELOADER"]?.hasSuffix("/Contents/Frameworks/wine/lib/wine/x86_64-unix/MacSW") == true)
         XCTAssertTrue(env["WINESERVER"]?.hasSuffix("/Contents/Frameworks/wine/bin/wineserver") == true)
-        for key in ["CX_ROOT", "CX_BOTTLE", "WINEDLLPATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "MONO_ENV_OPTIONS"] {
+        for key in [
+            "CX_ROOT", "CX_BOTTLE", "WINEDLLPATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",
+            "MONO_ENV_OPTIONS", "MACSW_WINELOADER", "MACSW_APP_NAME"
+        ] {
             XCTAssertNil(env[key], "Inherited environment leaked: \(key)")
         }
 

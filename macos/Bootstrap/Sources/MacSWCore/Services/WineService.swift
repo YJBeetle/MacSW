@@ -21,7 +21,7 @@ public final class WineService: @unchecked Sendable {
     }
 
     public var wineBinary: URL {
-        runtimeURL.appendingPathComponent("bin/wineloader")
+        runtimeURL.appendingPathComponent("lib/wine/x86_64-unix/MacSW")
     }
 
     public var wineServerBinary: URL {
@@ -67,7 +67,7 @@ public final class WineService: @unchecked Sendable {
         var environment = ProcessInfo.processInfo.environment
         for key in [
             "WINEDLLPATH", "CX_ROOT", "CX_BOTTLE", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",
-            "WINEDLLOVERRIDES", "MONO_ENV_OPTIONS"
+            "WINEDLLOVERRIDES", "MONO_ENV_OPTIONS", "MACSW_WINELOADER", "MACSW_APP_NAME"
         ] {
             environment.removeValue(forKey: key)
         }

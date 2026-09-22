@@ -7,9 +7,11 @@ SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch"
 INPUT_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch"
 OPENGL_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch"
+BRANDING_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0005-winemac-macsw-branding.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
+WINE_LOADER_OUTPUT="${OUTPUT_DIR}/MacSW"
 STAMP_FILE="${OUTPUT_DIR}/build-key"
 
 if [ -x /opt/homebrew/opt/bison/bin/bison ]; then
@@ -46,9 +48,10 @@ fi
 DRIVER_PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
 INPUT_PATCH_SHA256="$(shasum -a 256 "${INPUT_PATCH}" | awk '{print $1}')"
 OPENGL_PATCH_SHA256="$(shasum -a 256 "${OPENGL_PATCH}" | awk '{print $1}')"
+BRANDING_PATCH_SHA256="$(shasum -a 256 "${BRANDING_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${SCRIPT_SHA256}"
-if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${BRANDING_PATCH_SHA256}:${SCRIPT_SHA256}"
+if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
     exit 0
@@ -68,6 +71,8 @@ git -C "${SOURCE_DIR}" apply --check "${INPUT_PATCH}"
 git -C "${SOURCE_DIR}" apply "${INPUT_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${OPENGL_PATCH}"
 git -C "${SOURCE_DIR}" apply "${OPENGL_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${BRANDING_PATCH}"
+git -C "${SOURCE_DIR}" apply "${BRANDING_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
@@ -122,15 +127,17 @@ popd >/dev/null
 MAKE_JOBS="${MAKE_JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || printf '4')}"
 make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
     dlls/winemac.drv/winemac.so \
-    dlls/win32u/win32u.so
+    dlls/win32u/win32u.so \
+    loader/wine
 
 mkdir -p "${OUTPUT_DIR}"
 cp "${BUILD_DIR}/dlls/winemac.drv/winemac.so" "${WINEMAC_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/win32u/win32u.so" "${WIN32U_OUTPUT}.new"
+cp "${BUILD_DIR}/loader/wine" "${WINE_LOADER_OUTPUT}.new"
 install_name_tool -id winemac.so "${WINEMAC_OUTPUT}.new"
 install_name_tool -id win32u.so "${WIN32U_OUTPUT}.new"
 install_name_tool -add_rpath '@loader_path/../../' "${WIN32U_OUTPUT}.new"
-for MODULE in "${WINEMAC_OUTPUT}.new" "${WIN32U_OUTPUT}.new"; do
+for MODULE in "${WINEMAC_OUTPUT}.new" "${WIN32U_OUTPUT}.new" "${WINE_LOADER_OUTPUT}.new"; do
     codesign --force --sign - "${MODULE}"
     file "${MODULE}" | grep -q 'x86_64'
     codesign --verify --verbose=2 "${MODULE}"
@@ -138,6 +145,7 @@ done
 unset MODULE
 mv "${WINEMAC_OUTPUT}.new" "${WINEMAC_OUTPUT}"
 mv "${WIN32U_OUTPUT}.new" "${WIN32U_OUTPUT}"
+mv "${WINE_LOADER_OUTPUT}.new" "${WINE_LOADER_OUTPUT}"
 printf '%s' "${BUILD_KEY}" > "${STAMP_FILE}"
 
-echo "==> Patched Wine modules built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}"
+echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${WINE_LOADER_OUTPUT}"
