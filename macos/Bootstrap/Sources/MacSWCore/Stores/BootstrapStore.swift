@@ -406,8 +406,11 @@ public final class BootstrapStore: ObservableObject {
             try await prerequisites.configureMono(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMRegistration(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMDependencies(prefix: paths.bottle)
-            try await registry.configureSolidWorksCompatibility(prefix: paths.bottle)
-            report(.environment, .completed, "Mono、RegAsm、stdole 与 SOLIDWORKS 兼容设置已就绪；桌面已临时改到容器内")
+            let pingFangEnabled = try await registry.configureInstallationEnvironment(prefix: paths.bottle)
+            let fontStatus = pingFangEnabled
+                ? "已启用系统苹方"
+                : "未找到系统苹方，中文字体可能显示不完整"
+            report(.environment, .completed, "Mono、RegAsm、stdole 与 SOLIDWORKS 兼容设置已就绪，\(fontStatus)；桌面已临时改到容器内")
 
             state = .installing(.vcRuntime)
             report(.vcRuntime, .running, "正在静默安装官方 VC++ x64 运行库…")

@@ -19,12 +19,40 @@ public final class RegistryService: @unchecked Sendable {
         try await write(Self.solidWorksCompatibilityAssignments, prefix: prefix)
     }
 
+    /// 只在安装环境准备期间，优先使用 Wine 已枚举的系统苹方；不复制 Apple 字体。
+    /// 返回 false 表示该 Mac 尚无可供 Wine 使用的苹方，兼容设置仍照常写入。
+    @discardableResult
+    public func configureInstallationEnvironment(prefix: URL) async throws -> Bool {
+        let fontsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts"#
+        let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
+        // Wine 按当前 locale 注册字体族：中文系统中的值名是「苹方-简 …」，
+        // 不能按英文族名 /v 查询；路径末尾的 PingFang.ttc 不依赖语言。
+        let fontQuery = wine.makeProcess(arguments: ["reg", "query", fontsKey], prefix: prefix)
+        let (fontStatus, fontOutput) = try await wine.captureCancellable(fontQuery)
+        guard let fileName = Self.registeredPingFangFileName(fromQueryStatus: fontStatus, output: fontOutput) else {
+            try await configureSolidWorksCompatibility(prefix: prefix)
+            return false
+        }
+        let linksQuery = wine.makeProcess(arguments: ["reg", "query", linksKey, "/v", "Tahoma"], prefix: prefix)
+        let (linksStatus, linksOutput) = try await wine.captureCancellable(linksQuery)
+        guard let existingLinks = Self.tahomaLinks(fromQueryStatus: linksStatus, output: linksOutput) else {
+            try await configureSolidWorksCompatibility(prefix: prefix)
+            return false
+        }
+        try await write(
+            Self.appleFontAssignments(fileName: fileName, existingTahomaLinks: existingLinks)
+                + Self.solidWorksCompatibilityAssignments,
+            prefix: prefix
+        )
+        return true
+    }
+
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
         guard !assignments.isEmpty else { return }
         let name = "MacSW-\(UUID().uuidString).reg"
         let insideBottle = prefix.appendingPathComponent("drive_c/windows/temp").appendingPathComponent(name)
         try FileManager.default.createDirectory(at: insideBottle.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Self.registryFileText(assignments).write(to: insideBottle, atomically: true, encoding: .utf8)
+        try Self.registryFileData(assignments).write(to: insideBottle, options: .atomic)
         defer { try? FileManager.default.removeItem(at: insideBottle) }
         let process = wine.makeProcess(
             arguments: ["reg", "import", "C:\\windows\\temp\\\(name)"],
@@ -38,19 +66,74 @@ public final class RegistryService: @unchecked Sendable {
     /// 生成 .reg 文本。.reg 的行格式没有"值里含换行"的转义写法，一条赋值会被拆成两行
     /// 并静默写坏注册表，所以这种输入在生成阶段就拒绝。
     static func registryFileText(_ assignments: [RegistryAssignment]) throws -> String {
-        for assignment in assignments where assignment.value.contains(where: { $0.isNewline || $0 == "\t" }) {
-            throw registryError("注册表值不能包含换行或制表符：\(assignment.name)。")
+        for assignment in assignments {
+            let hasIllegalCharacter = assignment.value.contains { $0.isNewline || $0 == "\t" }
+            let hasInvalidMultiString = assignment.valueKind == .multiString
+                && assignment.value.components(separatedBy: "\0").contains(where: \.isEmpty)
+            let hasInvalidStringNUL = assignment.valueKind == .string && assignment.value.contains("\0")
+            if hasIllegalCharacter || hasInvalidMultiString || hasInvalidStringNUL {
+                throw registryError("注册表值不能包含空项、换行、制表符或非法 NUL：\(assignment.name)。")
+            }
         }
         var lines = ["Windows Registry Editor Version 5.00", ""]
         let grouped = Dictionary(grouping: assignments, by: { $0.key })
         for key in grouped.keys.sorted() {
             lines.append("[\(Self.fullHive(key))]")
             for assignment in (grouped[key] ?? []).sorted(by: { $0.name < $1.name }) {
-                lines.append("\"\(Self.escape(assignment.name))\"=\"\(Self.escape(assignment.value))\"")
+                switch assignment.valueKind {
+                case .string:
+                    lines.append("\"\(Self.escape(assignment.name))\"=\"\(Self.escape(assignment.value))\"")
+                case .multiString:
+                    lines.append("\"\(Self.escape(assignment.name))\"=hex(7):\(Self.registryMultiStringHex(assignment.value))")
+                }
             }
             lines.append("")
         }
         return lines.joined(separator: "\r\n") + "\r\n"
+    }
+
+    /// 带 BOM 的 UTF-16LE .reg 文件同时正确处理中文值名与标准 UTF-16LE hex(7)。
+    static func registryFileData(_ assignments: [RegistryAssignment]) throws -> Data {
+        guard let body = try registryFileText(assignments).data(using: .utf16LittleEndian) else {
+            throw registryError("注册表文本无法编码为 UTF-16LE。")
+        }
+        return Data([0xff, 0xfe]) + body
+    }
+
+    static func registryMultiStringHex(_ joinedValues: String) -> String {
+        var bytes: [UInt8] = []
+        for value in joinedValues.components(separatedBy: "\0") {
+            for codeUnit in value.utf16 {
+                bytes.append(UInt8(codeUnit & 0xff))
+                bytes.append(UInt8(codeUnit >> 8))
+            }
+            bytes.append(contentsOf: [0, 0])
+        }
+        bytes.append(contentsOf: [0, 0])
+        return bytes.map { String(format: "%02x", $0) }.joined(separator: ",")
+    }
+
+    static func registeredPingFangFileName(fromQueryStatus status: Int32, output: String) -> String? {
+        guard status == 0 else { return nil }
+        for line in output.split(whereSeparator: \.isNewline) {
+            guard let marker = line.range(of: "REG_SZ") else { continue }
+            let path = line[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let fileName = path.split(separator: "\\").last,
+                  fileName.caseInsensitiveCompare("PingFang.ttc") == .orderedSame else { continue }
+            return String(fileName)
+        }
+        return nil
+    }
+
+    static func tahomaLinks(fromQueryStatus status: Int32, output: String) -> [String]? {
+        guard status == 0,
+              let line = output.split(whereSeparator: \.isNewline).first(where: {
+                  $0.trimmingCharacters(in: .whitespaces).hasPrefix("Tahoma") && $0.contains("REG_MULTI_SZ")
+              }),
+              let marker = line.range(of: "REG_MULTI_SZ") else { return nil }
+        let value = line[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        let links = value.components(separatedBy: "\\0").filter { !$0.isEmpty }
+        return links.isEmpty ? nil : links
     }
 
     static func fullHive(_ key: String) -> String {
@@ -144,6 +227,19 @@ public final class RegistryService: @unchecked Sendable {
             value: "0"
         )
     ]
+
+    static func appleFontAssignments(fileName: String, existingTahomaLinks: [String]) -> [RegistryAssignment] {
+        let substitutionsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"#
+        let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
+        let aliases = [
+            "MS Shell Dlg", "MS Shell Dlg 2", "Microsoft Sans Serif", "Microsoft YaHei",
+            "Microsoft YaHei UI", "Segoe UI", "SimSun", "NSimSun", "宋体"
+        ]
+        let pingFang = "\(fileName),PingFang SC"
+        let links = [pingFang] + existingTahomaLinks.filter { $0.caseInsensitiveCompare(pingFang) != .orderedSame }
+        return aliases.map { RegistryAssignment(key: substitutionsKey, name: $0, value: "Tahoma") }
+            + [RegistryAssignment(key: linksKey, name: "Tahoma", multiStringValues: links)]
+    }
 
     static let licenseValueTargets: [(key: String, name: String)] = [
         ("HKLM\\SOFTWARE\\FLEXlm License Manager", "SOLIDWORKS_LICENSE_FILE"),

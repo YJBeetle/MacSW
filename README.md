@@ -36,6 +36,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
   两者的安装结果都按注册表内容断言托管 COM 注册，主 MSI 完成后额外校验 `SldWorks.Application`
   的 COM 链路，安装器退出码本身不作为成功依据。
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
+- 中文界面优先使用系统苹方补字形，不额外打包字体；安装策略与验证边界见
+  [docs/font-fallback.md](docs/font-fallback.md)。
 
 ## 图形窗口修复
 

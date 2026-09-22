@@ -91,4 +91,54 @@ final class RegistryServiceTests: XCTestCase {
             )
         ])
     }
+
+    func testWineFontRegistryQueriesAndAppleAssignments() throws {
+        let fontOutput = """
+        HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts
+            苹方-简 常规体 (TrueType)    REG_SZ    Z:\\System\\Library\\AssetsV2\\PingFang.ttc
+        """
+        let linksOutput = """
+        HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink
+            Tahoma    REG_MULTI_SZ    tahoma.ttf\\0meiryo.ttc,Meiryo\\0simsun.ttc,SimSun
+        """
+        XCTAssertEqual(
+            RegistryService.registeredPingFangFileName(fromQueryStatus: 0, output: fontOutput),
+            "PingFang.ttc"
+        )
+        XCTAssertNil(RegistryService.registeredPingFangFileName(fromQueryStatus: 1, output: fontOutput))
+        XCTAssertNil(RegistryService.registeredPingFangFileName(
+            fromQueryStatus: 0,
+            output: fontOutput.replacingOccurrences(of: "PingFang.ttc", with: "PingFangUI.bad")
+        ))
+        let links = try XCTUnwrap(RegistryService.tahomaLinks(fromQueryStatus: 0, output: linksOutput))
+        XCTAssertEqual(links, ["tahoma.ttf", "meiryo.ttc,Meiryo", "simsun.ttc,SimSun"])
+        let assignments = RegistryService.appleFontAssignments(fileName: "PingFang.ttc", existingTahomaLinks: links)
+        XCTAssertEqual(assignments.first(where: { $0.name == "Tahoma" })?.valueKind, .multiString)
+        XCTAssertEqual(assignments.first(where: { $0.name == "Tahoma" })?.value.components(separatedBy: "\0"),
+                       ["PingFang.ttc,PingFang SC"] + links)
+        XCTAssertEqual(assignments.first(where: { $0.name == "SimSun" })?.value, "Tahoma")
+        XCTAssertEqual(assignments.first(where: { $0.name == "Microsoft YaHei" })?.value, "Tahoma")
+        XCTAssertFalse(assignments.contains(where: { $0.name == "Tahoma" && $0.valueKind == .string }))
+    }
+
+    func testRegistryFileUsesUTF16LEForChineseNamesAndMultiStringValues() throws {
+        let text = try RegistryService.registryFileText([
+            RegistryAssignment(key: #"HKLM\Software\Test"#, name: "Tahoma",
+                               multiStringValues: ["PingFang.ttc,PingFang SC", "tahoma.ttf"])
+        ])
+        XCTAssertTrue(text.contains(#""Tahoma"=hex(7):50,00,69,00,6e,00,67,00"#))
+        XCTAssertTrue(text.contains("74,00,61,00,68,00,6f,00,6d,00,61,00,2e,00,74,00,74,00,66,00,00,00,00,00"))
+        let data = try RegistryService.registryFileData([
+            RegistryAssignment(key: #"HKLM\Software\Test"#, name: "宋体", value: "Tahoma")
+        ])
+        XCTAssertEqual(Array(data.prefix(2)), [0xff, 0xfe])
+        XCTAssertTrue(String(data: data.dropFirst(2), encoding: .utf16LittleEndian)?
+            .contains(#""宋体"="Tahoma""#) == true)
+        XCTAssertThrowsError(try RegistryService.registryFileText([
+            RegistryAssignment(key: #"HKLM\Software\Test"#, name: "Tahoma", multiStringValues: [""])
+        ]))
+        XCTAssertNoThrow(try RegistryService.registryFileText([
+            RegistryAssignment(key: #"HKLM\Software\Test"#, name: "Tahoma", multiStringValues: ["苹方-简"])
+        ]))
+    }
 }
