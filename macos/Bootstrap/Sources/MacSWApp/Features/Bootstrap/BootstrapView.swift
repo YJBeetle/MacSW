@@ -273,7 +273,7 @@ struct BootstrapView: View {
         .reportViewportHeight()
 
         HStack {
-            Button("查看日志") { openLogs() }
+            Button("查看日志") { LogReveal.open(store.paths.logs) }
             Spacer()
             Button(store.silentInstall ? "开始静默安装" : "开始安装") { requestStart() }
                 .buttonStyle(.borderedProminent)
@@ -303,7 +303,7 @@ struct BootstrapView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
             HStack {
-                Button("查看日志") { openLogs() }
+                Button("查看日志") { LogReveal.open(store.paths.logs) }
                 Spacer()
                 if store.state.isActive {
                     Button("停止安装", role: .destructive) { store.cancel() }
@@ -331,11 +331,6 @@ struct BootstrapView: View {
     private func requestStart() {
         if store.cleanInstall { showCleanInstallConfirmation = true }
         else { store.start() }
-    }
-
-    private func openLogs() {
-        try? FileManager.default.createDirectory(at: store.paths.logs, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(store.paths.logs)
     }
 }
 

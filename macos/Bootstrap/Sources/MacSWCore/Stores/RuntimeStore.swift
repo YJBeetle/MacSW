@@ -36,10 +36,6 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
-    public func refresh() {
-        Task { await refreshState() }
-    }
-
     /// 供面板等待的刷新入口。
     public func refreshNow() async {
         await refreshState()

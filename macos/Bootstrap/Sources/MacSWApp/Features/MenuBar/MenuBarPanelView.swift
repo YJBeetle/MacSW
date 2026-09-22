@@ -81,7 +81,7 @@ struct MenuBarPanelView: View {
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
             MenuBarActionRow(title: "查看日志", systemImage: "doc.text") {
-                openLogs()
+                LogReveal.open(runtime.paths.logs)
                 dismissPanel()
             }
             if !runtime.processes.isEmpty {
@@ -150,11 +150,6 @@ struct MenuBarPanelView: View {
         DispatchQueue.main.async {
             if panel.isVisible { panel.orderOut(nil) }
         }
-    }
-
-    private func openLogs() {
-        try? FileManager.default.createDirectory(at: runtime.paths.logs, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(runtime.paths.logs)
     }
 
     /// 面板可见时每两秒刷新；只用 ps 与本机端口探测，不启动 Wine。
