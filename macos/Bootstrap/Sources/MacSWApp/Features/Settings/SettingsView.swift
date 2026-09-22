@@ -214,7 +214,7 @@ struct SettingsView: View {
                         // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
                         Text("强制终止全部进程").foregroundStyle(.red)
                     }
-                    Text("只杀容器里的进程，不结束 wineserver。")
+                    Text("终止容器里的全部进程，并在必要时结束 wineserver。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .trailing)
