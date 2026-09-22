@@ -90,6 +90,38 @@ fetch_seven_zip() {
     fi
 }
 
+fetch_noto_sans_sc() {
+    local archive="${DIST_DIR}/${NOTO_SANS_SC_ARCHIVE_ASSET}"
+    local output_dir="${DIST_DIR}/${NOTO_SANS_SC_OUTPUT_DIRECTORY}"
+    local member expected output actual_sha256
+    download_verified "Noto Sans SC ${NOTO_SANS_SC_VERSION}" "${NOTO_SANS_SC_URL}" \
+        "${archive}" "${NOTO_SANS_SC_ARCHIVE_SHA256}"
+    mkdir -p "${output_dir}"
+    for member in NotoSansSC-Regular.otf NotoSansSC-Bold.otf LICENSE; do
+        case "${member}" in
+            NotoSansSC-Regular.otf) expected="${NOTO_SANS_SC_REGULAR_SHA256}" ;;
+            NotoSansSC-Bold.otf) expected="${NOTO_SANS_SC_BOLD_SHA256}" ;;
+            LICENSE) expected="${NOTO_SANS_SC_LICENSE_SHA256}" ;;
+        esac
+        output="${output_dir}/${member}"
+        if [ ! -f "${output}" ]; then
+            unzip -p "${archive}" "${member}" > "${output}.download"
+            actual_sha256="$(shasum -a 256 "${output}.download" | awk '{print $1}')"
+            if [ "${actual_sha256}" != "${expected}" ]; then
+                echo "Noto Sans SC ${member} checksum mismatch" >&2
+                rm -f -- "${output}.download"
+                exit 1
+            fi
+            mv "${output}.download" "${output}"
+        fi
+        actual_sha256="$(shasum -a 256 "${output}" | awk '{print $1}')"
+        if [ "${actual_sha256}" != "${expected}" ]; then
+            echo "Noto Sans SC ${member} checksum mismatch: ${output}" >&2
+            exit 1
+        fi
+    done
+}
+
 case "${1:-all}" in
     all)
         fetch_runtime
@@ -97,14 +129,16 @@ case "${1:-all}" in
         fetch_mono_patch
         fetch_stdole
         fetch_seven_zip
+        fetch_noto_sans_sc
         ;;
     runtime) fetch_runtime ;;
     wine-source) fetch_wine_source ;;
     mono) fetch_mono_patch ;;
     stdole) fetch_stdole ;;
     seven-zip) fetch_seven_zip ;;
+    fonts) fetch_noto_sans_sc ;;
     *)
-        echo "Usage: $0 [all|runtime|wine-source|mono|stdole|seven-zip]" >&2
+        echo "Usage: $0 [all|runtime|wine-source|mono|stdole|seven-zip|fonts]" >&2
         exit 2
         ;;
 esac

@@ -35,6 +35,9 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 - App 在主安装器前校验并放置固定版本 `stdole`，随后静默安装介质中的官方 Login Manager；
   两者的安装结果都按注册表内容断言托管 COM 注册，主 MSI 完成后额外校验 `SldWorks.Application`
   的 COM 链路，安装器退出码本身不作为成功依据。
+- Builder 从 Noto 官方发布下载并校验 Noto Sans SC Regular/Bold 与 SIL OFL 许可证，随 App 打包；
+  新容器安装阶段把字体放入 Windows Fonts，并用 SystemLink 只补足 UI 字体缺少的 CJK 字形，
+  保留 Tahoma/System 原有控件行高。日常启动不重复迁移已有容器。
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
 
 ## 图形窗口修复
@@ -83,7 +86,7 @@ Builder 分为三层：
 - 顶层 Makefile 编排依赖获取、原生构建、打包、校验与归档；
 - Shell 脚本处理固定依赖下载、Wine autotools 构建和 `.app` 目录装配。
 
-应用、Wine、Wine-Mono、stdole 和 7-Zip 版本及 SHA-256 只在
+应用、Wine、Wine-Mono、stdole、Noto Sans SC 和 7-Zip 版本及 SHA-256 只在
 [`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
 SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
 
@@ -91,6 +94,7 @@ SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
 
 ```bash
 make test                 # SwiftPM XCTest
+make fetch-fonts          # 只下载、提取并校验 Noto Sans SC
 make app                  # 构建、打包并校验 MacSW.app
 make verify               # 校验已有 MacSW.app
 make archive              # 生成可上传的 zip（会占用额外磁盘空间）
@@ -106,6 +110,7 @@ make ci                   # 测试并生成归档
   图层裁剪和前缓冲刷新，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
+- 从 Noto CJK 官方发布提取并校验 Noto Sans SC Regular/Bold 与 OFL 许可证，写入 App 构建清单；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
@@ -115,6 +120,8 @@ make ci                   # 测试并生成归档
 x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
 GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、
 来源提交和校验值。
+字体选择、Wine SystemLink 编码和已验证边界见
+[`docs/font-fallback.md`](docs/font-fallback.md)。
 
 ## 使用与验证
 

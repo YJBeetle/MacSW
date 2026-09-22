@@ -406,8 +406,17 @@ public final class BootstrapStore: ObservableObject {
             try await prerequisites.configureMono(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMRegistration(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMDependencies(prefix: paths.bottle)
-            try await registry.configureSolidWorksCompatibility(prefix: paths.bottle)
-            report(.environment, .completed, "Mono、RegAsm、stdole 与 SOLIDWORKS 兼容设置已就绪；桌面已临时改到容器内")
+            try prerequisites.prepareManagedFonts(prefix: paths.bottle)
+            try await registry.configureInstallationEnvironment(prefix: paths.bottle)
+            let fontRefresh = wine.makeProcess(arguments: ["wineboot", "-u"], prefix: paths.bottle)
+            let fontRefreshCode = try await wine.runCancellable(
+                fontRefresh,
+                log: paths.logs.appendingPathComponent("font-refresh.log")
+            )
+            guard fontRefreshCode == 0 else {
+                throw bootstrapError("Noto Sans SC 字体刷新失败（\(fontRefreshCode)）。")
+            }
+            report(.environment, .completed, "Mono、RegAsm、stdole、Noto Sans SC 与 SOLIDWORKS 兼容设置已就绪；桌面已临时改到容器内")
 
             state = .installing(.vcRuntime)
             report(.vcRuntime, .running, "正在静默安装官方 VC++ x64 运行库…")

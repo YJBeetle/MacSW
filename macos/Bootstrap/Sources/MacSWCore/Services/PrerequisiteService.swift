@@ -6,6 +6,9 @@ public final class PrerequisiteService: @unchecked Sendable {
     public static let themes = ["Luna", "Aero", "Classic", "Royale", "AeroLite"]
     public static let stdoleDestination = "drive_c/Program Files/Common Files/SOLIDWORKS Shared/stdole.dll"
     public static let loginManagerDestination = "drive_c/Program Files/Common Files/SOLIDWORKS Shared/LoginManager/sldLoginManager.dll"
+    public static let fontsDestination = "drive_c/windows/Fonts"
+    public static let notoSansSCRegularName = "NotoSansSC-Regular.otf"
+    public static let notoSansSCBoldName = "NotoSansSC-Bold.otf"
 
     private let wine: WineService
 
@@ -75,6 +78,40 @@ public final class PrerequisiteService: @unchecked Sendable {
 
     public func prepareManagedCOMDependencies(prefix: URL) throws {
         try Self.prepareManagedCOMDependencies(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+    }
+
+    public func prepareManagedFonts(prefix: URL) throws {
+        try Self.prepareManagedFonts(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+    }
+
+    /// App 只携带 OFL 许可的 SC 区域子集。其他 CJK 区域可以沿用同一目录契约扩展，
+    /// 但不在当前中文安装里无条件增加包体。
+    public static func prepareManagedFonts(
+        bundleURL: URL = Bundle.main.bundleURL,
+        prefix: URL,
+        expectedRegularSHA256: String = BuildInfo.notoSansSCRegularSHA256,
+        expectedBoldSHA256: String = BuildInfo.notoSansSCBoldSHA256
+    ) throws {
+        let sourceDirectory = bundleURL.appendingPathComponent("Contents/Resources/fonts/NotoSansSC")
+        let targetDirectory = prefix.appendingPathComponent(fontsDestination)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        for (name, expectedHash) in [
+            (notoSansSCRegularName, expectedRegularSHA256),
+            (notoSansSCBoldName, expectedBoldSHA256)
+        ] {
+            let source = sourceDirectory.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw failure("App 内缺少 Noto Sans SC 字体，请使用重新打包的 App。")
+            }
+            let data = try Data(contentsOf: source)
+            guard sha256(data) == expectedHash else {
+                throw failure("App 内 Noto Sans SC 字体校验失败，请使用重新打包的 App。")
+            }
+            let target = targetDirectory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: target.path),
+               try Data(contentsOf: target) == data { continue }
+            try data.write(to: target, options: .atomic)
+        }
     }
 
     public static func prepareManagedCOMDependencies(

@@ -18,4 +18,7 @@ public enum BuildInfo {
     public static let monoRegAsmX64SHA256 = bundleString("MacSWMonoRegAsmX64SHA256", fallback: "unknown")
     public static let stdoleVersion = bundleString("MacSWStdoleVersion", fallback: "unknown")
     public static let stdoleSHA256 = bundleString("MacSWStdoleSHA256", fallback: "unknown")
+    public static let notoSansSCVersion = bundleString("MacSWNotoSansSCVersion", fallback: "unknown")
+    public static let notoSansSCRegularSHA256 = bundleString("MacSWNotoSansSCRegularSHA256", fallback: "unknown")
+    public static let notoSansSCBoldSHA256 = bundleString("MacSWNotoSansSCBoldSHA256", fallback: "unknown")
 }

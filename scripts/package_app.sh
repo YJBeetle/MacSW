@@ -19,6 +19,10 @@ MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
 MONO_REGASM_X64="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86_64.exe"
 STDOLE_DLL="${WORKSPACE_ROOT}/dist/${STDOLE_OUTPUT_DIRECTORY}/stdole.dll"
 SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
+NOTO_SANS_SC_DIR="${WORKSPACE_ROOT}/dist/${NOTO_SANS_SC_OUTPUT_DIRECTORY}"
+NOTO_SANS_SC_REGULAR="${NOTO_SANS_SC_DIR}/NotoSansSC-Regular.otf"
+NOTO_SANS_SC_BOLD="${NOTO_SANS_SC_DIR}/NotoSansSC-Bold.otf"
+NOTO_SANS_SC_LICENSE="${NOTO_SANS_SC_DIR}/LICENSE"
 
 require_file() {
     if [ ! -f "$1" ]; then
@@ -29,7 +33,8 @@ require_file() {
 
 for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
     "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
-    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}"; do
+    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
+    "${NOTO_SANS_SC_REGULAR}" "${NOTO_SANS_SC_BOLD}" "${NOTO_SANS_SC_LICENSE}"; do
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
@@ -40,6 +45,9 @@ test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB
 test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}" || { echo "x86 RegAsm checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM_X64_SHA256}" || { echo "x64 RegAsm checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}" || { echo "stdole DLL checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${NOTO_SANS_SC_REGULAR}" | awk '{print $1}')" = "${NOTO_SANS_SC_REGULAR_SHA256}" || { echo "Noto Sans SC Regular checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${NOTO_SANS_SC_BOLD}" | awk '{print $1}')" = "${NOTO_SANS_SC_BOLD_SHA256}" || { echo "Noto Sans SC Bold checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${NOTO_SANS_SC_LICENSE}" | awk '{print $1}')" = "${NOTO_SANS_SC_LICENSE_SHA256}" || { echo "Noto Sans SC license checksum mismatch" >&2; exit 1; }
 
 mkdir -p "${BUILD_ROOT}/app"
 STAGING_ROOT="$(mktemp -d "${BUILD_ROOT}/app/.package.XXXXXX")"
@@ -58,6 +66,10 @@ cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 cp -p "${UI_DAEMON_BIN}" "${RESOURCES_DIR}/sw_ui_daemon.exe"
 mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
+mkdir -p "${RESOURCES_DIR}/fonts/NotoSansSC"
+cp -p "${NOTO_SANS_SC_REGULAR}" "${RESOURCES_DIR}/fonts/NotoSansSC/NotoSansSC-Regular.otf"
+cp -p "${NOTO_SANS_SC_BOLD}" "${RESOURCES_DIR}/fonts/NotoSansSC/NotoSansSC-Bold.otf"
+cp -p "${NOTO_SANS_SC_LICENSE}" "${RESOURCES_DIR}/fonts/NotoSansSC/LICENSE"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
 ln -sf 7zz "${MAC_OS_DIR}/7z"
 
@@ -71,6 +83,9 @@ ln -sf 7zz "${MAC_OS_DIR}/7z"
 /usr/libexec/PlistBuddy -c "Set :MacSWMonoRegAsmX64SHA256 ${MONO_REGASM_X64_SHA256}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :MacSWStdoleVersion ${STDOLE_VERSION}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :MacSWStdoleSHA256 ${STDOLE_DLL_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWNotoSansSCVersion ${NOTO_SANS_SC_VERSION}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWNotoSansSCRegularSHA256 ${NOTO_SANS_SC_REGULAR_SHA256}" "${CONTENTS_DIR}/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :MacSWNotoSansSCBoldSHA256 ${NOTO_SANS_SC_BOLD_SHA256}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${MACOS_DEPLOYMENT_TARGET}" "${CONTENTS_DIR}/Info.plist"
 
 WINE_UNPACK="${STAGING_ROOT}/runtime"
@@ -118,6 +133,11 @@ WIN32U_MODULE_SHA256="$(shasum -a 256 "${WIN32U_TARGET}" | awk '{print $1}')"
 /usr/libexec/PlistBuddy -c "Add :StdolePackageSHA256 string ${STDOLE_PACKAGE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :StdoleDLLSHA256 string ${STDOLE_DLL_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SevenZipVersion string ${SEVEN_Z_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :NotoSansSCVersion string ${NOTO_SANS_SC_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :NotoSansSCArchiveSHA256 string ${NOTO_SANS_SC_ARCHIVE_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :NotoSansSCRegularSHA256 string ${NOTO_SANS_SC_REGULAR_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :NotoSansSCBoldSHA256 string ${NOTO_SANS_SC_BOLD_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :NotoSansSCLicenseSHA256 string ${NOTO_SANS_SC_LICENSE_SHA256}" "${BUILD_MANIFEST}"
 
 mkdir -p "$(dirname "${FINAL_APP_DIR}")"
 if [ -d "${FINAL_APP_DIR}" ]; then

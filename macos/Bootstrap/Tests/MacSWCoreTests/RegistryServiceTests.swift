@@ -61,6 +61,27 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertNoThrow(try RegistryService.registryFileText([
             RegistryAssignment(key: "HKLM\\SOFTWARE\\X", name: "V", value: #"a\b"c"#)
         ]))
+        XCTAssertNoThrow(try RegistryService.registryFileText([
+            RegistryAssignment(key: "HKLM\\SOFTWARE\\X", name: "V", value: "")
+        ]))
+        XCTAssertThrowsError(try RegistryService.registryFileText([
+            RegistryAssignment(key: "HKLM\\SOFTWARE\\X", name: "V", multiStringValues: [])
+        ]))
+    }
+
+    func testMultiStringValuesUseWineByteEncodingWithDoubleTerminator() throws {
+        let assignment = RegistryAssignment(
+            key: "HKLM\\SOFTWARE\\X",
+            name: "Tahoma",
+            multiStringValues: ["a.ttf,A", "b.otf,B"]
+        )
+        let text = try RegistryService.registryFileText([assignment])
+        XCTAssertTrue(text.contains(
+            #""Tahoma"=hex(7):61,2e,74,74,66,2c,41,00,62,2e,6f,74,66,2c,42,00,00"#
+        ))
+        XCTAssertThrowsError(try RegistryService.registryFileText([
+            RegistryAssignment(key: "HKLM\\SOFTWARE\\X", name: "V", multiStringValues: ["中文"])
+        ]))
     }
 
     /// 许可地址要覆盖六个值，并且 `Service` 标记每次都写：切出托管时它就是空串。
@@ -90,5 +111,28 @@ final class RegistryServiceTests: XCTestCase {
                 value: "0"
             )
         ])
+    }
+
+    func testManagedFontAssignmentsRegisterFilesAndLinkCommonUIFontFamilies() throws {
+        let assignments = RegistryService.managedFontAssignments
+        XCTAssertEqual(
+            assignments.first { $0.name == "Noto Sans SC Regular (OpenType)" }?.value,
+            PrerequisiteService.notoSansSCRegularName
+        )
+        XCTAssertEqual(
+            assignments.first { $0.name == "Noto Sans SC Bold (OpenType)" }?.value,
+            PrerequisiteService.notoSansSCBoldName
+        )
+        for alias in ["MS Shell Dlg", "MS Shell Dlg 2", "Microsoft Sans Serif", "Microsoft YaHei UI", "Segoe UI"] {
+            let substitute = try XCTUnwrap(assignments.first { $0.name == alias })
+            XCTAssertEqual(substitute.valueKind, .string)
+            XCTAssertEqual(substitute.value, "Tahoma")
+        }
+        for alias in ["NSimSun", "SimSun", "Tahoma"] {
+            let link = try XCTUnwrap(assignments.first { $0.name == alias })
+            XCTAssertEqual(link.valueKind, .multiString)
+            XCTAssertEqual(link.value, "NotoSansSC-Regular.otf,Noto Sans SC")
+        }
+        XCTAssertNil(assignments.first { $0.name == "System" })
     }
 }

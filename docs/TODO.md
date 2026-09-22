@@ -17,7 +17,10 @@
   - [ ] 继续覆盖 PropertyManager、草图、拉伸、旋转、保存和重开；创建/编辑拉伸的左上角确认按钮及模型保存已经通过本轮回归。
   - [ ] 修复鼠标手势轮盘的透明背景。`swGestureTarget` 是独立 Afx 顶层窗口；轮盘可响应，但本应透明的圆环外侧和中心当前显示为黑色。已采样到窗口扩展样式为 `0x88`（未含 `WS_EX_LAYERED`），后续单独核查 `SetWindowRgn`、`UpdateLayeredWindow` 与 Windows DWM 到 `winemac.drv` 的合成路径，不与右键菜单捕获问题混为一项。
   - [x] 统一 Part 文档窗口的五个标题按钮风格：安装时关闭 Wine ThemeManager 的活动主题，避免 Codejock 绘制的两个按钮与 Wine `DefWindowProc` 绘制的三个按钮混用不同皮肤。见 [调查记录](caption-button-theme.md)。
-  - [ ] 字体和 Toolbox 数据库。
+  - [x] 将 Noto Sans SC Regular/Bold 作为固定校验的构建依赖随 App 打包；全新安装时注册为 CJK
+    字形回退，保留 Tahoma/System 的 UI 度量。临时干净容器已验证字体加载、SystemLink 与行高，
+    仍需随下一次 SOLIDWORKS 全新安装做界面截图回归。见 [字体记录](font-fallback.md)。
+  - [ ] Toolbox 数据库。
 - [ ] 处理 macOS 显示器热插拔后的 Wine 显示拓扑刷新。
   - 检测主显示器、虚拟桌面范围或缩放变化，并让 Wine 重新枚举显示器，避免全屏窗口被限制在左上角的旧区域以及模态对话框出现在画面外。
 - [x] 解耦 MacSW Builder 和正式运行路径与固定的 SOLIDWORKS 大版本。
@@ -36,6 +39,7 @@
 - [x] 将 App、Wine、Wine-Mono、7-Zip 版本及依赖校验值集中到单一配置文件。
 - [x] 保留小型 Shell 脚本负责 Wine/7zz 下载、校验、缓存与嵌入，避免每次修改 UI 都重新编译 Wine。
 - [x] 将官方 `stdole` NuGet 包作为构建时依赖下载、校验并嵌入 App，不在仓库提交 DLL。
+- [x] 将 Noto Sans SC 官方归档作为构建时依赖下载、逐文件校验并嵌入 App，不在仓库提交字体二进制。
 - [x] UI 守护程序从原生 C 源码做可重复的 x64 构建，不再提交生成的 PE 文件。
 - [x] 将 SwiftUI 重构为菜单栏启动器、独立 Bootstrap 窗口和设置窗口；Core 服务与视图分 target，增加标准本地 Run 动作。
 - [ ] 使用全新容器回归新的可取消 Bootstrap、文本/.reg 序列号预载、安装完成后自动启动，以及托管 FlexNet 的安装/卸载与多服务器合并。

@@ -19,7 +19,8 @@
 - 官方安装：用户选择介质 → 预先校验可选序列号输入 → wineboot → 校验 Wine-Mono COM 注册运行时并安装托管 RegAsm/stdole → 官方 VC x64 安装包 → 后台安装官方 Login Manager MSI → 可选写入文本序列号或原样导入已确认的注册表 → 可见的 SOLIDWORKS 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
 - 安装任务可取消；取消只终止当前受管子进程，不默认终止整个 Wine server，且不会写入完成标记。全新安装在删除容器前验证所有输入都位于容器外。
 - App 不提供替换 SOLIDWORKS 官方文件的功能。托管 FlexNet 只从设置页显式安装，验证后原子复制到 `C:\\opt\\FlexNet`；服务器列表以官方 `port@host` 保存，并保留用户配置的其他服务器。
-- 安装失败仍会报告非零退出码并可显式清理不完整容器。Toolbox 数据库和剩余字体问题仍需单独验证。
+- 安装失败仍会报告非零退出码并可显式清理不完整容器。Noto Sans SC 已接入可复现构建与安装期
+  SystemLink；Toolbox 数据库及字体在真实 SOLIDWORKS 全新安装中的界面截图仍需单独验证。
 - 删除 CAB 直接部署服务、介质组件扫描服务、相关测试、旧 run_sw.sh 和未使用的重复 LicenseService；历史可从 Git 恢复。开发诊断脚本仅留在源码，不随 App 运行。
 
 ## 本地检查

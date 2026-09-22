@@ -36,6 +36,12 @@
     <string>@STDOLE_VERSION@</string>
     <key>MacSWStdoleSHA256</key>
     <string>@STDOLE_DLL_SHA256@</string>
+    <key>MacSWNotoSansSCVersion</key>
+    <string>@NOTO_SANS_SC_VERSION@</string>
+    <key>MacSWNotoSansSCRegularSHA256</key>
+    <string>@NOTO_SANS_SC_REGULAR_SHA256@</string>
+    <key>MacSWNotoSansSCBoldSHA256</key>
+    <string>@NOTO_SANS_SC_BOLD_SHA256@</string>
     <key>LSMinimumSystemVersion</key>
     <string>@MACOS_DEPLOYMENT_TARGET@</string>
     <key>NSHighResolutionCapable</key>

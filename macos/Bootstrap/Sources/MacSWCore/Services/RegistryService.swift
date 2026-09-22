@@ -19,6 +19,15 @@ public final class RegistryService: @unchecked Sendable {
         try await write(Self.solidWorksCompatibilityAssignments, prefix: prefix)
     }
 
+    /// 新容器的字体替代与 SOLIDWORKS 兼容开关共用一次注册表导入。
+    /// 这是安装环境准备的一部分，不在日常启动时迁移旧容器。
+    public func configureInstallationEnvironment(prefix: URL) async throws {
+        try await write(
+            Self.managedFontAssignments + Self.solidWorksCompatibilityAssignments,
+            prefix: prefix
+        )
+    }
+
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
         guard !assignments.isEmpty else { return }
         let name = "MacSW-\(UUID().uuidString).reg"
@@ -38,19 +47,46 @@ public final class RegistryService: @unchecked Sendable {
     /// 生成 .reg 文本。.reg 的行格式没有"值里含换行"的转义写法，一条赋值会被拆成两行
     /// 并静默写坏注册表，所以这种输入在生成阶段就拒绝。
     static func registryFileText(_ assignments: [RegistryAssignment]) throws -> String {
-        for assignment in assignments where assignment.value.contains(where: { $0.isNewline || $0 == "\t" }) {
-            throw registryError("注册表值不能包含换行或制表符：\(assignment.name)。")
+        for assignment in assignments {
+            let hasIllegalCharacter = assignment.value.contains { $0.isNewline || $0 == "\t" }
+            let hasInvalidMultiString = assignment.valueKind == .multiString
+                && assignment.value.components(separatedBy: "\0").contains(where: \.isEmpty)
+            let hasInvalidStringNUL = assignment.valueKind == .string && assignment.value.contains("\0")
+            if hasIllegalCharacter || hasInvalidMultiString || hasInvalidStringNUL {
+                throw registryError("注册表值不能包含空项、换行、制表符或非法 NUL：\(assignment.name)。")
+            }
         }
         var lines = ["Windows Registry Editor Version 5.00", ""]
         let grouped = Dictionary(grouping: assignments, by: { $0.key })
         for key in grouped.keys.sorted() {
             lines.append("[\(Self.fullHive(key))]")
             for assignment in (grouped[key] ?? []).sorted(by: { $0.name < $1.name }) {
-                lines.append("\"\(Self.escape(assignment.name))\"=\"\(Self.escape(assignment.value))\"")
+                switch assignment.valueKind {
+                case .string:
+                    lines.append("\"\(Self.escape(assignment.name))\"=\"\(Self.escape(assignment.value))\"")
+                case .multiString:
+                    lines.append("\"\(Self.escape(assignment.name))\"=hex(7):\(try Self.wineMultiStringHex(assignment.value))")
+                }
             }
             lines.append("")
         }
         return lines.joined(separator: "\r\n") + "\r\n"
+    }
+
+    /// Wine `reg import` 会把 hex(7) 的每个字节扩展为 WCHAR；若按 Windows regedit
+    /// 的 UTF-16LE 写法输入，结果会变成 `N\0o\0t...` 这类损坏的多字符串。
+    /// 本 App 的 FontLink 内容全是 ASCII 文件名/族名，明确限制后按 Wine 实测格式生成。
+    static func wineMultiStringHex(_ joinedValues: String) throws -> String {
+        var bytes: [UInt8] = []
+        for value in joinedValues.components(separatedBy: "\0") {
+            guard value.unicodeScalars.allSatisfy({ $0.isASCII }) else {
+                throw registryError("Wine REG_MULTI_SZ 当前只接受 ASCII 内容。")
+            }
+            bytes.append(contentsOf: value.utf8)
+            bytes.append(0)
+        }
+        bytes.append(0)
+        return bytes.map { String(format: "%02x", $0) }.joined(separator: ",")
     }
 
     static func fullHive(_ key: String) -> String {
@@ -144,6 +180,40 @@ public final class RegistryService: @unchecked Sendable {
             value: "0"
         )
     ]
+
+    static let managedFontAssignments: [RegistryAssignment] = {
+        let family = "Noto Sans SC"
+        let fontsKey = "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+        let substitutesKey = "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
+        let linksKey = "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
+        let uiAliases = [
+            "MS Shell Dlg", "MS Shell Dlg 2", "Microsoft Sans Serif",
+            "Microsoft YaHei", "Microsoft YaHei UI", "Segoe UI"
+        ]
+        let linkedFamilies = ["NSimSun", "SimSun", "Tahoma"]
+        return [
+            RegistryAssignment(
+                key: fontsKey,
+                name: "Noto Sans SC Regular (OpenType)",
+                value: PrerequisiteService.notoSansSCRegularName
+            ),
+            RegistryAssignment(
+                key: fontsKey,
+                name: "Noto Sans SC Bold (OpenType)",
+                value: PrerequisiteService.notoSansSCBoldName
+            ),
+        ] + uiAliases.map { alias in
+            // 保持 Windows UI 基础字体的行高；Wine 会让 stock System 字体继承
+            // Tahoma 的 SystemLink，缺失的 CJK 字形才交给 Noto。
+            RegistryAssignment(key: substitutesKey, name: alias, value: "Tahoma")
+        } + linkedFamilies.map { alias in
+            RegistryAssignment(
+                key: linksKey,
+                name: alias,
+                multiStringValues: ["\(PrerequisiteService.notoSansSCRegularName),\(family)"]
+            )
+        }
+    }()
 
     static let licenseValueTargets: [(key: String, name: String)] = [
         ("HKLM\\SOFTWARE\\FLEXlm License Manager", "SOLIDWORKS_LICENSE_FILE"),
