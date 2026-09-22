@@ -20,3 +20,7 @@ swift test \
     --cache-path "${SWIFT_CACHE_DIR}" \
     --config-path "${SWIFT_CONFIG_DIR}" \
     --security-path "${SWIFT_SECURITY_DIR}"
+
+PYTHONPATH="${WORKSPACE_ROOT}/Dependencies/SWCLI/src" \
+    python3 -m unittest discover \
+        -s "${WORKSPACE_ROOT}/Dependencies/SWCLI/tests" -p 'test_*.py'

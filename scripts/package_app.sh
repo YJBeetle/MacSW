@@ -19,6 +19,13 @@ MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
 MONO_REGASM_X64="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86_64.exe"
 STDOLE_DLL="${WORKSPACE_ROOT}/dist/${STDOLE_OUTPUT_DIRECTORY}/stdole.dll"
 SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
+SWCLI_ROOT="${WORKSPACE_ROOT}/Dependencies/SWCLI"
+SWCLI_SOURCE="${SWCLI_ROOT}/src/swcli"
+SWCLI_LICENSE="${SWCLI_ROOT}/LICENSE"
+SWCLI_LAUNCHER="${WORKSPACE_ROOT}/scripts/swcli/sw-cli"
+SWCLI_PATH_HELPER="${BUILD_ROOT}/native/swcli_path.exe"
+SWCLI_PYTHON_ARCHIVE="${WORKSPACE_ROOT}/dist/${SWCLI_PYTHON_ARCHIVE_ASSET}"
+SWCLI_PYWIN32_WHEEL="${WORKSPACE_ROOT}/dist/${SWCLI_PYWIN32_WHEEL_ASSET}"
 
 require_file() {
     if [ ! -f "$1" ]; then
@@ -29,7 +36,9 @@ require_file() {
 
 for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
     "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
-    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}"; do
+    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
+    "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
+    "${SWCLI_PATH_HELPER}" "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}"; do
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
@@ -40,6 +49,13 @@ test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB
 test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}" || { echo "x86 RegAsm checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM_X64_SHA256}" || { echo "x64 RegAsm checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}" || { echo "stdole DLL checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${SWCLI_PYTHON_ARCHIVE}" | awk '{print $1}')" = "${SWCLI_PYTHON_ARCHIVE_SHA256}" || { echo "Windows Python archive checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${SWCLI_PYWIN32_WHEEL}" | awk '{print $1}')" = "${SWCLI_PYWIN32_WHEEL_SHA256}" || { echo "pywin32 wheel checksum mismatch" >&2; exit 1; }
+ACTUAL_SWCLI_COMMIT="$(git -C "${SWCLI_ROOT}" rev-parse HEAD)"
+test "${ACTUAL_SWCLI_COMMIT}" = "${SWCLI_SOURCE_COMMIT}" || {
+    echo "SWCLI submodule mismatch: expected ${SWCLI_SOURCE_COMMIT}, got ${ACTUAL_SWCLI_COMMIT}" >&2
+    exit 1
+}
 
 mkdir -p "${BUILD_ROOT}/app"
 STAGING_ROOT="$(mktemp -d "${BUILD_ROOT}/app/.package.XXXXXX")"
@@ -60,6 +76,27 @@ mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
 ln -sf 7zz "${MAC_OS_DIR}/7z"
+cp -p "${SWCLI_LAUNCHER}" "${MAC_OS_DIR}/sw-cli"
+chmod +x "${MAC_OS_DIR}/sw-cli"
+SWCLI_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/Python311"
+SWCLI_SITE_PACKAGES="${SWCLI_RUNTIME}/Lib/site-packages"
+mkdir -p "${RESOURCES_DIR}/SWCLI/bin" "${SWCLI_SITE_PACKAGES}" \
+    "${RESOURCES_DIR}/SWCLI/licenses"
+unzip -q "${SWCLI_PYTHON_ARCHIVE}" -d "${SWCLI_RUNTIME}"
+unzip -q "${SWCLI_PYWIN32_WHEEL}" -d "${SWCLI_SITE_PACKAGES}"
+tr -d '\r' < "${SWCLI_RUNTIME}/python311._pth" | awk '
+    /^#import site$/ { print "Lib\\site-packages"; print "import site"; next }
+    { print }
+' > "${SWCLI_RUNTIME}/python311._pth.new"
+mv "${SWCLI_RUNTIME}/python311._pth.new" "${SWCLI_RUNTIME}/python311._pth"
+rsync -a --exclude='__pycache__' --exclude='*.pyc' \
+    "${SWCLI_SOURCE}/" "${SWCLI_SITE_PACKAGES}/swcli/"
+cp -p "${SWCLI_LICENSE}" "${RESOURCES_DIR}/SWCLI/licenses/SWCLI-LICENSE"
+unzip -p "${SWCLI_PYTHON_ARCHIVE}" LICENSE.txt \
+    > "${RESOURCES_DIR}/SWCLI/licenses/Python-LICENSE.txt"
+unzip -p "${SWCLI_PYWIN32_WHEEL}" win32/License.txt \
+    > "${RESOURCES_DIR}/SWCLI/licenses/pywin32-LICENSE.txt"
+cp -p "${SWCLI_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.exe"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${APP_VERSION}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_BUILD}" "${CONTENTS_DIR}/Info.plist"
@@ -118,6 +155,12 @@ WIN32U_MODULE_SHA256="$(shasum -a 256 "${WIN32U_TARGET}" | awk '{print $1}')"
 /usr/libexec/PlistBuddy -c "Add :StdolePackageSHA256 string ${STDOLE_PACKAGE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :StdoleDLLSHA256 string ${STDOLE_DLL_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SevenZipVersion string ${SEVEN_Z_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIVersion string ${SWCLI_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLISourceCommit string ${SWCLI_SOURCE_COMMIT}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIPythonVersion string ${SWCLI_PYTHON_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIPythonArchiveSHA256 string ${SWCLI_PYTHON_ARCHIVE_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIPyWin32Version string ${SWCLI_PYWIN32_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIPyWin32WheelSHA256 string ${SWCLI_PYWIN32_WHEEL_SHA256}" "${BUILD_MANIFEST}"
 
 mkdir -p "$(dirname "${FINAL_APP_DIR}")"
 if [ -d "${FINAL_APP_DIR}" ]; then

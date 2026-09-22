@@ -12,6 +12,8 @@ on:
       - 'Makefile'
       - 'patches/wine-crossover/**'
       - 'resources/**'
+      - '.gitmodules'
+      - 'Dependencies/SWCLI'
       - '.github/workflows/build-app.yml'
     tags:
       - 'v*'
@@ -28,6 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          submodules: recursive
 
       - name: Load build configuration
         id: build-config
@@ -40,6 +43,8 @@ jobs:
           echo "stdole_package_asset=${STDOLE_PACKAGE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "stdole_output_directory=${STDOLE_OUTPUT_DIRECTORY}" >> "$GITHUB_OUTPUT"
           echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "swcli_python_archive_asset=${SWCLI_PYTHON_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "swcli_pywin32_wheel_asset=${SWCLI_PYWIN32_WHEEL_ASSET}" >> "$GITHUB_OUTPUT"
 
       - name: Report build toolchain
         run: |
@@ -57,6 +62,8 @@ jobs:
             dist/${{ steps.build-config.outputs.stdole_package_asset }}
             dist/${{ steps.build-config.outputs.stdole_output_directory }}
             dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
+            dist/${{ steps.build-config.outputs.swcli_python_archive_asset }}
+            dist/${{ steps.build-config.outputs.swcli_pywin32_wheel_asset }}
             dist/7zz
           key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
 

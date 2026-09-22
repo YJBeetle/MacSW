@@ -2,7 +2,8 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := app
 
 .PHONY: app archive bootstrap ci daemon fetch fetch-mono fetch-runtime launcher \
-	fetch-seven-zip fetch-stdole fetch-wine-source icon package test verify winemac
+	fetch-seven-zip fetch-stdole fetch-swcli-runtime fetch-wine-source icon package \
+	swcli-helper test verify winemac
 
 launcher:
 	./macos/Bootstrap/build_bootstrap.sh
@@ -33,6 +34,12 @@ fetch-stdole:
 fetch-seven-zip:
 	./scripts/fetch_dependencies.sh seven-zip
 
+fetch-swcli-runtime:
+	./scripts/fetch_dependencies.sh swcli-runtime
+
+swcli-helper:
+	./scripts/build_swcli_path_helper.sh
+
 icon:
 	mkdir -p build/resources
 	./scripts/generate_app_icon.swift build/resources
@@ -40,7 +47,7 @@ icon:
 winemac: fetch-wine-source
 	./scripts/build_winemac.sh
 
-package: launcher daemon winemac icon fetch-runtime fetch-mono fetch-stdole fetch-seven-zip
+package: launcher daemon swcli-helper winemac icon fetch-runtime fetch-mono fetch-stdole fetch-seven-zip fetch-swcli-runtime
 	./scripts/package_app.sh
 
 verify:

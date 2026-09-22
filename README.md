@@ -36,6 +36,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
   两者的安装结果都按注册表内容断言托管 COM 注册，主 MSI 完成后额外校验 `SldWorks.Application`
   的 COM 链路，安装器退出码本身不作为成功依据。
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
+- App 内置固定提交的 SWCLI、Windows Python 3.11 与 pywin32。它们都在构建时下载或检出、校验并展开，
+  全新安装时一次复制进容器，最终用户使用时不会联网下载依赖。
 
 ## 图形窗口修复
 
@@ -83,7 +85,7 @@ Builder 分为三层：
 - 顶层 Makefile 编排依赖获取、原生构建、打包、校验与归档；
 - Shell 脚本处理固定依赖下载、Wine autotools 构建和 `.app` 目录装配。
 
-应用、Wine、Wine-Mono、stdole 和 7-Zip 版本及 SHA-256 只在
+应用、Wine、Wine-Mono、stdole、7-Zip、SWCLI 和 SWCLI Windows Python 运行时版本及 SHA-256 只在
 [`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
 SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
 
@@ -106,6 +108,8 @@ make ci                   # 测试并生成归档
   图层裁剪和前缓冲刷新，后者提供由 App 为 SOLIDWORKS 单独启用的鼠标捕获兼容路径；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
+- 递归检出固定提交的 SWCLI，下载并校验固定 Windows Python 与 pywin32 wheel，构建时组成完整运行目录，
+  再把运行目录、Wine 路径转换 helper 和 `sw-cli` 入口一并放入 App；
 - 对最终原生模块进行临时签名和校验。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
@@ -121,6 +125,20 @@ GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.pl
 ```bash
 open build/app/MacSW.app
 ```
+
+App 内的命令行入口是 `build/app/MacSW.app/Contents/MacOS/sw-cli`。全新安装会在环境准备阶段把 App 中已经
+展开并封装的 Windows Python、pywin32 和 SWCLI 一次复制到当前 MacSW bottle 的 `C:\\MacSW\\Python311`；
+日常执行只使用这份固定运行时，不执行下载、安装或迁移。
+`document` 和 `part` 操作会显式复用当前交互式 SOLIDWORKS 会话：
+
+```bash
+build/app/MacSW.app/Contents/MacOS/sw-cli version --json
+build/app/MacSW.app/Contents/MacOS/sw-cli doctor --json
+build/app/MacSW.app/Contents/MacOS/sw-cli document list --json
+```
+
+开发和隔离验证可以用 `MACSW_WINEPREFIX=/path/to/test-bottle` 覆盖容器位置；正式 App 默认仍只使用
+`~/Library/Application Support/MacSW/bottle`。
 
 Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行会打开引导安装窗口选择介质并完成部署；安装完成后应用转入菜单栏常驻，是否自动启动 SOLIDWORKS 由设置里的开关决定。
 干净安装会直接清空唯一容器，请确认其中没有需要保留的文件。
