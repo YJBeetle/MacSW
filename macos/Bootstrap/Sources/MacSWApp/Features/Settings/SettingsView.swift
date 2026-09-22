@@ -63,6 +63,12 @@ struct SettingsView: View {
         .task(id: generalVisible) {
             guard generalVisible else { return }
             await licenseServer.syncFromContainer()
+            while !Task.isCancelled {
+                // 之后只读清单 + 探端口（不起 wine），所以能像面板一样两秒一轮；
+                // 不然从面板或命令行启停的服务器，会在这一页一直挂着旧状态。
+                if NSApp.isActive { await licenseServer.refreshRunningState() }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
         }
     }
 

@@ -56,6 +56,8 @@ public final class LicenseServerStore: ObservableObject {
     public func refresh() async {
         await refreshInstallation()
         let servers = await registry.readLicenseServers(prefix: paths.bottle)
+        // 被取消的那次读回来的是空列表，写进输入框会把已有地址抹掉、把单选框骗成"不配置"。
+        guard !Task.isCancelled else { return }
         addressInput = servers.canonical
         appliedAddress = servers.canonical
         await updateObservedState()
@@ -80,6 +82,8 @@ public final class LicenseServerStore: ObservableObject {
         isOperating = true
         defer { isOperating = false }
         await refresh()
+        // 被取消的同步没读到东西，不能算"这次运行已经同步过"，否则再进这一页也不会重试。
+        guard !Task.isCancelled else { return }
         didSyncFromContainer = true
     }
 
@@ -340,10 +344,15 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     private func isPortOpen(_ port: UInt16) async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
-        process.arguments = ["-z", "-w", "1", "127.0.0.1", String(port)]
-        return ((try? await wine.runCancellable(process)) ?? -1) == 0
+        let wine = self.wine
+        // 探测必须拿到真答案：调用方被取消时 runCancellable 会直接抛错，
+        // 那会被当成"端口没开"，运行中的服务器就显示成了已停止。
+        return await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+            process.arguments = ["-z", "-w", "1", "127.0.0.1", String(port)]
+            return ((try? await wine.runCancellable(process)) ?? -1) == 0
+        }.value
     }
 
     private func storeError(_ message: String) -> NSError {
