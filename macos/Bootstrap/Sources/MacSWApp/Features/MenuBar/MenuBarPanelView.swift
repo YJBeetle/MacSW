@@ -127,7 +127,10 @@ struct MenuBarPanelView: View {
     private var summaryText: String {
         let hidden = runtime.processes.count - Self.visibleProcessLimit
         let suffix = hidden > 0 ? "（另有 \(hidden) 个未列出）" : ""
-        return "合计 \(ProcessInventory.formatMegabytes(ProcessInventory.totalResidentMB(runtime.processes))) · 已运行 \(uptimeText)\(suffix)"
+        var text = "合计 \(ProcessInventory.formatMegabytes(ProcessInventory.totalResidentMB(runtime.processes)))"
+        // SOLIDWORKS 没跑就没有"已运行"可说，别留一个孤零零的横杠。
+        if let uptime = uptimeText { text += " · 已运行 \(uptime)" }
+        return text + suffix
     }
 
     private func share(of process: WineProcess) -> Double {
@@ -136,9 +139,9 @@ struct MenuBarPanelView: View {
         return min(Double(process.residentKB) / Double(peak), 1)
     }
 
-    private var uptimeText: String {
+    private var uptimeText: String? {
         guard let primary = runtime.processes.first(where: { $0.name == ProcessInventory.primaryProcess }) else {
-            return "—"
+            return nil
         }
         return ProcessInventory.formatElapsed(primary.elapsed)
     }
