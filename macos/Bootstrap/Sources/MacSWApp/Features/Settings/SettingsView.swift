@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
+    @ObservedObject var resourceMonitor: SolidWorksResourceMonitorStore
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
@@ -53,11 +54,15 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            personalizationSection
             licenseSection
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { generalVisible = true }
+        .onAppear {
+            generalVisible = true
+            resourceMonitor.refresh()
+        }
         .onDisappear { generalVisible = false }
         // 打开设置才去容器里读一次真实配置：App 启动路径上不起 wine 进程。
         .task(id: generalVisible) {
@@ -116,6 +121,28 @@ struct SettingsView: View {
                 managedFlexNetEditor
             }
         }
+    }
+
+    private var personalizationSection: some View {
+        Section("个性化") {
+            Toggle("禁用 sldProcMon", isOn: resourceMonitorDisabled)
+                .disabled(!resourceMonitor.canChange)
+            Text("阻止 SOLIDWORKS Resource Monitor 启动。开启后将 sldProcMon.exe 重命名为 sldProcMon.exe.disable，关闭时恢复；若 SOLIDWORKS 正在运行，将在下次启动时生效。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !resourceMonitor.statusMessage.isEmpty {
+                Text(resourceMonitor.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var resourceMonitorDisabled: Binding<Bool> {
+        Binding(
+            get: { resourceMonitor.isDisabled },
+            set: { resourceMonitor.setDisabled($0) }
+        )
     }
 
     private var addressEditor: some View {

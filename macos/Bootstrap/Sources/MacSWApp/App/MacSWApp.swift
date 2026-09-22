@@ -22,15 +22,18 @@ struct MacSWApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var bootstrap: BootstrapStore
     @StateObject private var licenseServer: LicenseServerStore
+    @StateObject private var resourceMonitor: SolidWorksResourceMonitorStore
     @StateObject private var runtime: RuntimeStore
 
     init() {
         let paths = AppPaths.live()
         let licenseServer = LicenseServerStore(paths: paths)
         let bootstrap = BootstrapStore(paths: paths, licensing: licenseServer)
+        let resourceMonitor = SolidWorksResourceMonitorStore(paths: paths)
         let runtime = RuntimeStore(paths: paths, licenseServer: licenseServer)
         _bootstrap = StateObject(wrappedValue: bootstrap)
         _licenseServer = StateObject(wrappedValue: licenseServer)
+        _resourceMonitor = StateObject(wrappedValue: resourceMonitor)
         _runtime = StateObject(wrappedValue: runtime)
         AppShell.shared.configure {
             AnyView(BootstrapSceneRoot(store: bootstrap, runtime: runtime))
@@ -49,7 +52,7 @@ struct MacSWApplication: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(runtime: runtime, licenseServer: licenseServer)
+            SettingsView(runtime: runtime, licenseServer: licenseServer, resourceMonitor: resourceMonitor)
         }
     }
 }
