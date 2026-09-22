@@ -16,11 +16,6 @@ public final class WineService: @unchecked Sendable {
     /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务与 UI 守护进程。
     /// 名单与"哪些进程算 SOLIDWORKS 自己的"是同一件事，只在 ProcessInventory 里定义一次。
     public static let solidWorksProcessNames = ProcessInventory.solidWorksProcesses
-    public static let solidWorksCompatibilityArguments = [
-        "reg", "add", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
-        "/v", "sldworks.exe", "/t", "REG_SZ", "/d", "WINE_NOCAPTURERESEND", "/f"
-    ]
-
     public var runtimeURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/wine")
     }
@@ -201,16 +196,6 @@ public final class WineService: @unchecked Sendable {
         wait.executableURL = wineServerBinary
         let waitStatus = try await runCancellable(wait, log: log)
         return Self.isSuccessfulCleanupStop(killStatus: killStatus, waitStatus: waitStatus)
-    }
-
-    public func configureSolidWorksCompatibility(prefix: URL) async throws {
-        let status = try await runCancellable(
-            makeProcess(arguments: Self.solidWorksCompatibilityArguments, prefix: prefix),
-            log: logDirectory(prefix.path).appendingPathComponent("solidworks-compatibility.log")
-        )
-        guard status == 0 else {
-            throw error("SOLIDWORKS 输入兼容设置失败，请查看 solidworks-compatibility.log。", status)
-        }
     }
 
     public func runMSIExec(arguments: [String], prefix: URL, log: URL) async throws -> Int32 {

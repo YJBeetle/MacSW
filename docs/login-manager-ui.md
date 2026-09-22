@@ -51,7 +51,8 @@ sldappu.dll
   故障位于真实鼠标按下/释放与捕获转换路径。
 
 补丁只在同一窗口重复取得捕获且显式启用兼容开关时抑制多余的 `WM_CAPTURECHANGED`；窗口间
-的正常捕获转换不变。App 在每次启动 SOLIDWORKS 前幂等写入开关，兼容已有 bottle。
+的正常捕获转换不变。App 在安装环境准备阶段随其他 SOLIDWORKS 兼容设置一次写入开关；日常
+启动不再额外拉起 Wine 进程，也不承担已有 bottle 的迁移。
 
 ## 排除项
 
@@ -72,5 +73,5 @@ sldappu.dll
   出现缺失弹窗；该结果不依赖此前手工注册残留。
 - UI 守护程序不再隐藏 Login Manager 致命对话框，避免把阻塞状态伪装成成功启动。
 - Builder 从固定 Wine 源码同时重建 `winemac.so` 和 `win32u.so`；包内清单记录两份补丁与
-  两个模块的校验值，App 启动时为 SOLIDWORKS 应用兼容开关。
+  两个模块的校验值，App 安装时写入 SOLIDWORKS 应用兼容开关。
 - 鼠标手势轮盘的黑色背景是独立的合成/透明度问题，继续按 TODO 跟踪。

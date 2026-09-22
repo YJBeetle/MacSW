@@ -20,10 +20,6 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(overrides.contains("atiadlxx=d"))
         XCTAssertFalse(overrides.contains("mscoree"))
         XCTAssertFalse(overrides.contains("d3d11"))
-        XCTAssertEqual(WineService.solidWorksCompatibilityArguments, [
-            "reg", "add", "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
-            "/v", "sldworks.exe", "/t", "REG_SZ", "/d", "WINE_NOCAPTURERESEND", "/f"
-        ])
         XCTAssertNil(wine.environment(winePrefix: prefix)["WINEDLLOVERRIDES"])
         XCTAssertEqual(PrerequisiteService.themes.count, 5)
         XCTAssertTrue(WineService.isSuccessfulPrerequisiteStatus(0))

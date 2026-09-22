@@ -13,6 +13,12 @@ public final class RegistryService {
         try await importRegistry(assignments, prefix: prefix)
     }
 
+    /// 只在安装环境准备阶段写入。两个设置属于同一套 SOLIDWORKS/Wine 兼容配置，
+    /// 合并成一次导入，避免为每个值单独启动 Wine，也不在日常启动时重复迁移已有容器。
+    public func configureSolidWorksCompatibility(prefix: URL) async throws {
+        try await write(Self.solidWorksCompatibilityAssignments, prefix: prefix)
+    }
+
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
         guard !assignments.isEmpty else { return }
         let name = "MacSW-\(UUID().uuidString).reg"
@@ -118,6 +124,19 @@ public final class RegistryService {
     }
 
     static let serviceKey = "HKLM\\SOFTWARE\\WOW6432Node\\FLEXlm License Manager"
+
+    static let solidWorksCompatibilityAssignments = [
+        RegistryAssignment(
+            key: "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
+            name: "sldworks.exe",
+            value: "WINE_NOCAPTURERESEND"
+        ),
+        RegistryAssignment(
+            key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager",
+            name: "ThemeActive",
+            value: "0"
+        )
+    ]
 
     static let licenseValueTargets: [(key: String, name: String)] = [
         ("HKLM\\SOFTWARE\\FLEXlm License Manager", "SOLIDWORKS_LICENSE_FILE"),

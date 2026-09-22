@@ -16,7 +16,8 @@
   - [x] 修复硬件加速视口的前缓冲刷新：`winemac.drv` 不再把前缓冲 `glFlush`/`glFinish` 当作双缓冲交换。补丁版已验证空白画布连续点击和窗口失焦不再使模型消失，边线橙色预选可持续显示。见 [调查记录](opengl-front-buffer.md)。
   - [ ] 继续覆盖 PropertyManager、草图、拉伸、旋转、保存和重开；创建/编辑拉伸的左上角确认按钮及模型保存已经通过本轮回归。
   - [ ] 修复鼠标手势轮盘的透明背景。`swGestureTarget` 是独立 Afx 顶层窗口；轮盘可响应，但本应透明的圆环外侧和中心当前显示为黑色。已采样到窗口扩展样式为 `0x88`（未含 `WS_EX_LAYERED`），后续单独核查 `SetWindowRgn`、`UpdateLayeredWindow` 与 Windows DWM 到 `winemac.drv` 的合成路径，不与右键菜单捕获问题混为一项。
-  - [ ] 按钮风格、字体和 Toolbox 数据库。
+  - [x] 统一 Part 文档窗口的五个标题按钮风格：安装时关闭 Wine ThemeManager 的活动主题，避免 Codejock 绘制的两个按钮与 Wine `DefWindowProc` 绘制的三个按钮混用不同皮肤。见 [调查记录](caption-button-theme.md)。
+  - [ ] 字体和 Toolbox 数据库。
 - [ ] 处理 macOS 显示器热插拔后的 Wine 显示拓扑刷新。
   - 检测主显示器、虚拟桌面范围或缩放变化，并让 Wine 重新枚举显示器，避免全屏窗口被限制在左上角的旧区域以及模态对话框出现在画面外。
 - [x] 解耦 MacSW Builder 和正式运行路径与固定的 SOLIDWORKS 大版本。
