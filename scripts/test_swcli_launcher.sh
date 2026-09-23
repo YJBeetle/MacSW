@@ -21,10 +21,16 @@ cp "${WORKSPACE_ROOT}/scripts/swcli/swcli-path" \
     "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path"
 touch "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli_path.exe"
 touch "${PREFIX}/drive_c/MacSW/Python311/python.exe"
+touch "${PREFIX}/drive_c/MacSW/Python311/pythonw.exe"
 
 cat > "${CONTENTS_DIR}/Frameworks/wine/bin/wineloader" <<'EOF'
 #!/usr/bin/env bash
 printf 'windows translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> "${SWCLI_TEST_LOG}"
+if [[ "${1:-}" == *pythonw.exe && "${2:-}" == "-c" ]]; then
+    output="${4#Z:}"
+    output="${output//\\//}"
+    printf '{"mock":true}\n' > "${output}"
+fi
 EOF
 cat > "${CONTENTS_DIR}/Frameworks/wine/bin/wineserver" <<'EOF'
 #!/usr/bin/env bash
@@ -50,14 +56,17 @@ grep -Fq 'native translator=' "${LOG_FILE}"
 ! grep -Fq 'windows ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
-"${LAUNCHER}" daemon status --json
+STATUS_OUTPUT="$("${LAUNCHER}" daemon status --json)"
+test "${STATUS_OUTPUT}" = '{"mock":true}'
 grep -Fq 'windows translator=Z:' "${LOG_FILE}"
+grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
 ! grep -Fq 'native ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
 "${LAUNCHER}" document list --json
 grep -Fq 'windows translator=Z:' "${LOG_FILE}"
-grep -Fq -- '-m swcli daemon start --visible --attach-existing --json' "${LOG_FILE}"
+grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
+grep -Fq -- 'daemon start --visible --attach-existing --json' "${LOG_FILE}"
 grep -Fq 'native translator=' "${LOG_FILE}"
 grep -Fq -- '-m swcli document list --json' "${LOG_FILE}"
 

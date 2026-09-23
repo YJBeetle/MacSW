@@ -9,7 +9,9 @@ WINESERVER="${WINE_ROOT}/bin/wineserver"
 SWCLI_RESOURCES="${CONTENTS_DIR}/Resources/SWCLI"
 WINEPREFIX="${MACSW_WINEPREFIX:-${HOME}/Library/Application Support/MacSW/bottle}"
 WINDOWS_PYTHON='C:\MacSW\Python311\python.exe'
+WINDOWS_PYTHONW='C:\MacSW\Python311\pythonw.exe'
 PYTHON_UNIX="${WINEPREFIX}/drive_c/MacSW/Python311/python.exe"
+PYTHONW_UNIX="${WINEPREFIX}/drive_c/MacSW/Python311/pythonw.exe"
 NATIVE_PYTHON="${SWCLI_RESOURCES}/runtime/PythonNative/bin/python3"
 NATIVE_SWCLI_SOURCE="${SWCLI_RESOURCES}/runtime/PythonNative/lib/python3.11/site-packages"
 NATIVE_PATH_HELPER="${SWCLI_RESOURCES}/bin/swcli-path"
@@ -36,7 +38,7 @@ export SWCLI_HOST_PLATFORM="macos-wine"
 export PYTHONDONTWRITEBYTECODE=1
 
 require_windows_runtime() {
-    if [ ! -f "${PYTHON_UNIX}" ]; then
+    if [ ! -f "${PYTHON_UNIX}" ] || [ ! -f "${PYTHONW_UNIX}" ]; then
         echo "SWCLI Windows runtime is not installed in this MacSW bottle; reinstall SOLIDWORKS with MacSW." >&2
         exit 1
     fi
@@ -49,11 +51,42 @@ run_windows_cli() {
         "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
 }
 
+run_windows_windowless_cli() {
+    require_windows_runtime
+    local output_file output_windows status
+    output_file="$(mktemp "${TMPDIR:-/tmp}/macsw-swcli.XXXXXX")"
+    output_windows="$(to_windows_path "${output_file}")"
+    # pythonw avoids Wine's GUI console. Redirect Python streams explicitly because
+    # GUI-subsystem Python initializes sys.stdout/sys.stderr as None.
+    local bootstrap='import sys; output=sys.argv.pop(1); stream=open(output, "w", encoding="utf-8"); sys.stdout=stream; sys.stderr=stream; from swcli.cli import main; raise SystemExit(main())'
+    if env \
+        SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
+        SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
+        "${WINELOADER}" "${WINDOWS_PYTHONW}" -c "${bootstrap}" "${output_windows}" "$@"; then
+        status=0
+    else
+        status=$?
+    fi
+    if [ -s "${output_file}" ]; then
+        cat "${output_file}"
+    fi
+    rm -f -- "${output_file}"
+    return "${status}"
+}
+
 # MacSW is an interactive desktop host. Typed operations intentionally share
 # the already-open SOLIDWORKS instance instead of invoking SWCLI's exclusive
 # default host policy.
+if [ "${1:-}" = "doctor" ] || { [ "${1:-}" = "daemon" ] && [ "${2:-}" != "serve" ]; }; then
+    if run_windows_windowless_cli "$@"; then
+        exit 0
+    else
+        exit $?
+    fi
+fi
+
 case "${1:-}" in
-    doctor|daemon)
+    daemon)
         require_windows_runtime
         exec env \
             SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
@@ -61,7 +94,7 @@ case "${1:-}" in
             "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
         ;;
     document|part)
-        run_windows_cli daemon start \
+        run_windows_windowless_cli daemon start \
             --visible --attach-existing --json >/dev/null
         ;;
 esac

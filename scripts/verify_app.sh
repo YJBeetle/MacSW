@@ -48,6 +48,7 @@ test -f "${CONTENTS_DIR}/Resources/AppIcon.icns"
 test -f "${CONTENTS_DIR}/Resources/sw_ui_daemon.exe"
 test -f "${BUILD_MANIFEST}"
 test -f "${SWCLI_RUNTIME}/python.exe"
+test -f "${SWCLI_RUNTIME}/pythonw.exe"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/pywin32_system32/pythoncom311.dll"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/win32com/client/__init__.py"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/swcli/__main__.py"
@@ -115,6 +116,7 @@ file "${MONO_REGASM_X64}" | grep -q 'PE32+ executable.*x86-64 Mono/.Net assembly
 file "${CONTENTS_DIR}/Resources/sw_ui_daemon.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_PATH_HELPER}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/python.exe" | grep -q 'PE32+ executable.*x86-64'
+file "${SWCLI_RUNTIME}/pythonw.exe" | grep -Fq 'PE32+ executable (GUI) x86-64'
 file "${SWCLI_NATIVE_RUNTIME}/bin/python3" | grep -q 'Mach-O 64-bit executable arm64'
 file "${WINEMAC_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
 file "${WIN32U_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
