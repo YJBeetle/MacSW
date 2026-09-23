@@ -40,6 +40,8 @@
     <string>@MACOS_DEPLOYMENT_TARGET@</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MacSW 需要打开 macOS 终端，以便在当前 Wine 容器中运行交互式 CMD。</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
     <key>NSRequiresAquaSystemAppearance</key>

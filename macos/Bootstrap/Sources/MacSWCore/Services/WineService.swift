@@ -310,6 +310,43 @@ public final class WineService: @unchecked Sendable {
         try process.run()
     }
 
+    /// CMD 是控制台程序；从图形应用直接启动时没有交互式终端，读到 EOF 就会退出。
+    /// 通过 Terminal 的伪终端运行同一份 Wine 和容器，避免依赖当前不可用的 wineconsole 图形后端。
+    public func launchCommandPromptInTerminal(prefix: URL) async throws {
+        let script = """
+        on run argv
+            tell application "Terminal"
+                activate
+                do script (item 1 of argv)
+            end tell
+        end run
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script, commandPromptTerminalCommand(prefix: prefix)]
+        let (status, output) = try await captureCancellable(process)
+        guard status == 0 else {
+            let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw MacSWError.make(
+                detail.isEmpty ? "无法打开 macOS 终端（退出码 \(status)）。" : "无法打开 macOS 终端：\(detail)",
+                domain: "MacSW.WineService"
+            )
+        }
+    }
+
+    func commandPromptTerminalCommand(prefix: URL) -> String {
+        let wineEnvironment = environment(winePrefix: prefix)
+        let keys = ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG", "WINE_MONO_AOT"]
+        let assignments = keys.compactMap { key in
+            wineEnvironment[key].map { "\(key)=\(Self.shellQuote($0))" }
+        }
+        return (["env"] + assignments + [Self.shellQuote(wineBinary.path), "cmd"]).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     private func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         let processIdentifier = process.processIdentifier

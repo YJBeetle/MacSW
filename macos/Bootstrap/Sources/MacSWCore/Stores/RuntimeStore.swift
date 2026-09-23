@@ -156,6 +156,19 @@ public final class RuntimeStore: ObservableObject {
     public func openWineTool(_ name: String) {
         guard pendingWineTool == nil else { return }
         pendingWineTool = name
+        if name == "cmd" {
+            statusMessage = "正在打开 macOS 终端并启动 CMD…"
+            Task {
+                do {
+                    try await wine.launchCommandPromptInTerminal(prefix: paths.bottle)
+                    statusMessage = "已在 macOS 终端打开 CMD。"
+                } catch {
+                    statusMessage = error.localizedDescription
+                }
+                pendingWineTool = nil
+            }
+            return
+        }
         statusMessage = "正在启动 \(name)…Wine 冷启动需要几秒。"
         do {
             try wine.launchTool(name, prefix: paths.bottle)

@@ -36,6 +36,17 @@ final class RuntimeTests: XCTestCase {
         XCTAssertThrowsError(try wine.run(missing))
     }
 
+    func testCommandPromptTerminalCommandQuotesTheBottlePath() {
+        let wine = WineService.shared
+        let prefix = URL(fileURLWithPath: "/tmp/MacSW test's bottle")
+        let command = wine.commandPromptTerminalCommand(prefix: prefix)
+
+        XCTAssertTrue(command.hasPrefix("env WINEPREFIX='/tmp/MacSW test'\\''s bottle' "))
+        XCTAssertTrue(command.contains("WINELOADER='\(wine.wineBinary.path)'"))
+        XCTAssertTrue(command.contains("WINESERVER='\(wine.wineServerBinary.path)'"))
+        XCTAssertTrue(command.hasSuffix(" cmd"))
+    }
+
     func testCancellableProcessIsTerminatedPromptly() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sleep")
