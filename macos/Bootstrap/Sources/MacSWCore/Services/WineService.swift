@@ -13,6 +13,17 @@ public final class WineService: @unchecked Sendable {
         "concrt140", "msvcp140", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait",
         "msvcp140_codecvt_ids", "vcruntime140", "vcruntime140_1", "vcomp140", "mfc140u"
     ]
+    /// 裸工具名会先经过 Wine start.exe 的 Shell 解析，在 winemac 下平白加载一遍
+    /// user32/shell32（实测约 3.5 秒）。只为已知系统工具补全路径，外部 EXE 原样保留。
+    private static let systemToolPaths = [
+        "cmd": #"C:\windows\system32\cmd.exe"#,
+        "msiexec": #"C:\windows\system32\msiexec.exe"#,
+        "reg": #"C:\windows\system32\reg.exe"#,
+        "regedit": #"C:\windows\regedit.exe"#,
+        "taskkill": #"C:\windows\system32\taskkill.exe"#,
+        "wineboot": #"C:\windows\system32\wineboot.exe"#,
+        "winecfg": #"C:\windows\system32\winecfg.exe"#
+    ]
     /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务与 UI 守护进程。
     /// 名单与"哪些进程算 SOLIDWORKS 自己的"是同一件事，只在 ProcessInventory 里定义一次。
     public static let solidWorksProcessNames = ProcessInventory.solidWorksProcesses
@@ -96,9 +107,15 @@ public final class WineService: @unchecked Sendable {
     public func makeProcess(arguments: [String], prefix: URL, solidWorks: Bool = false) -> Process {
         let process = Process()
         process.executableURL = wineBinary
-        process.arguments = arguments
+        process.arguments = Self.resolvingSystemTool(in: arguments)
         process.environment = environment(winePrefix: prefix, solidWorks: solidWorks)
         return process
+    }
+
+    static func resolvingSystemTool(in arguments: [String]) -> [String] {
+        guard let command = arguments.first,
+              let explicit = systemToolPaths[command.lowercased()] else { return arguments }
+        return [explicit] + arguments.dropFirst()
     }
 
     @discardableResult
@@ -340,7 +357,8 @@ public final class WineService: @unchecked Sendable {
         let assignments = keys.compactMap { key in
             wineEnvironment[key].map { "\(key)=\(Self.shellQuote($0))" }
         }
-        return (["env"] + assignments + [Self.shellQuote(wineBinary.path), "cmd"]).joined(separator: " ")
+        let cmd = Self.systemToolPaths["cmd"]!
+        return (["env"] + assignments + [Self.shellQuote(wineBinary.path), Self.shellQuote(cmd)]).joined(separator: " ")
     }
 
     private static func shellQuote(_ value: String) -> String {

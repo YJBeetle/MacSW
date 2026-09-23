@@ -44,7 +44,23 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(command.hasPrefix("env WINEPREFIX='/tmp/MacSW test'\\''s bottle' "))
         XCTAssertTrue(command.contains("WINELOADER='\(wine.wineBinary.path)'"))
         XCTAssertTrue(command.contains("WINESERVER='\(wine.wineServerBinary.path)'"))
-        XCTAssertTrue(command.hasSuffix(" cmd"))
+        XCTAssertTrue(command.hasSuffix(" 'C:\\windows\\system32\\cmd.exe'"))
+    }
+
+    func testKnownWineToolsUseExplicitWindowsPathsWithoutChangingExternalExecutables() {
+        XCTAssertEqual(
+            WineService.resolvingSystemTool(in: ["reg", "query", "HKCU\\Software"]),
+            [#"C:\windows\system32\reg.exe"#, "query", "HKCU\\Software"]
+        )
+        XCTAssertEqual(
+            WineService.resolvingSystemTool(in: ["MSIEXEC", "/i", "installer.msi"]),
+            [#"C:\windows\system32\msiexec.exe"#, "/i", "installer.msi"]
+        )
+        XCTAssertEqual(
+            WineService.resolvingSystemTool(in: ["/media/VC_redist.x64.exe", "/quiet"]),
+            ["/media/VC_redist.x64.exe", "/quiet"]
+        )
+        XCTAssertEqual(WineService.resolvingSystemTool(in: []), [])
     }
 
     func testCancellableProcessIsTerminatedPromptly() async throws {
