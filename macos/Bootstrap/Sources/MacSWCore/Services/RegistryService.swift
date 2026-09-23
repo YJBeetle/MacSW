@@ -19,7 +19,7 @@ public final class RegistryService: @unchecked Sendable {
         try await importRegistry(assignments, prefix: prefix)
     }
 
-    /// 只在安装环境准备阶段写入。两个设置属于同一套 SOLIDWORKS/Wine 兼容配置，
+    /// 只在安装环境准备阶段写入。这些设置属于同一套 SOLIDWORKS/Wine 兼容配置，
     /// 合并成一次导入，避免为每个值单独启动 Wine，也不在日常启动时重复迁移已有容器。
     public func configureSolidWorksCompatibility(prefix: URL) async throws {
         try await write(Self.solidWorksCompatibilityAssignments, prefix: prefix)
@@ -132,6 +132,11 @@ public final class RegistryService: @unchecked Sendable {
                     lines.append("\"\(Self.escape(assignment.name))\"=\"\(Self.escape(assignment.value))\"")
                 case .multiString:
                     lines.append("\"\(Self.escape(assignment.name))\"=hex(7):\(Self.registryMultiStringHex(assignment.value))")
+                case .dword:
+                    guard let value = assignment.dwordValue else {
+                        throw registryError("注册表 DWORD 缺少数值：\(assignment.name)。")
+                    }
+                    lines.append(String(format: "\"%@\"=dword:%08x", Self.escape(assignment.name), value))
                 }
             }
             lines.append("")
@@ -288,6 +293,11 @@ public final class RegistryService: @unchecked Sendable {
             key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager",
             name: "ThemeActive",
             value: "0"
+        ),
+        RegistryAssignment(
+            key: "HKCU\\Control Panel\\Desktop",
+            name: "FontSmoothingType",
+            dwordValue: 2
         )
     ]
 

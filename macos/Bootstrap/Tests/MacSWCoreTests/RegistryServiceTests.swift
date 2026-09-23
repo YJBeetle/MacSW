@@ -65,6 +65,17 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertEqual(RegistryService.escape(#"a\b"c"#), #"a\\b\"c"#)
     }
 
+    func testRegistryFileSerializesDWORDAsEightDigitHex() throws {
+        let text = try RegistryService.registryFileText([
+            RegistryAssignment(
+                key: #"HKCU\Control Panel\Desktop"#,
+                name: "FontSmoothingType",
+                dwordValue: 2
+            )
+        ])
+        XCTAssertTrue(text.contains(#""FontSmoothingType"=dword:00000002"#))
+    }
+
     /// HKCR/HKCU/HKLM 都要展开成 .reg 认识的完整根名，已经是全名的不重复加工。
     func testFullHiveExpandsShortRootsAndLeavesLongOnesAlone() {
         XCTAssertEqual(RegistryService.fullHive(#"HKCU\Software\X"#), #"HKEY_CURRENT_USER\Software\X"#)
@@ -98,7 +109,7 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertEqual(remote.first { $0.name == "Service" }?.value, "")
     }
 
-    /// SOLIDWORKS 的输入捕获与 MDI 标题按钮外观是同一批安装期兼容设置，
+    /// SOLIDWORKS 的输入捕获、MDI 标题按钮外观和字体平滑是同一批安装期兼容设置，
     /// 必须一次写齐；日常启动不再负责补写或迁移。
     func testSolidWorksCompatibilityAssignmentsCoverInputAndCaptionAppearance() {
         XCTAssertEqual(RegistryService.solidWorksCompatibilityAssignments, [
@@ -111,6 +122,11 @@ final class RegistryServiceTests: XCTestCase {
                 key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager",
                 name: "ThemeActive",
                 value: "0"
+            ),
+            RegistryAssignment(
+                key: "HKCU\\Control Panel\\Desktop",
+                name: "FontSmoothingType",
+                dwordValue: 2
             )
         ])
     }
