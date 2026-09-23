@@ -85,14 +85,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MacSW-macOS-App
-          path: build/archive/MacSW-*-macOS.zip
+          path: |
+            build/archive/MacSW-*-macOS.zip
+            dist/${{ steps.build-config.outputs.wine_source_asset }}
           retention-days: 14
 
       - name: Publish Release Assets (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/archive/MacSW-*-macOS.zip
+          files: |
+            build/archive/MacSW-*-macOS.zip
+            dist/${{ steps.build-config.outputs.wine_source_asset }}
           draft: false
           prerelease: false
         env:

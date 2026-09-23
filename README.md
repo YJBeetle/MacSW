@@ -69,6 +69,9 @@ Wine 后续重新执行 loader 的固定路径。相关修改见
 这样无需改动 `ntdll` 或 `winemac.drv`，Dock 与应用菜单都会显示 `MacSW`；图标仍完全沿用 Wine
 原生的 EXE 图标传递路径，SOLIDWORKS 等程序继续显示各自提供的图标。
 
+Wine 以 LGPL-2.1-or-later 许可分发。App 内包含许可证与精确源码说明；正式 Release 同时附带
+构建所用的 Wine 源码归档，MacSW 仓库保留全部补丁和构建脚本。
+
 [`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理
 普通对话框与浮动工具窗口层级，以及离屏窗口找回。它不依赖 .NET/Wine-Mono，也不改写
 FeatureManager 或视口尺寸，并且不会隐藏致命的前置组件错误。Login Manager 相关根因见

@@ -1,0 +1,16 @@
+Wine @WINE_VERSION@ is licensed under the GNU Lesser General Public License,
+version 2.1 or later. A copy of the license is included next to this file.
+
+The exact upstream source archive used to build this MacSW release is:
+@WINE_SOURCE_URL@
+
+SHA-256:
+@WINE_SOURCE_SHA256@
+
+MacSW's Wine changes, patch files, and build scripts are published in the
+MacSW source corresponding to this release:
+https://github.com/YJBeetle/MacSW
+
+Tagged MacSW releases also attach the exact upstream Wine source archive next
+to the MacSW binary archive, so recipients do not have to depend on the
+upstream download remaining available.

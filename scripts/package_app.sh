@@ -11,6 +11,8 @@ LAUNCHER_BIN="${BUILD_ROOT}/bootstrap/MacSW"
 UI_DAEMON_BIN="${BUILD_ROOT}/native/sw_ui_daemon.exe"
 APP_ICON="${BUILD_ROOT}/resources/AppIcon.icns"
 WINE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_RUNTIME_ASSET}"
+WINE_SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
+WINE_SOURCE_NOTICE_TEMPLATE="${WORKSPACE_ROOT}/resources/licenses/Wine-SOURCE.txt.in"
 WINEMAC_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/winemac.so"
 WIN32U_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/win32u.so"
 WINE_LOADER_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/MacSW"
@@ -36,7 +38,8 @@ require_file() {
 }
 
 for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" \
-    "${WINE_ARCHIVE}" "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
+    "${WINE_ARCHIVE}" "${WINE_SOURCE_ARCHIVE}" "${WINE_SOURCE_NOTICE_TEMPLATE}" \
+    "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
     "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
     "${SWCLI_PATH_HELPER}" "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}"; do
@@ -45,6 +48,7 @@ done
 unset PACKAGE_INPUT
 
 test "$(shasum -a 256 "${WINE_ARCHIVE}" | awk '{print $1}')" = "${WINE_RUNTIME_SHA256}" || { echo "Wine runtime checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${WINE_SOURCE_ARCHIVE}" | awk '{print $1}')" = "${WINE_SOURCE_SHA256}" || { echo "Wine source checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_PATCH}" | awk '{print $1}')" = "${MONO_PATCH_SHA256}" || { echo "Mono patch checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB_SHA256}" || { echo "Mono mscorlib checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}" || { echo "x86 RegAsm checksum mismatch" >&2; exit 1; }
@@ -98,6 +102,16 @@ unzip -p "${SWCLI_PYTHON_ARCHIVE}" LICENSE.txt \
 unzip -p "${SWCLI_PYWIN32_WHEEL}" win32/License.txt \
     > "${RESOURCES_DIR}/SWCLI/licenses/pywin32-LICENSE.txt"
 cp -p "${SWCLI_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.exe"
+
+WINE_LICENSES_DIR="${RESOURCES_DIR}/licenses/Wine"
+mkdir -p "${WINE_LICENSES_DIR}"
+tar -xOf "${WINE_SOURCE_ARCHIVE}" "wine-${WINE_VERSION}/COPYING.LIB" \
+    > "${WINE_LICENSES_DIR}/LGPL-2.1.txt"
+sed \
+    -e "s|@WINE_VERSION@|${WINE_VERSION}|g" \
+    -e "s|@WINE_SOURCE_URL@|${WINE_SOURCE_URL}|g" \
+    -e "s|@WINE_SOURCE_SHA256@|${WINE_SOURCE_SHA256}|g" \
+    "${WINE_SOURCE_NOTICE_TEMPLATE}" > "${WINE_LICENSES_DIR}/SOURCE.txt"
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${APP_VERSION}" "${CONTENTS_DIR}/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_BUILD}" "${CONTENTS_DIR}/Info.plist"
