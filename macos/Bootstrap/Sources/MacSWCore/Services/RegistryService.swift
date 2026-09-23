@@ -4,6 +4,10 @@ public final class RegistryService: @unchecked Sendable {
     private let wine: WineService
     private static let pingFangFileName = "PingFang.ttc"
     private static let pingFangFaceName = "PingFang SC"
+    static let macShortcutKey = #"HKCU\Software\Wine\Mac Driver"#
+    static let macShortcutValueNames = [
+        "LeftCommandIsCtrl", "RightCommandIsCtrl", "LeftOptionIsAlt", "RightOptionIsAlt"
+    ]
 
     public init(wine: WineService = .shared) {
         self.wine = wine
@@ -19,6 +23,43 @@ public final class RegistryService: @unchecked Sendable {
     /// 合并成一次导入，避免为每个值单独启动 Wine，也不在日常启动时重复迁移已有容器。
     public func configureSolidWorksCompatibility(prefix: URL) async throws {
         try await write(Self.solidWorksCompatibilityAssignments, prefix: prefix)
+    }
+
+    public func macShortcutsEnabled(prefix: URL) async throws -> Bool {
+        let process = wine.makeProcess(arguments: ["reg", "query", Self.macShortcutKey], prefix: prefix)
+        let (status, output) = try await wine.captureCancellable(process)
+        guard status == 0 || status == 1 else {
+            throw Self.registryError("读取 Wine 快捷键配置失败（\(status)）。")
+        }
+        return Self.macShortcutsEnabled(fromQueryStatus: status, output: output)
+    }
+
+    public func setMacShortcutsEnabled(_ enabled: Bool, prefix: URL) async throws {
+        if enabled {
+            try await write(Self.macShortcutValueNames.map {
+                RegistryAssignment(key: Self.macShortcutKey, name: $0, value: "Y")
+            }, prefix: prefix)
+        } else {
+            try await importRegistryData(try Self.utf16RegistryData(Self.macShortcutDeletionText()), prefix: prefix)
+        }
+    }
+
+    /// 只解析 ASCII 值名和值；reg query 在中文 Wine locale 下可能以 GBK 输出其他字段。
+    static func macShortcutsEnabled(fromQueryStatus status: Int32, output: String) -> Bool {
+        guard status == 0 else { return false }
+        var values: [String: String] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let columns = line.split(whereSeparator: \.isWhitespace)
+            guard columns.count >= 3, columns[1] == "REG_SZ" else { continue }
+            values[String(columns[0])] = String(columns[2])
+        }
+        return macShortcutValueNames.allSatisfy { values[$0]?.uppercased() == "Y" }
+    }
+
+    static func macShortcutDeletionText() -> String {
+        let lines = ["Windows Registry Editor Version 5.00", "", "[\(fullHive(macShortcutKey))]"]
+            + macShortcutValueNames.map { "\"\($0)\"=-" } + [""]
+        return lines.joined(separator: "\r\n") + "\r\n"
     }
 
     /// 只在安装环境准备期间，优先使用 Wine 已枚举的系统苹方；不复制 Apple 字体。
@@ -51,10 +92,14 @@ public final class RegistryService: @unchecked Sendable {
 
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
         guard !assignments.isEmpty else { return }
+        try await importRegistryData(Self.registryFileData(assignments), prefix: prefix)
+    }
+
+    private func importRegistryData(_ data: Data, prefix: URL) async throws {
         let name = "MacSW-\(UUID().uuidString).reg"
         let insideBottle = prefix.appendingPathComponent("drive_c/windows/temp").appendingPathComponent(name)
         try FileManager.default.createDirectory(at: insideBottle.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Self.registryFileData(assignments).write(to: insideBottle, options: .atomic)
+        try data.write(to: insideBottle, options: .atomic)
         defer { try? FileManager.default.removeItem(at: insideBottle) }
         let process = wine.makeProcess(
             arguments: ["reg", "import", "C:\\windows\\temp\\\(name)"],
@@ -96,7 +141,11 @@ public final class RegistryService: @unchecked Sendable {
 
     /// 带 BOM 的 UTF-16LE .reg 文件同时正确处理中文值名与标准 UTF-16LE hex(7)。
     static func registryFileData(_ assignments: [RegistryAssignment]) throws -> Data {
-        guard let body = try registryFileText(assignments).data(using: .utf16LittleEndian) else {
+        try utf16RegistryData(registryFileText(assignments))
+    }
+
+    private static func utf16RegistryData(_ text: String) throws -> Data {
+        guard let body = text.data(using: .utf16LittleEndian) else {
             throw registryError("注册表文本无法编码为 UTF-16LE。")
         }
         return Data([0xff, 0xfe]) + body

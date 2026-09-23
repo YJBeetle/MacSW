@@ -3,6 +3,29 @@ import XCTest
 @testable import MacSWCore
 
 final class RegistryServiceTests: XCTestCase {
+    func testMacShortcutMappingRequiresAllFourValuesAndDeletesOnlyThoseValues() {
+        let output = """
+        HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver
+            LeftCommandIsCtrl    REG_SZ    Y
+            RightCommandIsCtrl    REG_SZ    Y
+            LeftOptionIsAlt    REG_SZ    Y
+            RightOptionIsAlt    REG_SZ    Y
+            RetinaMode    REG_SZ    y
+        """
+        XCTAssertTrue(RegistryService.macShortcutsEnabled(fromQueryStatus: 0, output: output))
+        XCTAssertFalse(RegistryService.macShortcutsEnabled(fromQueryStatus: 1, output: output))
+        XCTAssertFalse(RegistryService.macShortcutsEnabled(
+            fromQueryStatus: 0,
+            output: output.replacingOccurrences(of: "RightOptionIsAlt    REG_SZ    Y", with: "RightOptionIsAlt    REG_SZ    N")
+        ))
+        let deletion = RegistryService.macShortcutDeletionText()
+        XCTAssertTrue(deletion.contains("[HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver]"))
+        for name in RegistryService.macShortcutValueNames {
+            XCTAssertTrue(deletion.contains("\"\(name)\"=-"))
+        }
+        XCTAssertFalse(deletion.contains("RetinaMode"))
+    }
+
     func testLicenseServerQueryDistinguishesMissingValueFromFailures() throws {
         XCTAssertTrue(try RegistryService.licenseServers(fromQueryStatus: 1, output: "").endpoints.isEmpty)
         XCTAssertThrowsError(try RegistryService.licenseServers(fromQueryStatus: 2, output: "failed"))

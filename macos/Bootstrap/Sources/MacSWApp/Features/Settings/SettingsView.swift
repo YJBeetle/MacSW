@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @ObservedObject var resourceMonitor: SolidWorksResourceMonitorStore
+    @ObservedObject var keyboardShortcuts: WineKeyboardShortcutStore
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
@@ -123,6 +124,25 @@ struct SettingsView: View {
             Text("打开时自动启动前，若托管 FlexNet 的地址指向 localhost 会先尝试拉起它；起不来只提示，不阻止 SOLIDWORKS 启动。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Toggle(isOn: macShortcutMapping) {
+                HStack(spacing: 8) {
+                    Text("在 Wine 中使用 Mac 风格快捷键")
+                    Spacer(minLength: 0)
+                    if keyboardShortcuts.isLoading || keyboardShortcuts.isOperating {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            .disabled(!keyboardShortcuts.canChange)
+            .task { await keyboardShortcuts.refresh() }
+            Text("将 ⌘ 映射为 Windows Ctrl、⌥ 映射为 Alt；更改后重新打开 Wine 程序生效。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !keyboardShortcuts.statusMessage.isEmpty {
+                Text(keyboardShortcuts.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Toggle("禁用 sldProcMon", isOn: resourceMonitorDisabled)
                 .disabled(!resourceMonitor.canChange)
             Text("阻止 SOLIDWORKS Resource Monitor 启动。开启后将 sldProcMon.exe 重命名为 sldProcMon.exe.disable，关闭时恢复；若 SOLIDWORKS 正在运行，将在下次启动时生效。")
@@ -140,6 +160,13 @@ struct SettingsView: View {
         Binding(
             get: { resourceMonitor.isDisabled },
             set: { resourceMonitor.setDisabled($0) }
+        )
+    }
+
+    private var macShortcutMapping: Binding<Bool> {
+        Binding(
+            get: { keyboardShortcuts.isEnabled },
+            set: { keyboardShortcuts.setEnabled($0) }
         )
     }
 
