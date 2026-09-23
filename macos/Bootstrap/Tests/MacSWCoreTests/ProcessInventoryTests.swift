@@ -31,6 +31,19 @@ final class ProcessInventoryTests: XCTestCase {
         XCTAssertFalse(parsed().contains { $0.name.contains("wineloader") || $0.name.contains(".reg") })
     }
 
+    func testFindsOrphanedFlexNetFromAnOlderAppBuildAfterWineserverExit() {
+        let output = """
+          5212 1024  09:59:13 C:\\opt\\FlexNet\\lmgrd.exe -c \(Self.bottle)/drive_c/opt/FlexNet/sw_d_SSQ.lic
+        """
+        let processes = ProcessInventory.parse(
+            output,
+            bottlePath: Self.bottle,
+            wineRuntimePath: "/Applications/New-MacSW.app/Contents/Frameworks/wine"
+        )
+        XCTAssertEqual(processes.map(\.pid), [5212], "旧 lmgrd 即使没有 wineserver 也必须阻止删除容器")
+        XCTAssertEqual(processes.first?.name, "lmgrd.exe")
+    }
+
     func testSortedByResidentMemoryWithSolidWorksFirst() {
         let processes = parsed()
         XCTAssertEqual(processes.first?.name, "SLDWORKS.exe")

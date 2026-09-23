@@ -321,15 +321,34 @@ public final class BootstrapStore: ObservableObject {
             throw bootstrapError("容器路径异常，拒绝清理。")
         }
         guard !state.isActive else { throw bootstrapError("安装仍在运行。") }
-        guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
-            throw bootstrapError("未能停止容器进程，已取消清理。")
-        }
+        try await stopContainerBeforeDeletion()
         if FileManager.default.fileExists(atPath: paths.bottle.path) {
             try FileManager.default.removeItem(at: paths.bottle)
         }
         try? FileManager.default.removeItem(at: installationReceipt)
         AppPaths.invalidateInstallationState()
         statusMessage = "不完整安装已清理。"
+    }
+
+    /// wineserver 退出不代表所有宿主侧 Wine 客户进程都消失：脱离旧 server 的
+    /// lmgrd.exe 仍可能持有待删除容器的路径。删除前以进程表做最后一道检查。
+    private func stopContainerBeforeDeletion() async throws {
+        guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
+            throw bootstrapError("未能停止 Wine 容器，已取消删除。")
+        }
+        var remaining: [WineProcess] = []
+        for attempt in 0..<5 {
+            try Task.checkCancellation()
+            remaining = await ProcessInventory.snapshot(
+                bottlePath: paths.bottle.path,
+                wineRuntimePath: wine.runtimeURL.path
+            )
+            if remaining.isEmpty { return }
+            if attempt < 4 { try await Task.sleep(nanoseconds: 500_000_000) }
+        }
+        let examples = remaining.prefix(5).map { "\($0.name) (PID \($0.pid))" }.joined(separator: "、")
+        let suffix = remaining.count > 5 ? " 等 \(remaining.count) 个进程" : ""
+        throw bootstrapError("容器仍有进程：\(examples)\(suffix)。已取消删除，请先确认并终止这些进程。")
     }
 
     private func runInstallation(
@@ -384,9 +403,8 @@ public final class BootstrapStore: ObservableObject {
 
             if cleanInstall, paths.bottleExists {
                 try validateInputsOutsideBottle([selectedMedia, media])
-                guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
-                    throw bootstrapError("未能停止容器进程，已取消全新安装。")
-                }
+                try await stopContainerBeforeDeletion()
+                try Task.checkCancellation()
                 try FileManager.default.removeItem(at: paths.bottle)
                 try? FileManager.default.removeItem(at: installationReceipt)
                 AppPaths.invalidateInstallationState()
