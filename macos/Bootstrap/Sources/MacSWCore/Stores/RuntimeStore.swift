@@ -131,6 +131,30 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
+    /// 托盘退出时只收尾当前容器；先停托管许可证进程，再结束 wineserver 和其余 Wine 客户进程。
+    /// 未能确认进程全部退出时由调用方留在 App 中显示错误，避免假装已经清理完毕。
+    public func stopContainerForAppQuit() async throws {
+        let snapshot = await ProcessInventory.snapshot(
+            bottlePath: paths.bottle.path,
+            wineRuntimePath: wine.runtimeURL.path
+        )
+        guard !snapshot.isEmpty else { return }
+        await licenseServer.refreshInstallation()
+        try await licenseServer.stopIfRunning()
+        guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
+            throw runtimeError("未能停止 Wine 容器，MacSW 将继续运行。")
+        }
+        for attempt in 0..<5 {
+            let remaining = await ProcessInventory.snapshot(
+                bottlePath: paths.bottle.path,
+                wineRuntimePath: wine.runtimeURL.path
+            )
+            if remaining.isEmpty { return }
+            if attempt < 4 { try await Task.sleep(nanoseconds: 500_000_000) }
+        }
+        throw runtimeError("Wine 容器仍有进程，MacSW 将继续运行；请在维护页检查。")
+    }
+
     /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。
     public func restartContainer() {
         let wasRunning = isRunning

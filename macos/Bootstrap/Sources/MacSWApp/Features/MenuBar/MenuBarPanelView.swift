@@ -8,6 +8,7 @@ struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @State private var isRefreshing = false
+    @State private var isQuitting = false
     @State private var panelWindow: NSWindow?
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -89,9 +90,10 @@ struct MenuBarPanelView: View {
                     runtime.forceStop()
                 }
             }
-            MenuBarActionRow(title: "退出 MacSW", systemImage: "power", destructive: true) {
-                NSApplication.shared.terminate(nil)
+            MenuBarActionRow(title: isQuitting ? "正在结束容器进程…" : "退出 MacSW", systemImage: "power", destructive: true) {
+                quitMacSW()
             }
+            .disabled(isQuitting)
         }
     }
 
@@ -152,6 +154,38 @@ struct MenuBarPanelView: View {
         panel.cancelOperation(nil)
         DispatchQueue.main.async {
             if panel.isVisible { panel.orderOut(nil) }
+        }
+    }
+
+    private func quitMacSW() {
+        guard !isQuitting else { return }
+        isQuitting = true
+        Task { @MainActor in
+            defer { isQuitting = false }
+            // 点击当下重新读进程，不能用菜单两秒轮询留下的状态决定是否警告。
+            let snapshot = await ProcessInventory.snapshot(
+                bottlePath: runtime.paths.bottle.path,
+                wineRuntimePath: WineService.shared.runtimeURL.path
+            )
+            if ProcessInventory.isSolidWorksRunning(snapshot) {
+                let alert = NSAlert()
+                alert.messageText = "结束 SOLIDWORKS 并退出 MacSW？"
+                alert.informativeText = "未保存的 SOLIDWORKS 内容会丢失。激活程序及此容器中的其他 Wine 程序也会一并结束。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "结束程序并退出")
+                alert.addButton(withTitle: "取消")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
+            do {
+                try await runtime.stopContainerForAppQuit()
+                NSApplication.shared.terminate(nil)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "未能退出 MacSW"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
         }
     }
 
