@@ -168,3 +168,13 @@ Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行会打开�
 - `ui-daemon.log`
 
 若安装了托管 FlexNet 且服务器列表包含对应的 `端口@localhost`，MacSW 会在启动 SOLIDWORKS 前自动确保该服务运行。
+
+## 许可证
+
+MacSW 的原创代码使用 [Apache License 2.0](LICENSE) 许可。Wine 及
+[`patches/wine-crossover`](patches/wine-crossover) 中直接修改或派生自 Wine 的补丁继续使用
+LGPL-2.1-or-later；SWCLI、Wine-Mono、Python、pywin32、7-Zip 等第三方组件保留各自许可证。
+二进制发行包会附带相应的许可证、版权声明和 Wine 精确源码获取说明。
+
+Apache-2.0 不授予使用 MacSW 名称、Logo 或其他项目标识来表示修改版或再发行版本属于官方发布的权利；
+具体归属与第三方说明见 [NOTICE](NOTICE)。
