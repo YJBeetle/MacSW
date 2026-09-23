@@ -2,6 +2,8 @@ import Foundation
 
 public final class RegistryService: @unchecked Sendable {
     private let wine: WineService
+    private static let pingFangFileName = "PingFang.ttc"
+    private static let pingFangFaceName = "PingFang SC"
 
     public init(wine: WineService = .shared) {
         self.wine = wine
@@ -20,31 +22,31 @@ public final class RegistryService: @unchecked Sendable {
     }
 
     /// 只在安装环境准备期间，优先使用 Wine 已枚举的系统苹方；不复制 Apple 字体。
-    /// 返回 false 表示该 Mac 尚无可供 Wine 使用的苹方，兼容设置仍照常写入。
+    /// 区分未检测到苹方与现有链接无法安全回写；兼容设置两种情况下都照常写入。
     @discardableResult
-    public func configureInstallationEnvironment(prefix: URL) async throws -> Bool {
+    public func configureInstallationEnvironment(prefix: URL) async throws -> InstallationFontStatus {
         let fontsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts"#
         let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
         // Wine 按当前 locale 注册字体族：中文系统中的值名是「苹方-简 …」，
         // 不能按英文族名 /v 查询；路径末尾的 PingFang.ttc 不依赖语言。
         let fontQuery = wine.makeProcess(arguments: ["reg", "query", fontsKey], prefix: prefix)
         let (fontStatus, fontOutput) = try await wine.captureCancellable(fontQuery)
-        guard let fileName = Self.registeredPingFangFileName(fromQueryStatus: fontStatus, output: fontOutput) else {
+        guard Self.hasRegisteredPingFang(fromQueryStatus: fontStatus, output: fontOutput) else {
             try await configureSolidWorksCompatibility(prefix: prefix)
-            return false
+            return .notDetected
         }
         let linksQuery = wine.makeProcess(arguments: ["reg", "query", linksKey, "/v", "Tahoma"], prefix: prefix)
         let (linksStatus, linksOutput) = try await wine.captureCancellable(linksQuery)
         guard let existingLinks = Self.tahomaLinks(fromQueryStatus: linksStatus, output: linksOutput) else {
             try await configureSolidWorksCompatibility(prefix: prefix)
-            return false
+            return .existingLinksUnreadable
         }
         try await write(
-            Self.appleFontAssignments(fileName: fileName, existingTahomaLinks: existingLinks)
+            Self.appleFontAssignments(existingTahomaLinks: existingLinks)
                 + Self.solidWorksCompatibilityAssignments,
             prefix: prefix
         )
-        return true
+        return .enabled
     }
 
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
@@ -113,27 +115,39 @@ public final class RegistryService: @unchecked Sendable {
         return bytes.map { String(format: "%02x", $0) }.joined(separator: ",")
     }
 
-    static func registeredPingFangFileName(fromQueryStatus status: Int32, output: String) -> String? {
-        guard status == 0 else { return nil }
+    /// reg query 的中文值名经有损 UTF-8 解码后不可依赖；这里只检查 ASCII 类型和文件名。
+    static func hasRegisteredPingFang(fromQueryStatus status: Int32, output: String) -> Bool {
+        guard status == 0 else { return false }
         for line in output.split(whereSeparator: \.isNewline) {
             guard let marker = line.range(of: "REG_SZ") else { continue }
             let path = line[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
             guard let fileName = path.split(separator: "\\").last,
-                  fileName.caseInsensitiveCompare("PingFang.ttc") == .orderedSame else { continue }
-            return String(fileName)
+                  fileName.caseInsensitiveCompare(Self.pingFangFileName) == .orderedSame else { continue }
+            return true
         }
-        return nil
+        return false
     }
 
+    /// 拒绝 REG_MULTI_SZ 的缩进续行或无法确认编码的内容，避免回写截断值。
+    /// reg query 在中文 locale 下可能输出 GBK；这里不能依赖中文内容作匹配，
+    /// 且回写的链接值必须全为 ASCII，避免有损 UTF-8 解码把原值改坏。
     static func tahomaLinks(fromQueryStatus status: Int32, output: String) -> [String]? {
-        guard status == 0,
-              let line = output.split(whereSeparator: \.isNewline).first(where: {
-                  $0.trimmingCharacters(in: .whitespaces).hasPrefix("Tahoma") && $0.contains("REG_MULTI_SZ")
+        guard status == 0 else { return nil }
+        let lines = output.split(whereSeparator: \.isNewline)
+        guard let index = lines.firstIndex(where: {
+                  guard let marker = $0.range(of: "REG_MULTI_SZ") else { return false }
+                  return $0[..<marker.lowerBound].trimmingCharacters(in: .whitespaces) == "Tahoma"
               }),
-              let marker = line.range(of: "REG_MULTI_SZ") else { return nil }
+              let marker = lines[index].range(of: "REG_MULTI_SZ") else { return nil }
+        if let next = lines.dropFirst(index + 1).first,
+           next.first == " " || next.first == "\t" {
+            return nil
+        }
+        let line = lines[index]
         let value = line[marker.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        let links = value.components(separatedBy: "\\0").filter { !$0.isEmpty }
-        return links.isEmpty ? nil : links
+        guard value.utf8.allSatisfy({ $0 < 0x80 }) else { return nil }
+        let links = value.components(separatedBy: "\\0")
+        return !links.isEmpty && links.allSatisfy({ !$0.isEmpty }) ? links : nil
     }
 
     static func fullHive(_ key: String) -> String {
@@ -228,14 +242,14 @@ public final class RegistryService: @unchecked Sendable {
         )
     ]
 
-    static func appleFontAssignments(fileName: String, existingTahomaLinks: [String]) -> [RegistryAssignment] {
+    static func appleFontAssignments(existingTahomaLinks: [String]) -> [RegistryAssignment] {
         let substitutionsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"#
         let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
         let aliases = [
             "MS Shell Dlg", "MS Shell Dlg 2", "Microsoft Sans Serif", "Microsoft YaHei",
             "Microsoft YaHei UI", "Segoe UI", "SimSun", "NSimSun", "宋体"
         ]
-        let pingFang = "\(fileName),PingFang SC"
+        let pingFang = "\(Self.pingFangFileName),\(Self.pingFangFaceName)"
         let links = [pingFang] + existingTahomaLinks.filter { $0.caseInsensitiveCompare(pingFang) != .orderedSame }
         return aliases.map { RegistryAssignment(key: substitutionsKey, name: $0, value: "Tahoma") }
             + [RegistryAssignment(key: linksKey, name: "Tahoma", multiStringValues: links)]

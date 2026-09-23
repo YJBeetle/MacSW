@@ -101,24 +101,56 @@ final class RegistryServiceTests: XCTestCase {
         HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink
             Tahoma    REG_MULTI_SZ    tahoma.ttf\\0meiryo.ttc,Meiryo\\0simsun.ttc,SimSun
         """
-        XCTAssertEqual(
-            RegistryService.registeredPingFangFileName(fromQueryStatus: 0, output: fontOutput),
-            "PingFang.ttc"
-        )
-        XCTAssertNil(RegistryService.registeredPingFangFileName(fromQueryStatus: 1, output: fontOutput))
-        XCTAssertNil(RegistryService.registeredPingFangFileName(
+        XCTAssertTrue(RegistryService.hasRegisteredPingFang(fromQueryStatus: 0, output: fontOutput))
+        XCTAssertFalse(RegistryService.hasRegisteredPingFang(fromQueryStatus: 1, output: fontOutput))
+        XCTAssertFalse(RegistryService.hasRegisteredPingFang(
             fromQueryStatus: 0,
             output: fontOutput.replacingOccurrences(of: "PingFang.ttc", with: "PingFangUI.bad")
         ))
         let links = try XCTUnwrap(RegistryService.tahomaLinks(fromQueryStatus: 0, output: linksOutput))
         XCTAssertEqual(links, ["tahoma.ttf", "meiryo.ttc,Meiryo", "simsun.ttc,SimSun"])
-        let assignments = RegistryService.appleFontAssignments(fileName: "PingFang.ttc", existingTahomaLinks: links)
+        let assignments = RegistryService.appleFontAssignments(existingTahomaLinks: links)
         XCTAssertEqual(assignments.first(where: { $0.name == "Tahoma" })?.valueKind, .multiString)
         XCTAssertEqual(assignments.first(where: { $0.name == "Tahoma" })?.value.components(separatedBy: "\0"),
                        ["PingFang.ttc,PingFang SC"] + links)
         XCTAssertEqual(assignments.first(where: { $0.name == "SimSun" })?.value, "Tahoma")
         XCTAssertEqual(assignments.first(where: { $0.name == "Microsoft YaHei" })?.value, "Tahoma")
         XCTAssertFalse(assignments.contains(where: { $0.name == "Tahoma" && $0.valueKind == .string }))
+    }
+
+    func testTahomaLinksRejectIncompleteOrLossyQueries() {
+        let header = #"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
+        let complete = "\(header)\n    Tahoma    REG_MULTI_SZ    tahoma.ttf\\0meiryo.ttc,Meiryo\\0simsun.ttc,SimSun"
+        XCTAssertEqual(RegistryService.tahomaLinks(fromQueryStatus: 0, output: complete)?.count, 3)
+        XCTAssertEqual(RegistryService.tahomaLinks(fromQueryStatus: 0, output: complete + "\nQuery complete")?.count, 3)
+        XCTAssertNil(RegistryService.tahomaLinks(
+            fromQueryStatus: 0,
+            output: "\(header)\n    Tahoma Bold    REG_MULTI_SZ    bold.ttf,Example"
+        ))
+        let wineDefaults = [
+            "MSGOTHIC.TTC,MS UI Gothic", "MINGLIU.TTC,PMingLiU", "SIMSUN.TTC,SimSun",
+            "GULIM.TTC,Gulim", "YUGOTHM.TTC,Yu Gothic UI", "MSJH.TTC,Microsoft JhengHei UI",
+            "MSYH.TTC,Microsoft YaHei UI", "MALGUN.TTF,Malgun Gothic", "SEGUISYM.TTF,Segoe UI Symbol"
+        ]
+        let realFormat = "\(header)\n    Tahoma    REG_MULTI_SZ    \(wineDefaults.joined(separator: "\\0"))"
+        XCTAssertEqual(RegistryService.tahomaLinks(fromQueryStatus: 0, output: realFormat), wineDefaults)
+        XCTAssertNil(RegistryService.tahomaLinks(fromQueryStatus: 1, output: complete))
+        XCTAssertNil(RegistryService.tahomaLinks(
+            fromQueryStatus: 0,
+            output: "\(header)\n    Tahoma    REG_MULTI_SZ    tahoma.ttf\\0meiryo.ttc,Meiryo\n        simsun.ttc,SimSun"
+        ))
+        XCTAssertNil(RegistryService.tahomaLinks(
+            fromQueryStatus: 0,
+            output: "\(header)\n    Tahoma    REG_MULTI_SZ    tahoma.ttf\\0字体�.ttc,示例"
+        ))
+        XCTAssertNil(RegistryService.tahomaLinks(
+            fromQueryStatus: 0,
+            output: "\(header)\n    Tahoma    REG_MULTI_SZ    tahoma.ttf\\0字体.ttc,示例"
+        ))
+        XCTAssertNil(RegistryService.tahomaLinks(
+            fromQueryStatus: 0,
+            output: "\(header)\n    Tahoma    REG_MULTI_SZ    tahoma.ttf\\0\\0simsun.ttc,SimSun"
+        ))
     }
 
     func testRegistryFileUsesUTF16LEForChineseNamesAndMultiStringValues() throws {
