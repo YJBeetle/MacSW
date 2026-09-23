@@ -211,6 +211,7 @@ struct SettingsView: View {
                 HStack(spacing: 10) {
                     wineToolButton("注册表编辑器", name: "regedit")
                     wineToolButton("Wine 配置", name: "winecfg")
+                    wineToolButton("CMD", name: "cmd")
                     Button("浏览虚拟 C 盘") {
                         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: runtime.paths.bottle.appendingPathComponent("drive_c").path)
                     }
