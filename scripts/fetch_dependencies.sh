@@ -99,6 +99,10 @@ fetch_swcli_runtime() {
         "${SWCLI_PYWIN32_WHEEL_URL}" \
         "${DIST_DIR}/${SWCLI_PYWIN32_WHEEL_ASSET}" \
         "${SWCLI_PYWIN32_WHEEL_SHA256}"
+    download_verified "native macOS Python ${SWCLI_NATIVE_PYTHON_VERSION}" \
+        "${SWCLI_NATIVE_PYTHON_ARCHIVE_URL}" \
+        "${DIST_DIR}/${SWCLI_NATIVE_PYTHON_ARCHIVE_ASSET}" \
+        "${SWCLI_NATIVE_PYTHON_ARCHIVE_SHA256}"
 }
 
 case "${1:-all}" in

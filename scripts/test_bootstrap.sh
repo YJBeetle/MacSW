@@ -14,6 +14,8 @@ mkdir -p "${MODULE_CACHE_DIR}" "${SWIFT_BUILD_DIR}" "${SWIFT_CACHE_DIR}" \
 export CLANG_MODULE_CACHE_PATH="${MODULE_CACHE_DIR}"
 export SWIFT_MODULECACHE_PATH="${MODULE_CACHE_DIR}"
 
+"${WORKSPACE_ROOT}/scripts/test_swcli_launcher.sh"
+
 swift test \
     --package-path "${PACKAGE_DIR}" \
     --scratch-path "${SWIFT_BUILD_DIR}" \

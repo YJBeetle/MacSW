@@ -21,7 +21,9 @@ BUILD_MANIFEST="${CONTENTS_DIR}/Resources/BuildManifest.plist"
 SWCLI_DIR="${CONTENTS_DIR}/Resources/SWCLI"
 SWCLI_LAUNCHER="${CONTENTS_DIR}/MacOS/sw-cli"
 SWCLI_PATH_HELPER="${SWCLI_DIR}/bin/swcli_path.exe"
+SWCLI_NATIVE_PATH_HELPER="${SWCLI_DIR}/bin/swcli-path"
 SWCLI_RUNTIME="${SWCLI_DIR}/runtime/Python311"
+SWCLI_NATIVE_RUNTIME="${SWCLI_DIR}/runtime/PythonNative"
 WINE_LICENSES_DIR="${CONTENTS_DIR}/Resources/licenses/Wine"
 MACSW_LICENSES_DIR="${CONTENTS_DIR}/Resources/licenses/MacSW"
 
@@ -50,10 +52,14 @@ test -f "${SWCLI_RUNTIME}/Lib/site-packages/pywin32_system32/pythoncom311.dll"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/win32com/client/__init__.py"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/swcli/__main__.py"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/swcli/schemas/v1/request.schema.json"
+test -x "${SWCLI_NATIVE_RUNTIME}/bin/python3"
+test -f "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/__main__.py"
+test -f "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/schemas/v1/request.schema.json"
 grep -Fxq 'Lib\site-packages' "${SWCLI_RUNTIME}/python311._pth"
 grep -Fxq 'import site' "${SWCLI_RUNTIME}/python311._pth"
 test -f "${SWCLI_DIR}/licenses/SWCLI-LICENSE"
 test -s "${SWCLI_DIR}/licenses/Python-LICENSE.txt"
+test -s "${SWCLI_DIR}/licenses/Python-Native-LICENSE.txt"
 test -s "${SWCLI_DIR}/licenses/pywin32-LICENSE.txt"
 test -s "${MACSW_LICENSES_DIR}/Apache-2.0.txt"
 test -s "${MACSW_LICENSES_DIR}/NOTICE"
@@ -67,6 +73,7 @@ grep -Fq "${WINE_SOURCE_SHA256}" "${WINE_LICENSES_DIR}/SOURCE.txt"
 test -z "$(find "${SWCLI_RUNTIME}" -type d -name __pycache__ -print -quit)"
 test -z "$(find "${SWCLI_RUNTIME}" -type f -name '*.pyc' -print -quit)"
 test -f "${SWCLI_PATH_HELPER}"
+test -x "${SWCLI_NATIVE_PATH_HELPER}"
 test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch" | awk '{print $1}')"
@@ -91,6 +98,9 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPythonVersion' "${BUILD_MANIFEST
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPythonArchiveSHA256' "${BUILD_MANIFEST}")" = "${SWCLI_PYTHON_ARCHIVE_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPyWin32Version' "${BUILD_MANIFEST}")" = "${SWCLI_PYWIN32_VERSION}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIPyWin32WheelSHA256' "${BUILD_MANIFEST}")" = "${SWCLI_PYWIN32_WHEEL_SHA256}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLINativePythonVersion' "${BUILD_MANIFEST}")" = "${SWCLI_NATIVE_PYTHON_VERSION}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLINativePythonRelease' "${BUILD_MANIFEST}")" = "${SWCLI_NATIVE_PYTHON_RELEASE}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLINativePythonArchiveSHA256' "${BUILD_MANIFEST}")" = "${SWCLI_NATIVE_PYTHON_ARCHIVE_SHA256}"
 test -x "${RUNTIME_DIR}/bin/wineloader"
 test -x "${RUNTIME_DIR}/bin/wineserver"
 test -x "${BRANDED_WINE_LOADER}"
@@ -105,6 +115,7 @@ file "${MONO_REGASM_X64}" | grep -q 'PE32+ executable.*x86-64 Mono/.Net assembly
 file "${CONTENTS_DIR}/Resources/sw_ui_daemon.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_PATH_HELPER}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/python.exe" | grep -q 'PE32+ executable.*x86-64'
+file "${SWCLI_NATIVE_RUNTIME}/bin/python3" | grep -q 'Mach-O 64-bit executable arm64'
 file "${WINEMAC_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
 file "${WIN32U_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
 file "${NTDLL_UNIX}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
@@ -123,5 +134,8 @@ test "${ACTUAL_WINE_VERSION}" = "wine-${WINE_VERSION}" || {
     echo "Packaged Wine version mismatch: ${ACTUAL_WINE_VERSION}" >&2
     exit 1
 }
+
+"${SWCLI_LAUNCHER}" --help >/dev/null
+test "$("${SWCLI_LAUNCHER}" version --json | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["client_version"])')" = "${SWCLI_VERSION}"
 
 echo "==> Verified ${APP_DIR}: MacSW ${APP_VERSION} (${APP_BUILD}), Wine ${WINE_VERSION}, Mono ${WINE_MONO_VERSION}, SWCLI ${SWCLI_VERSION}"

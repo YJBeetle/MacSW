@@ -121,6 +121,9 @@ make ci                   # 测试并生成归档
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
+- 同时打包固定版本的 macOS 原生 Python 与 Windows Python：普通 `sw-cli`
+  协议客户端在 macOS 原生运行，只有 `doctor` 和 `daemon` 生命周期命令进入
+  Wine Windows Python；安装后的 App 不会再下载运行时。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 

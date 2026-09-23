@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: swcli-path PATH" >&2
+    exit 2
+fi
+
+path="$1"
+case "${path}" in
+    [A-Za-z]:[\\/]*|\\\\*)
+        printf '%s\n' "${path}"
+        ;;
+    /*)
+        printf 'Z:%s\n' "${path//\//\\}"
+        ;;
+    *)
+        printf 'Z:%s\\%s\n' "${PWD//\//\\}" "${path//\//\\}"
+        ;;
+esac

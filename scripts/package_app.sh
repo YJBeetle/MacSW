@@ -28,9 +28,11 @@ SWCLI_ROOT="${WORKSPACE_ROOT}/Dependencies/SWCLI"
 SWCLI_SOURCE="${SWCLI_ROOT}/src/swcli"
 SWCLI_LICENSE="${SWCLI_ROOT}/LICENSE"
 SWCLI_LAUNCHER="${WORKSPACE_ROOT}/scripts/swcli/sw-cli"
+SWCLI_NATIVE_PATH_HELPER="${WORKSPACE_ROOT}/scripts/swcli/swcli-path"
 SWCLI_PATH_HELPER="${BUILD_ROOT}/native/swcli_path.exe"
 SWCLI_PYTHON_ARCHIVE="${WORKSPACE_ROOT}/dist/${SWCLI_PYTHON_ARCHIVE_ASSET}"
 SWCLI_PYWIN32_WHEEL="${WORKSPACE_ROOT}/dist/${SWCLI_PYWIN32_WHEEL_ASSET}"
+SWCLI_NATIVE_PYTHON_ARCHIVE="${WORKSPACE_ROOT}/dist/${SWCLI_NATIVE_PYTHON_ARCHIVE_ASSET}"
 
 require_file() {
     if [ ! -f "$1" ]; then
@@ -44,7 +46,9 @@ for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" "${MACSW
     "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
     "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
-    "${SWCLI_PATH_HELPER}" "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}"; do
+    "${SWCLI_NATIVE_PATH_HELPER}" "${SWCLI_PATH_HELPER}" \
+    "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}" \
+    "${SWCLI_NATIVE_PYTHON_ARCHIVE}"; do
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
@@ -58,6 +62,7 @@ test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM
 test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}" || { echo "stdole DLL checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${SWCLI_PYTHON_ARCHIVE}" | awk '{print $1}')" = "${SWCLI_PYTHON_ARCHIVE_SHA256}" || { echo "Windows Python archive checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${SWCLI_PYWIN32_WHEEL}" | awk '{print $1}')" = "${SWCLI_PYWIN32_WHEEL_SHA256}" || { echo "pywin32 wheel checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${SWCLI_NATIVE_PYTHON_ARCHIVE}" | awk '{print $1}')" = "${SWCLI_NATIVE_PYTHON_ARCHIVE_SHA256}" || { echo "native macOS Python archive checksum mismatch" >&2; exit 1; }
 ACTUAL_SWCLI_COMMIT="$(git -C "${SWCLI_ROOT}" rev-parse HEAD)"
 test "${ACTUAL_SWCLI_COMMIT}" = "${SWCLI_SOURCE_COMMIT}" || {
     echo "SWCLI submodule mismatch: expected ${SWCLI_SOURCE_COMMIT}, got ${ACTUAL_SWCLI_COMMIT}" >&2
@@ -87,10 +92,15 @@ cp -p "${SWCLI_LAUNCHER}" "${MAC_OS_DIR}/sw-cli"
 chmod +x "${MAC_OS_DIR}/sw-cli"
 SWCLI_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/Python311"
 SWCLI_SITE_PACKAGES="${SWCLI_RUNTIME}/Lib/site-packages"
+SWCLI_NATIVE_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/PythonNative"
+SWCLI_NATIVE_SITE_PACKAGES="${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages"
 mkdir -p "${RESOURCES_DIR}/SWCLI/bin" "${SWCLI_SITE_PACKAGES}" \
+    "${SWCLI_NATIVE_RUNTIME}" "${SWCLI_NATIVE_SITE_PACKAGES}" \
     "${RESOURCES_DIR}/SWCLI/licenses"
 unzip -q "${SWCLI_PYTHON_ARCHIVE}" -d "${SWCLI_RUNTIME}"
 unzip -q "${SWCLI_PYWIN32_WHEEL}" -d "${SWCLI_SITE_PACKAGES}"
+tar -xzf "${SWCLI_NATIVE_PYTHON_ARCHIVE}" -C "${SWCLI_NATIVE_RUNTIME}" \
+    --strip-components=1
 tr -d '\r' < "${SWCLI_RUNTIME}/python311._pth" | awk '
     /^#import site$/ { print "Lib\\site-packages"; print "import site"; next }
     { print }
@@ -98,12 +108,18 @@ tr -d '\r' < "${SWCLI_RUNTIME}/python311._pth" | awk '
 mv "${SWCLI_RUNTIME}/python311._pth.new" "${SWCLI_RUNTIME}/python311._pth"
 rsync -a --exclude='__pycache__' --exclude='*.pyc' \
     "${SWCLI_SOURCE}/" "${SWCLI_SITE_PACKAGES}/swcli/"
+rsync -a --exclude='__pycache__' --exclude='*.pyc' \
+    "${SWCLI_SOURCE}/" "${SWCLI_NATIVE_SITE_PACKAGES}/swcli/"
 cp -p "${SWCLI_LICENSE}" "${RESOURCES_DIR}/SWCLI/licenses/SWCLI-LICENSE"
 unzip -p "${SWCLI_PYTHON_ARCHIVE}" LICENSE.txt \
     > "${RESOURCES_DIR}/SWCLI/licenses/Python-LICENSE.txt"
 unzip -p "${SWCLI_PYWIN32_WHEEL}" win32/License.txt \
     > "${RESOURCES_DIR}/SWCLI/licenses/pywin32-LICENSE.txt"
+cp -p "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/LICENSE.txt" \
+    "${RESOURCES_DIR}/SWCLI/licenses/Python-Native-LICENSE.txt"
 cp -p "${SWCLI_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.exe"
+cp -p "${SWCLI_NATIVE_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
+chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
 
 MACSW_LICENSES_DIR="${RESOURCES_DIR}/licenses/MacSW"
 mkdir -p "${MACSW_LICENSES_DIR}"
@@ -195,6 +211,9 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :SWCLIPythonArchiveSHA256 string ${SWCLI_PYTHON_ARCHIVE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIPyWin32Version string ${SWCLI_PYWIN32_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIPyWin32WheelSHA256 string ${SWCLI_PYWIN32_WHEEL_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLINativePythonVersion string ${SWCLI_NATIVE_PYTHON_VERSION}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLINativePythonRelease string ${SWCLI_NATIVE_PYTHON_RELEASE}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLINativePythonArchiveSHA256 string ${SWCLI_NATIVE_PYTHON_ARCHIVE_SHA256}" "${BUILD_MANIFEST}"
 
 mkdir -p "$(dirname "${FINAL_APP_DIR}")"
 if [ -d "${FINAL_APP_DIR}" ]; then
