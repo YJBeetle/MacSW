@@ -406,6 +406,7 @@ public final class BootstrapStore: ObservableObject {
             try await prerequisites.configureMono(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMRegistration(prefix: paths.bottle)
             try prerequisites.prepareManagedCOMDependencies(prefix: paths.bottle)
+            try prerequisites.prepareSWCLI(prefix: paths.bottle)
             let installationFontStatus = try await registry.configureInstallationEnvironment(prefix: paths.bottle)
             let fontStatus: String
             switch installationFontStatus {
@@ -416,7 +417,7 @@ public final class BootstrapStore: ObservableObject {
             case .existingLinksUnreadable:
                 fontStatus = "已检测到系统苹方，但无法安全读取现有 Tahoma 字体链接，未改写字体设置"
             }
-            report(.environment, .completed, "Mono、RegAsm、stdole 与 SOLIDWORKS 兼容设置已就绪，\(fontStatus)；桌面已临时改到容器内")
+            report(.environment, .completed, "Mono、RegAsm、stdole、SWCLI 与 SOLIDWORKS 兼容设置已就绪，\(fontStatus)；桌面已临时改到容器内")
 
             state = .installing(.vcRuntime)
             report(.vcRuntime, .running, "正在静默安装官方 VC++ x64 运行库…")

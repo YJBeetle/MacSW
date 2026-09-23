@@ -38,6 +38,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
 - 中文界面优先使用系统苹方补字形，不额外打包字体；安装策略与验证边界见
   [docs/font-fallback.md](docs/font-fallback.md)。
+- App 内置固定提交的 SWCLI、Windows Python 3.11 与 pywin32。它们都在构建时下载或检出、校验并展开，
+  全新安装时一次复制进容器，最终用户使用时不会联网下载依赖。
 
 ## 图形窗口修复
 

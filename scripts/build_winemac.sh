@@ -47,9 +47,7 @@ DRIVER_PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
 INPUT_PATCH_SHA256="$(shasum -a 256 "${INPUT_PATCH}" | awk '{print $1}')"
 OPENGL_PATCH_SHA256="$(shasum -a 256 "${OPENGL_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-VERSIONS_SHA256="$(shasum -a 256 "${MACSW_VERSIONS_FILE}" | awk '{print $1}')"
-CONFIG_LOADER_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/scripts/lib/config.sh" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${SCRIPT_SHA256}:${VERSIONS_SHA256}:${CONFIG_LOADER_SHA256}"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${SCRIPT_SHA256}"
 if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."

@@ -90,6 +90,17 @@ fetch_seven_zip() {
     fi
 }
 
+fetch_swcli_runtime() {
+    download_verified "Windows embeddable Python ${SWCLI_PYTHON_VERSION}" \
+        "${SWCLI_PYTHON_ARCHIVE_URL}" \
+        "${DIST_DIR}/${SWCLI_PYTHON_ARCHIVE_ASSET}" \
+        "${SWCLI_PYTHON_ARCHIVE_SHA256}"
+    download_verified "pywin32 ${SWCLI_PYWIN32_VERSION}" \
+        "${SWCLI_PYWIN32_WHEEL_URL}" \
+        "${DIST_DIR}/${SWCLI_PYWIN32_WHEEL_ASSET}" \
+        "${SWCLI_PYWIN32_WHEEL_SHA256}"
+}
+
 case "${1:-all}" in
     all)
         fetch_runtime
@@ -97,14 +108,16 @@ case "${1:-all}" in
         fetch_mono_patch
         fetch_stdole
         fetch_seven_zip
+        fetch_swcli_runtime
         ;;
     runtime) fetch_runtime ;;
     wine-source) fetch_wine_source ;;
     mono) fetch_mono_patch ;;
     stdole) fetch_stdole ;;
     seven-zip) fetch_seven_zip ;;
+    swcli-runtime) fetch_swcli_runtime ;;
     *)
-        echo "Usage: $0 [all|runtime|wine-source|mono|stdole|seven-zip]" >&2
+        echo "Usage: $0 [all|runtime|wine-source|mono|stdole|seven-zip|swcli-runtime]" >&2
         exit 2
         ;;
 esac

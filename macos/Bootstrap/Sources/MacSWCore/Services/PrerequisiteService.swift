@@ -6,6 +6,7 @@ public final class PrerequisiteService: @unchecked Sendable {
     public static let themes = ["Luna", "Aero", "Classic", "Royale", "AeroLite"]
     public static let stdoleDestination = "drive_c/Program Files/Common Files/SOLIDWORKS Shared/stdole.dll"
     public static let loginManagerDestination = "drive_c/Program Files/Common Files/SOLIDWORKS Shared/LoginManager/sldLoginManager.dll"
+    public static let swcliDestination = "drive_c/MacSW/Python311"
 
     private let wine: WineService
 
@@ -75,6 +76,29 @@ public final class PrerequisiteService: @unchecked Sendable {
 
     public func prepareManagedCOMDependencies(prefix: URL) throws {
         try Self.prepareManagedCOMDependencies(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+    }
+
+    public func prepareSWCLI(prefix: URL) throws {
+        try Self.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+    }
+
+    public static func prepareSWCLI(bundleURL: URL, prefix: URL) throws {
+        let fileManager = FileManager.default
+        let source = bundleURL.appendingPathComponent("Contents/Resources/SWCLI/runtime/Python311")
+        guard fileManager.fileExists(atPath: source.appendingPathComponent("python.exe").path),
+              fileManager.fileExists(atPath: source.appendingPathComponent("Lib/site-packages/swcli/__main__.py").path) else {
+            throw failure("MacSW 内置的 SWCLI 自动化组件不完整，无法继续安装。请重新下载完整的 MacSW.app 后重试。")
+        }
+        let target = prefix.appendingPathComponent(swcliDestination)
+        let staging = target.deletingLastPathComponent()
+            .appendingPathComponent(".Python311.install-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: staging) }
+        try fileManager.copyItem(at: source, to: staging)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        try fileManager.moveItem(at: staging, to: target)
     }
 
     public static func prepareManagedCOMDependencies(
