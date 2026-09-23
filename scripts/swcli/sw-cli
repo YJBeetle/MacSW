@@ -18,6 +18,15 @@ NATIVE_PATH_HELPER="${SWCLI_RESOURCES}/bin/swcli-path"
 
 export WINEPREFIX
 export WINEDEBUG="${WINEDEBUG:--all}"
+export WINELOADER
+export WINESERVER
+export LANG="zh_CN.UTF-8"
+export LC_ALL="zh_CN.UTF-8"
+# Keep CLI-created SOLIDWORKS hosts on the same compatibility profile as
+# WineService.environment(solidWorks: true). These native VC runtimes are
+# required by SOLIDWORKS; Wine's builtin concrt140 crashes during startup.
+export WINE_MONO_AOT="none"
+export WINEDLLOVERRIDES="atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b"
 
 to_windows_path() {
     printf 'Z:%s\n' "${1//\//\\}"

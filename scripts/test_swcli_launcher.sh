@@ -25,7 +25,9 @@ touch "${PREFIX}/drive_c/MacSW/Python311/pythonw.exe"
 
 cat > "${CONTENTS_DIR}/Frameworks/wine/bin/wineloader" <<'EOF'
 #!/usr/bin/env bash
-printf 'windows translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> "${SWCLI_TEST_LOG}"
+printf 'windows translator=%s aot=%s overrides=%s lang=%s lc_all=%s loader=%s server=%s args=%s\n' \
+    "${SWCLI_PATH_TRANSLATE_CMD:-}" "${WINE_MONO_AOT:-}" "${WINEDLLOVERRIDES:-}" \
+    "${LANG:-}" "${LC_ALL:-}" "${WINELOADER:-}" "${WINESERVER:-}" "$*" >> "${SWCLI_TEST_LOG}"
 if [[ "${1:-}" == *pythonw.exe && "${2:-}" == "-c" ]]; then
     output="${4#Z:}"
     output="${output//\\//}"
@@ -60,6 +62,10 @@ STATUS_OUTPUT="$("${LAUNCHER}" daemon status --json)"
 test "${STATUS_OUTPUT}" = '{"mock":true}'
 grep -Fq 'windows translator=Z:' "${LOG_FILE}"
 grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
+grep -Fq 'aot=none' "${LOG_FILE}"
+grep -Fq 'overrides=atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b' "${LOG_FILE}"
+grep -Fq 'lang=zh_CN.UTF-8 lc_all=zh_CN.UTF-8' "${LOG_FILE}"
+grep -Fq "loader=${CONTENTS_DIR}/Frameworks/wine/bin/wineloader server=${CONTENTS_DIR}/Frameworks/wine/bin/wineserver" "${LOG_FILE}"
 ! grep -Fq 'native ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
