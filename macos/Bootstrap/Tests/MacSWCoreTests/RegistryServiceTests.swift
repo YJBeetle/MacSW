@@ -146,6 +146,9 @@ final class RegistryServiceTests: XCTestCase {
             fromQueryStatus: 0,
             output: fontOutput.replacingOccurrences(of: "PingFang.ttc", with: "PingFangUI.bad")
         ))
+        XCTAssertTrue(try RegistryService.hasRegisteredPingFangForStartup(fromQueryStatus: 0, output: fontOutput))
+        XCTAssertFalse(try RegistryService.hasRegisteredPingFangForStartup(fromQueryStatus: 0, output: ""))
+        XCTAssertThrowsError(try RegistryService.hasRegisteredPingFangForStartup(fromQueryStatus: 2, output: ""))
         let links = try XCTUnwrap(RegistryService.tahomaLinks(fromQueryStatus: 0, output: linksOutput))
         XCTAssertEqual(links, ["tahoma.ttf", "meiryo.ttc,Meiryo", "simsun.ttc,SimSun"])
         let assignments = RegistryService.appleFontAssignments(existingTahomaLinks: links)
@@ -155,6 +158,18 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertEqual(assignments.first(where: { $0.name == "SimSun" })?.value, "Tahoma")
         XCTAssertEqual(assignments.first(where: { $0.name == "Microsoft YaHei" })?.value, "Tahoma")
         XCTAssertFalse(assignments.contains(where: { $0.name == "Tahoma" && $0.valueKind == .string }))
+    }
+
+    func testStartupRepairAddsOnlyMissingTahomaFontLinkAndPreservesExistingFallbacks() throws {
+        let original = ["MSGOTHIC.TTC,MS UI Gothic", "SIMSUN.TTC,SimSun", "SEGUISYM.TTF,Segoe UI Symbol"]
+        let assignment = try XCTUnwrap(RegistryService.missingPingFangLinkAssignment(existingTahomaLinks: original))
+        XCTAssertEqual(assignment.name, "Tahoma")
+        XCTAssertEqual(assignment.valueKind, .multiString)
+        XCTAssertEqual(assignment.value.components(separatedBy: "\0"), ["PingFang.ttc,PingFang SC"] + original)
+        XCTAssertEqual(assignment.key, #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#)
+        XCTAssertNil(RegistryService.missingPingFangLinkAssignment(
+            existingTahomaLinks: ["PingFang.ttc,PingFang SC"] + original
+        ))
     }
 
     func testTahomaLinksRejectIncompleteOrLossyQueries() {

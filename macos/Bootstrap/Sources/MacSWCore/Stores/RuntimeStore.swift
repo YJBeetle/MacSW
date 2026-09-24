@@ -13,27 +13,85 @@ public final class RuntimeStore: ObservableObject {
     public let paths: AppPaths
     private let wine: WineService
     private let licenseServer: LicenseServerStore
+    private let fontLinkRepair: @Sendable (URL) async throws -> Void
+    private var fontPreparation: Task<Void, Error>?
+    private var fontPreparationID: UUID?
+    private var fontPreparationSuspended = false
     private var didRunStartup = false
 
-    public init(paths: AppPaths, licenseServer: LicenseServerStore, wine: WineService = .shared) {
+    public init(
+        paths: AppPaths,
+        licenseServer: LicenseServerStore,
+        wine: WineService = .shared,
+        fontLinkRepair: (@Sendable (URL) async throws -> Void)? = nil
+    ) {
         self.paths = paths
         self.licenseServer = licenseServer
         self.wine = wine
+        self.fontLinkRepair = fontLinkRepair ?? { prefix in
+            _ = try await RegistryService(wine: wine).repairTahomaFontLinkIfNeeded(prefix: prefix)
+        }
         self.state = paths.solidWorksInstalled ? .unknown : .unavailable
     }
 
     public var isInstalled: Bool { paths.solidWorksInstalled }
     public var isRunning: Bool { if case .running = state { return true }; return false }
 
+    /// App 启动时建立唯一的字体准备任务，自动和手动启动都等待它完成。
+    public func prepareFontLinkAtAppLaunch() {
+        guard !fontPreparationSuspended, fontPreparation == nil,
+              paths.bottleExists, paths.solidWorksInstalled else { return }
+        let repair = fontLinkRepair
+        let bottle = paths.bottle
+        fontPreparationID = UUID()
+        fontPreparation = Task { try await repair(bottle) }
+    }
+
+    func ensureFontLinkPrepared() async throws {
+        guard !fontPreparationSuspended else {
+            throw runtimeError("容器正在清理或重新安装，稍后再启动 SOLIDWORKS。")
+        }
+        prepareFontLinkAtAppLaunch()
+        guard let task = fontPreparation, let id = fontPreparationID else { return }
+        do {
+            try await task.value
+        } catch {
+            // 失败的任务不能留给下一次手动启动复用；其他等待者可能仍在等同一个任务。
+            if fontPreparationID == id {
+                fontPreparation = nil
+                fontPreparationID = nil
+            }
+            throw error
+        }
+    }
+
+    /// 删除容器前先阻止新的字体检查，并等正在读写注册表的 Wine 进程退出。
+    public func suspendFontPreparationForBottleDeletion() async {
+        fontPreparationSuspended = true
+        guard let task = fontPreparation else { return }
+        task.cancel()
+        _ = try? await task.value
+        fontPreparation = nil
+        fontPreparationID = nil
+    }
+
+    public func resumeFontPreparationAfterBottleDeletion() {
+        fontPreparationSuspended = false
+    }
+
     /// 打开 App 不探测进程状态：需要自动启动时才探测，其余情况等用户查看菜单或启动时再说。
-    public func startup(autoLaunch: Bool) {
+    public func startup(autoLaunch: Bool) async {
         guard !didRunStartup else { return }
         didRunStartup = true
-        guard autoLaunch else { return }
-        Task {
-            await refreshState()
-            if isInstalled, !isRunning { launch() }
+        do {
+            try await ensureFontLinkPrepared()
+        } catch {
+            statusMessage = "检查苹方字体链接失败：\(error.localizedDescription)"
+            return
         }
+        guard autoLaunch else { return }
+        await refreshState()
+        if isInstalled, !isRunning { launch() }
     }
 
     /// 供面板等待的刷新入口。
@@ -57,6 +115,7 @@ public final class RuntimeStore: ObservableObject {
         statusMessage = "正在准备启动 SOLIDWORKS…"
         Task {
             do {
+                try await ensureFontLinkPrepared()
                 if needsRunningProbe { await refreshState() }
                 if isRunning {
                     statusMessage = "SOLIDWORKS 已在运行。"

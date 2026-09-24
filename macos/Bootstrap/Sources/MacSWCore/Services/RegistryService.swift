@@ -90,6 +90,30 @@ public final class RegistryService: @unchecked Sendable {
         return .enabled
     }
 
+    /// App 启动时只修复 Tahoma 的缺字回退链接，不改动字体族替换或其他安装期设置。
+    /// 现有链接无法安全解析时不写入，以免丢失 Wine 已生成的回退项。
+    @discardableResult
+    public func repairTahomaFontLinkIfNeeded(prefix: URL) async throws -> Bool {
+        let fontsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts"#
+        let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
+        let fontQuery = wine.makeProcess(arguments: ["reg", "query", fontsKey], prefix: prefix)
+        let (fontStatus, fontOutput) = try await wine.captureCancellable(fontQuery)
+        guard try Self.hasRegisteredPingFangForStartup(fromQueryStatus: fontStatus, output: fontOutput) else {
+            return false
+        }
+
+        let linksQuery = wine.makeProcess(arguments: ["reg", "query", linksKey, "/v", "Tahoma"], prefix: prefix)
+        let (linksStatus, linksOutput) = try await wine.captureCancellable(linksQuery)
+        guard let existingLinks = Self.tahomaLinks(fromQueryStatus: linksStatus, output: linksOutput) else {
+            throw Self.registryError("无法安全读取现有 Tahoma 字体链接，未改写字体设置。")
+        }
+        guard let assignment = Self.missingPingFangLinkAssignment(existingTahomaLinks: existingLinks) else {
+            return false
+        }
+        try await write([assignment], prefix: prefix)
+        return true
+    }
+
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {
         guard !assignments.isEmpty else { return }
         try await importRegistryData(Self.registryFileData(assignments), prefix: prefix)
@@ -180,6 +204,13 @@ public final class RegistryService: @unchecked Sendable {
             return true
         }
         return false
+    }
+
+    static func hasRegisteredPingFangForStartup(fromQueryStatus status: Int32, output: String) throws -> Bool {
+        guard status == 0 else {
+            throw registryError("读取 Wine 字体注册信息失败（\(status)）。")
+        }
+        return hasRegisteredPingFang(fromQueryStatus: status, output: output)
     }
 
     /// 拒绝 REG_MULTI_SZ 的缩进续行或无法确认编码的内容，避免回写截断值。
@@ -312,6 +343,18 @@ public final class RegistryService: @unchecked Sendable {
         let links = [pingFang] + existingTahomaLinks.filter { $0.caseInsensitiveCompare(pingFang) != .orderedSame }
         return aliases.map { RegistryAssignment(key: substitutionsKey, name: $0, value: "Tahoma") }
             + [RegistryAssignment(key: linksKey, name: "Tahoma", multiStringValues: links)]
+    }
+
+    static func missingPingFangLinkAssignment(existingTahomaLinks: [String]) -> RegistryAssignment? {
+        let pingFang = "\(pingFangFileName),\(pingFangFaceName)"
+        guard !existingTahomaLinks.contains(where: { $0.caseInsensitiveCompare(pingFang) == .orderedSame }) else {
+            return nil
+        }
+        return RegistryAssignment(
+            key: #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#,
+            name: "Tahoma",
+            multiStringValues: [pingFang] + existingTahomaLinks
+        )
     }
 
     static let licenseValueTargets: [(key: String, name: String)] = [

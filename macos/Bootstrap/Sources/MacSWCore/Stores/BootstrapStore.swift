@@ -37,6 +37,7 @@ public final class BootstrapStore: ObservableObject {
     private let registry: RegistryService
     private let iso: IsoService
     private let licensing: LicenseServerStore
+    private let runtime: RuntimeStore?
     private var installationTask: Task<Void, Never>?
     var installationGeneration: UUID?
     private var inspectionTask: Task<Void, Never>?
@@ -50,7 +51,8 @@ public final class BootstrapStore: ObservableObject {
         prerequisites: PrerequisiteService = .shared,
         registry: RegistryService? = nil,
         iso: IsoService = .shared,
-        licensing: LicenseServerStore? = nil
+        licensing: LicenseServerStore? = nil,
+        runtime: RuntimeStore? = nil
     ) {
         self.paths = paths
         self.wine = wine
@@ -58,6 +60,7 @@ public final class BootstrapStore: ObservableObject {
         self.registry = registry ?? RegistryService(wine: wine)
         self.iso = iso
         self.licensing = licensing ?? LicenseServerStore(paths: paths)
+        self.runtime = runtime
     }
 
     public var serials: InstallSerials {
@@ -321,6 +324,8 @@ public final class BootstrapStore: ObservableObject {
             throw bootstrapError("容器路径异常，拒绝清理。")
         }
         guard !state.isActive else { throw bootstrapError("安装仍在运行。") }
+        await runtime?.suspendFontPreparationForBottleDeletion()
+        defer { runtime?.resumeFontPreparationAfterBottleDeletion() }
         try await stopContainerBeforeDeletion()
         if FileManager.default.fileExists(atPath: paths.bottle.path) {
             try FileManager.default.removeItem(at: paths.bottle)
@@ -363,7 +368,9 @@ public final class BootstrapStore: ObservableObject {
         statusMessage = "正在校验安装介质…"
         var mountedByApp: MountedMedia?
         var desktopRedirections: [PrerequisiteService.DesktopRedirection] = []
+        var suspendedFontPreparation = false
         defer {
+            if suspendedFontPreparation { runtime?.resumeFontPreparationAfterBottleDeletion() }
             if !desktopRedirections.isEmpty {
                 try? prerequisites.restoreDesktopFolders(prefix: paths.bottle, to: desktopRedirections)
             }
@@ -403,6 +410,8 @@ public final class BootstrapStore: ObservableObject {
 
             if cleanInstall, paths.bottleExists {
                 try validateInputsOutsideBottle([selectedMedia, media])
+                suspendedFontPreparation = true
+                await runtime?.suspendFontPreparationForBottleDeletion()
                 try await stopContainerBeforeDeletion()
                 try Task.checkCancellation()
                 try FileManager.default.removeItem(at: paths.bottle)
@@ -544,6 +553,10 @@ public final class BootstrapStore: ObservableObject {
             report(.validation, .completed, "主程序、SldWorks.Application COM 注册与主题库校验通过")
             state = .completed
             statusMessage = "安装完成，MacSW 将切换到菜单栏并启动 SOLIDWORKS。"
+            if suspendedFontPreparation {
+                runtime?.resumeFontPreparationAfterBottleDeletion()
+                suspendedFontPreparation = false
+            }
             NotificationCenter.default.post(name: .macSWInstallationCompleted, object: nil)
         } catch is CancellationError {
             statusMessage = "正在终止容器内的安装进程…"

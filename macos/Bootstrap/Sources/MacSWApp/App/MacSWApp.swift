@@ -29,10 +29,10 @@ struct MacSWApplication: App {
     init() {
         let paths = AppPaths.live()
         let licenseServer = LicenseServerStore(paths: paths)
-        let bootstrap = BootstrapStore(paths: paths, licensing: licenseServer)
+        let runtime = RuntimeStore(paths: paths, licenseServer: licenseServer)
+        let bootstrap = BootstrapStore(paths: paths, licensing: licenseServer, runtime: runtime)
         let resourceMonitor = SolidWorksResourceMonitorStore(paths: paths)
         let keyboardShortcuts = WineKeyboardShortcutStore(paths: paths)
-        let runtime = RuntimeStore(paths: paths, licenseServer: licenseServer)
         _bootstrap = StateObject(wrappedValue: bootstrap)
         _licenseServer = StateObject(wrappedValue: licenseServer)
         _resourceMonitor = StateObject(wrappedValue: resourceMonitor)
@@ -42,9 +42,10 @@ struct MacSWApplication: App {
             AnyView(BootstrapSceneRoot(store: bootstrap, runtime: runtime))
         }
         let autoLaunch = AppPreferences.autoLaunchSolidWorks()
+        runtime.prepareFontLinkAtAppLaunch()
         Task { @MainActor in
             await licenseServer.refreshInstallation()
-            runtime.startup(autoLaunch: autoLaunch)
+            await runtime.startup(autoLaunch: autoLaunch)
         }
     }
 
