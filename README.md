@@ -82,7 +82,7 @@ brew install bison mingw-w64
 make app
 ```
 
-产物位于 `build/app/MacSW.app`。`scripts/make_app.sh` 仍作为 `make app` 的兼容入口。
+产物位于 `build/app/MacSW.app`。
 首次构建需要联网下载固定依赖；校验通过的下载和 Wine 原生模块构建结果缓存在 `dist/`，
 相同配置再次构建时会复用。
 
