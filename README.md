@@ -65,7 +65,7 @@ SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.d
 
 Wine GUI 进程使用内嵌 `MacSW` bundle 元数据的 loader，并由 `wine -> MacSW` 兼容链接满足
 Wine 后续重新执行 loader 的固定路径。相关修改见
-[`0005-winemac-macsw-branding.patch`](patches/wine-crossover/0005-winemac-macsw-branding.patch)。
+[`0001-winemac-macsw-branding.patch`](patches/wine-crossover/0001-winemac-macsw-branding.patch)。
 这样无需改动 `ntdll` 或 `winemac.drv`，Dock 与应用菜单都会显示 `MacSW`；图标仍完全沿用 Wine
 原生的 EXE 图标传递路径，SOLIDWORKS 等程序继续显示各自提供的图标。
 

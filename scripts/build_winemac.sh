@@ -7,7 +7,7 @@ SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch"
 INPUT_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch"
 OPENGL_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch"
-BRANDING_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0005-winemac-macsw-branding.patch"
+BRANDING_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0001-winemac-macsw-branding.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
@@ -65,14 +65,14 @@ mkdir -p "${SOURCE_DIR}" "${BUILD_DIR}"
 tar -xf "${SOURCE_ARCHIVE}" -C "${SOURCE_DIR}" --strip-components=1
 
 git -C "${SOURCE_DIR}" init -q
+git -C "${SOURCE_DIR}" apply --check "${BRANDING_PATCH}"
+git -C "${SOURCE_DIR}" apply "${BRANDING_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply "${DRIVER_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${INPUT_PATCH}"
 git -C "${SOURCE_DIR}" apply "${INPUT_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${OPENGL_PATCH}"
 git -C "${SOURCE_DIR}" apply "${OPENGL_PATCH}"
-git -C "${SOURCE_DIR}" apply --check "${BRANDING_PATCH}"
-git -C "${SOURCE_DIR}" apply "${BRANDING_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
