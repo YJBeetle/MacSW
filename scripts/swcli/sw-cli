@@ -8,7 +8,6 @@ WINELOADER="${WINE_ROOT}/bin/wineloader"
 WINESERVER="${WINE_ROOT}/bin/wineserver"
 SWCLI_RESOURCES="${CONTENTS_DIR}/Resources/SWCLI"
 WINEPREFIX="${MACSW_WINEPREFIX:-${HOME}/Library/Application Support/MacSW/bottle}"
-WINDOWS_PYTHON='C:\MacSW\Python311\python.exe'
 WINDOWS_PYTHONW='C:\MacSW\Python311\pythonw.exe'
 PYTHON_UNIX="${WINEPREFIX}/drive_c/MacSW/Python311/python.exe"
 PYTHONW_UNIX="${WINEPREFIX}/drive_c/MacSW/Python311/pythonw.exe"
@@ -51,13 +50,6 @@ require_windows_runtime() {
         echo "SWCLI Windows runtime is not installed in this MacSW bottle; reinstall SOLIDWORKS with MacSW." >&2
         exit 1
     fi
-}
-
-run_windows_cli() {
-    require_windows_runtime
-    SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
-    SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
-        "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
 }
 
 run_windows_windowless_cli() {
