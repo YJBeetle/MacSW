@@ -125,6 +125,23 @@ make ci                   # 测试并生成归档
   协议客户端在 macOS 原生运行，只有 `doctor` 和 `daemon` 生命周期命令进入
   Wine Windows Python；安装后的 App 不会再下载运行时。
 
+打包后的 `sw-cli` 不会因 `document` 或 `part` 命令隐式启动 SOLIDWORKS。
+先根据 SOLIDWORKS 当前状态选择以下一条启动命令，再执行文档操作；
+启动命令会等待主机就绪：
+
+```bash
+# SOLIDWORKS 尚未运行：由 CLI 创建可见实例（省略 --visible 则隐藏）
+build/app/MacSW.app/Contents/MacOS/sw-cli daemon start --visible --json
+
+# SOLIDWORKS 已由 MacSW 启动：附着已有窗口，不创建第二个实例
+build/app/MacSW.app/Contents/MacOS/sw-cli daemon start --attach-existing --json
+
+build/app/MacSW.app/Contents/MacOS/sw-cli document list --json
+```
+
+若守护进程尚未运行，文档和零件命令会返回 `DaemonUnavailable` 与启动提示，
+不会擅自接管已有窗口或另启隐藏实例。
+
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
 `build_winemac.sh` 会按 Wine 版本、源码校验值、四份补丁、配置和构建脚本内容缓存产物。

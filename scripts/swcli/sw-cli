@@ -83,9 +83,8 @@ run_windows_windowless_cli() {
     return "${status}"
 }
 
-# MacSW is an interactive desktop host. Typed operations intentionally share
-# the already-open SOLIDWORKS instance instead of invoking SWCLI's exclusive
-# default host policy.
+# Daemon ownership and visibility are explicit. Typed commands only connect to
+# an already running daemon and never start or attach to SOLIDWORKS implicitly.
 if [ "${1:-}" = "doctor" ] || { [ "${1:-}" = "daemon" ] && [ "${2:-}" != "serve" ]; }; then
     if run_windows_windowless_cli "$@"; then
         exit 0
@@ -101,10 +100,6 @@ case "${1:-}" in
             SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
             SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
             "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
-        ;;
-    document|part)
-        run_windows_windowless_cli daemon start \
-            --visible --attach-existing --json >/dev/null
         ;;
 esac
 

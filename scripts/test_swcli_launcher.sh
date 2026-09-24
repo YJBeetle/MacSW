@@ -70,11 +70,14 @@ grep -Fq "loader=${CONTENTS_DIR}/Frameworks/wine/bin/wineloader server=${CONTENT
 
 : > "${LOG_FILE}"
 "${LAUNCHER}" document list --json
-grep -Fq 'windows translator=Z:' "${LOG_FILE}"
-grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
-grep -Fq -- 'daemon start --visible --attach-existing --json' "${LOG_FILE}"
+! grep -Fq 'windows ' "${LOG_FILE}"
 grep -Fq 'native translator=' "${LOG_FILE}"
 grep -Fq -- '-m swcli document list --json' "${LOG_FILE}"
+
+: > "${LOG_FILE}"
+"${LAUNCHER}" part create-box /tmp/box.SLDPRT --width-mm 1 --height-mm 2 --depth-mm 3 --json
+! grep -Fq 'windows ' "${LOG_FILE}"
+grep -Fq -- '-m swcli part create-box' "${LOG_FILE}"
 
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" /tmp/model.SLDPRT)" = 'Z:\tmp\model.SLDPRT'
 test "$(cd /tmp && "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" model.SLDPRT)" = 'Z:\tmp\model.SLDPRT'
