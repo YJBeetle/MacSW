@@ -27,7 +27,7 @@
   - Builder 从固定版本、固定校验值的微软 NuGet 包提取 `stdole.dll`，并从固定 Wine-Mono prerelease 获取匹配的 `mscorlib.dll` 与 x86/x64 托管 RegAsm；App 在共享组件目录放置依赖并安装已校验的注册入口。
   - App 在 SOLIDWORKS 主 MSI 前静默安装 `swloginmgr/SOLIDWORKS Login Manager.msi`，保留独立详细日志；修复后的 Wine-Mono 完成 `sldLoginManager.dll` 托管 COM 注册。
   - 2026-09-13 使用重新打包的 App 清理旧 bottle 并执行干净安装端到端回归：新 bottle 生成了 Login Manager 的 CLSID、`mscoree.dll` 承载项与真实 CodeBase，SOLIDWORKS 启动时不再出现 Login Manager 缺失弹窗，可排除此前手工注册残留。
-  - `EnableSldLoginManager=0` 和 `SW_Login_Disable=True` 均不能绕过组件检查。UI 守护程序的隐藏兜底已删除，避免让隐藏模态循环继续阻塞主线程。见 [调查记录](login-manager-ui.md)。
+  - `EnableSldLoginManager=0` 和 `SW_Login_Disable=True` 均不能绕过组件检查。旧 UI 守护程序曾隐藏致命对话框，造成模态循环持续阻塞；现已移除该程序。见 [调查记录](login-manager-ui.md)。
 
 ## 构建系统迁移
 
@@ -36,7 +36,6 @@
 - [x] 将 App、Wine、Wine-Mono、7-Zip 版本及依赖校验值集中到单一配置文件。
 - [x] 保留小型 Shell 脚本负责 Wine/7zz 下载、校验、缓存与嵌入，避免每次修改 UI 都重新编译 Wine。
 - [x] 将官方 `stdole` NuGet 包作为构建时依赖下载、校验并嵌入 App，不在仓库提交 DLL。
-- [x] UI 守护程序从原生 C 源码做可重复的 x64 构建，不再提交生成的 PE 文件。
 - [x] 将 SwiftUI 重构为菜单栏启动器、独立 Bootstrap 窗口和设置窗口；Core 服务与视图分 target，增加标准本地 Run 动作。
 - [ ] 使用全新容器回归新的可取消 Bootstrap、文本/.reg 序列号预载、安装完成后自动启动，以及托管 FlexNet 的安装/卸载与多服务器合并。
 - [ ] 配置 Developer ID 签名与公证；所需账号及凭据另行确认。

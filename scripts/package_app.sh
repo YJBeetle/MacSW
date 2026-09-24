@@ -8,7 +8,6 @@ APP_NAME="MacSW"
 BUILD_ROOT="${WORKSPACE_ROOT}/build"
 FINAL_APP_DIR="${MACSW_APP_OUTPUT:-${BUILD_ROOT}/app/${APP_NAME}.app}"
 LAUNCHER_BIN="${BUILD_ROOT}/bootstrap/MacSW"
-UI_DAEMON_BIN="${BUILD_ROOT}/native/sw_ui_daemon.exe"
 APP_ICON="${BUILD_ROOT}/resources/AppIcon.icns"
 MACSW_LICENSE="${WORKSPACE_ROOT}/LICENSE"
 MACSW_NOTICE="${WORKSPACE_ROOT}/NOTICE"
@@ -41,7 +40,7 @@ require_file() {
     fi
 }
 
-for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${UI_DAEMON_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW_NOTICE}" \
+for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW_NOTICE}" \
     "${WINE_ARCHIVE}" "${WINE_SOURCE_ARCHIVE}" "${WINE_SOURCE_NOTICE_TEMPLATE}" \
     "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
@@ -83,7 +82,6 @@ mkdir -p "${MAC_OS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 cp "${LAUNCHER_BIN}" "${MAC_OS_DIR}/MacSW"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
 cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
-cp -p "${UI_DAEMON_BIN}" "${RESOURCES_DIR}/sw_ui_daemon.exe"
 mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"

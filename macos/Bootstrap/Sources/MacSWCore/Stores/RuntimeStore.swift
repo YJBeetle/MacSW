@@ -129,9 +129,8 @@ public final class RuntimeStore: ObservableObject {
                 } catch {
                     licensingWarning = error.localizedDescription
                 }
-                guard FileManager.default.isExecutableFile(atPath: wine.wineBinary.path),
-                      FileManager.default.fileExists(atPath: wine.uiDaemonExecutable.path) else {
-                    throw runtimeError("App 内置 Wine 运行时或 UI 守护程序缺失，请重新打包。")
+                guard FileManager.default.isExecutableFile(atPath: wine.wineBinary.path) else {
+                    throw runtimeError("App 内置 Wine 运行时缺失，请重新打包。")
                 }
                 statusMessage = "正在启动 SOLIDWORKS（Wine \(BuildInfo.wineVersion)）…"
                 wine.launchSolidWorks(

@@ -72,10 +72,6 @@ Wine 后续重新执行 loader 的固定路径。相关修改见
 Wine 以 LGPL-2.1-or-later 许可分发。App 内包含许可证与精确源码说明；正式 Release 同时附带
 构建所用的 Wine 源码归档，MacSW 仓库保留全部补丁和构建脚本。
 
-[`sw_ui_daemon.c`](scripts/sw_ui_daemon.c) 是独立的原生 x64 Win32 辅助程序，仅处理
-普通对话框与浮动工具窗口层级，以及离屏窗口找回。它不依赖 .NET/Wine-Mono，也不改写
-FeatureManager 或视口尺寸，并且不会隐藏致命的前置组件错误。Login Manager 相关根因见
-[`docs/login-manager-ui.md`](docs/login-manager-ui.md)。
 
 ## 构建
 
@@ -185,7 +181,6 @@ Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行会打开�
 - `language-install.log`
 - `prerequisites.log`
 - `sw_launch.log`
-- `ui-daemon.log`
 
 若安装了托管 FlexNet 且服务器列表包含对应的 `端口@localhost`，MacSW 会在启动 SOLIDWORKS 前自动确保该服务运行。
 

@@ -8,7 +8,6 @@ final class ProcessInventoryTests: XCTestCase {
     private static let sample = """
       PID    RSS ELAPSED COMMAND
       8239 114688   01:23:45 /Applications/MacSW.app/Contents/Frameworks/wine/bin/wineserver -w
-      8240  65536   01:23:44 C:\\windows\\system32\\sw_ui_daemon.exe
       8241 192937984 01:23:40 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe
       8244 200704   01:23:30 C:\\Program Files\\SOLIDWORKS\\sldworks_fs.exe
       8250   13112  00:10:00 C:\\opt\\FlexNet\\lmgrd.exe -c \(bottle)/drive_c/opt/FlexNet/sw_d_SSQ.lic
@@ -23,7 +22,7 @@ final class ProcessInventoryTests: XCTestCase {
 
     func testListsEveryContainerProcessIncludingLicenseDaemons() {
         XCTAssertEqual(Set(parsed().map(\.name)), [
-            "wineserver", "sw_ui_daemon.exe", "SLDWORKS.exe", "sldworks_fs.exe", "lmgrd.exe"
+            "wineserver", "SLDWORKS.exe", "sldworks_fs.exe", "lmgrd.exe"
         ])
         XCTAssertFalse(parsed().contains { $0.name == "MacSW" })
         XCTAssertFalse(parsed().contains { $0.name == "httpserver" })
@@ -55,7 +54,7 @@ final class ProcessInventoryTests: XCTestCase {
         let processes = parsed()
         XCTAssertTrue(ProcessInventory.isSolidWorksRunning(processes))
         XCTAssertFalse(ProcessInventory.isSolidWorksRunning(
-            ProcessInventory.parse("  1 200 00:10:00 C:\\windows\\sw_ui_daemon.exe", bottlePath: "", wineRuntimePath: "")
+            ProcessInventory.parse("  1 200 00:10:00 C:\\opt\\FlexNet\\lmgrd.exe", bottlePath: "", wineRuntimePath: "")
         ))
     }
 

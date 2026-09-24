@@ -41,7 +41,7 @@ public struct WineProcess: Identifiable, Equatable, Sendable {
 public enum ProcessInventory {
     public static let primaryProcess = "SLDWORKS.exe"
     /// SOLIDWORKS 自身的进程；命令行里只有 Windows 路径，只能按名字认。
-    public static let solidWorksProcesses = ["SLDWORKS.exe", "sldworks_fs.exe", "sw_ui_daemon.exe"]
+    public static let solidWorksProcesses = ["SLDWORKS.exe", "sldworks_fs.exe"]
 
     /// 属于本容器的进程：命令行里带容器路径（我们启动托管进程时传的就是宿主路径），
     /// 或带本 App 的 Wine 运行时路径，或是 SOLIDWORKS 自己的进程。

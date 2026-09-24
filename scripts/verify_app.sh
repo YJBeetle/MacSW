@@ -45,7 +45,6 @@ test -x "${CONTENTS_DIR}/MacOS/7zz"
 test -x "${SWCLI_LAUNCHER}"
 test -L "${CONTENTS_DIR}/MacOS/7z"
 test -f "${CONTENTS_DIR}/Resources/AppIcon.icns"
-test -f "${CONTENTS_DIR}/Resources/sw_ui_daemon.exe"
 test -f "${BUILD_MANIFEST}"
 test -f "${SWCLI_RUNTIME}/python.exe"
 test -f "${SWCLI_RUNTIME}/pythonw.exe"
@@ -113,7 +112,6 @@ test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM
 test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM_X64_SHA256}"
 file "${MONO_REGASM_X86}" | grep -q 'PE32 executable.*Intel 80386 Mono/.Net assembly'
 file "${MONO_REGASM_X64}" | grep -q 'PE32+ executable.*x86-64 Mono/.Net assembly'
-file "${CONTENTS_DIR}/Resources/sw_ui_daemon.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_PATH_HELPER}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/python.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/pythonw.exe" | grep -Fq 'PE32+ executable (GUI) x86-64'

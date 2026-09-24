@@ -24,7 +24,7 @@ public final class WineService: @unchecked Sendable {
         "wineboot": #"C:\windows\system32\wineboot.exe"#,
         "winecfg": #"C:\windows\system32\winecfg.exe"#
     ]
-    /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务与 UI 守护进程。
+    /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务。
     /// 名单与"哪些进程算 SOLIDWORKS 自己的"是同一件事，只在 ProcessInventory 里定义一次。
     public static let solidWorksProcessNames = ProcessInventory.solidWorksProcesses
     public var runtimeURL: URL {
@@ -37,11 +37,6 @@ public final class WineService: @unchecked Sendable {
 
     public var wineServerBinary: URL {
         runtimeURL.appendingPathComponent("bin/wineserver")
-    }
-
-    /// 随 App 打包的界面守护进程，启动 SOLIDWORKS 时一起拉起来。
-    public var uiDaemonExecutable: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/sw_ui_daemon.exe")
     }
 
     public func isRunning(prefix: URL) -> Bool {
@@ -262,26 +257,14 @@ public final class WineService: @unchecked Sendable {
         stateLock.unlock()
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let daemon = self.makeProcess(arguments: [self.uiDaemonExecutable.path], prefix: prefix, solidWorks: true)
-            var daemonHandle: FileHandle?
             var launchHandle: FileHandle?
             defer {
-                if daemon.isRunning { daemon.terminate() }
-                try? daemonHandle?.close()
                 try? launchHandle?.close()
                 self.stateLock.lock()
                 self.activePrefixes.remove(prefix.path)
                 self.stateLock.unlock()
             }
             do {
-                // 输入兼容设置是一次性的注册表写入，安装链路已经做过；
-                // 每次启动再跑一个 wine 进程要多等 6 秒，还可能把能用的启动判成失败。
-                let daemonLog = self.logDirectory(prefix.path).appendingPathComponent("ui-daemon.log")
-                daemonHandle = try self.logHandle(for: daemonLog)
-                daemon.standardOutput = daemonHandle ?? FileHandle.nullDevice
-                daemon.standardError = daemonHandle ?? FileHandle.nullDevice
-                try daemon.run()
-
                 let solidWorks = self.makeProcess(arguments: [executable.path], prefix: prefix, solidWorks: true)
                 solidWorks.currentDirectoryURL = executable.deletingLastPathComponent()
                 let launchLog = self.logDirectory(prefix.path).appendingPathComponent("sw_launch.log")

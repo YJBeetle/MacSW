@@ -6,7 +6,7 @@
 
 先正常关闭旧 MacSW App，再打开新 App，在 Bootstrap 窗口选择官方 ISO 或安装介质目录，完成安装并验证启动。最终固定使用一个容器，不提供选择/切换容器功能。
 
-唯一容器为 `~/Library/Application Support/MacSW/bottle`，日志位于同级 logs，含 sw_launch.log、ui-daemon.log、install_msi.log、installer-wine.log、prerequisites.log 等。本轮按用户要求将旧正式容器备份后从空环境验证，不复制诊断容器作为安装结果。
+唯一容器为 `~/Library/Application Support/MacSW/bottle`，日志位于同级 logs，含 sw_launch.log、install_msi.log、installer-wine.log、prerequisites.log 等。本轮按用户要求将旧正式容器备份后从空环境验证，不复制诊断容器作为安装结果。
 
 当前已经验证官方安装程序能够完成、主界面能够启动、新建 Part 正常，以及 FeatureManager 在硬件加速视口前保持可见。草图/属性管理器切换、拉伸、旋转、保存并重开仍需继续回归。
 
@@ -15,7 +15,7 @@
 - WineService 仅解析 App 包内的 wine/bin/wineloader 与 wineserver；所有启动入口通过 RuntimeStore 统一执行本地许可服务前置检查与重复启动保护。
 - 运行时固定 Gcenx wine-devel 11.16，SHA-256 校验归档；在其上覆盖由 Wine 11.16 官方源码和仓库补丁重建的 `winemac.so` 与 `win32u.so`。App 为 `sldworks.exe` 幂等启用 `WINE_NOCAPTURERESEND`，只抑制同一窗口重复取得捕获时多余的 `WM_CAPTURECHANGED`。
 - 安装阶段使用 Mono 11.3.0 x86 修复模块和解释器模式，避免 32 位托管辅助程序在 Rosetta 下进入不稳定的 JIT 路径；64 位 SOLIDWORKS 使用 JIT。
-- 启动启用 atiadlxx=d 和微软 VC++ native-first overrides；启动 App 内原生 x64 UI 辅助程序，SW 退出后终止本次辅助程序。辅助程序不隐藏 Login Manager 致命弹窗，注册表禁用值已确认无效并移除。
+- 启动启用 atiadlxx=d 和微软 VC++ native-first overrides。旧 UI 辅助程序已移除；注册表禁用 Login Manager 的值已确认无效并移除。
 - 官方安装：用户选择介质 → 预先校验可选序列号输入 → wineboot → 校验 Wine-Mono COM 注册运行时并安装托管 RegAsm/stdole → 官方 VC x64 安装包 → 后台安装官方 Login Manager MSI → 可选写入文本序列号或原样导入已确认的注册表 → 可见的 SOLIDWORKS 官方 MSI（禁止回退并记录日志）→ 五个 WPF 主题库。组件和语言不再由 Swift 猜测、解包或注入。
 - 安装任务可取消；取消只终止当前受管子进程，不默认终止整个 Wine server，且不会写入完成标记。全新安装在删除容器前验证所有输入都位于容器外。
 - App 不提供替换 SOLIDWORKS 官方文件的功能。托管 FlexNet 只从设置页显式安装，验证后原子复制到 `C:\\opt\\FlexNet`；服务器列表以官方 `port@host` 保存，并保留用户配置的其他服务器。
@@ -38,7 +38,7 @@ XCTest 覆盖序列号分区解析与 Security 拆分写入、介质同级及向
 用户通过 App 完成了一轮官方安装操作并启动 SW，但安装器仍显示中断，SW 停在许可证错误，并未完成主界面验收。
 
 - install_msi.log 的 SWRegistration 阶段调用 Framework64/v4.0.30319/regasm.exe 时 CreateProcess 失败，返回 0x643；DISABLEROLLBACK 和 RollbackDisabled 均为 1。
-- ui-daemon.log 确认已启动 watch 模式。
+- 当时的 ui-daemon.log 确认旧 UI 辅助程序已启动 watch 模式；现已从 App 移除。
 - 当前安装后的逻辑只补齐 WPF，不调用 applyComponentPatch/startLicenseServer。选择维护目录不代表已执行维护操作，用户对自动执行的预期尚未满足。
 - 只读比较确认正式安装目录的 sldutu.dll、swsecwrap.dll 与用户所选组件目录中的文件不一致。
 - 截图错误为 Invalid (inconsistent) license key (-8,544,0)；本机 25734 端口连通。尚未确认具体许可配置不一致的原因，不据此断言服务未启动。
@@ -50,4 +50,4 @@ XCTest 覆盖序列号分区解析与 Security 拆分写入、介质同级及向
 - 修复后的 Wine-Mono x86 模块配合安装阶段解释器模式，使官方 SOLIDWORKS 2025 SP5 安装向导正常到达成功页面。
 - SOLIDWORKS 主界面及新建 Part 已在唯一正式容器中启动。
 - Wine `winemac.drv` 现在把 Win32 `SYSRGN` 转为视口 Core Animation 图层遮罩。实测 3D 窗口保持 SOLIDWORKS 原始几何，遮罩可见区从 FeatureManager 右缘开始，左侧树不再被视口覆盖。
-- 原 C# 守护程序已替换为原生 x64 Win32 辅助程序，不再经过 Wine-Mono；它只保留普通对话框与浮动窗口层级，以及离屏窗口找回职责。Login Manager 等致命前置组件错误不再隐藏，避免其模态消息循环在不可见状态下持续阻塞主线程。
+- 当时曾以原生 x64 Win32 辅助程序替换 C# 守护程序；现已移除整个 UI 守护程序，窗口层级与离屏窗口需在无守护程序的 App 中回归。
