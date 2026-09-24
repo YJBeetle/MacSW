@@ -1,5 +1,7 @@
 # 基于 DrawFrameControl 拦截的 SolidWorks Aero 标题栏按钮渲染实现计划
 
+> 历史方案存档，非当前实施指令。下文的路径、任务清单与技术方案保留原貌，不代表现行实现；请以仓库当前代码和 README 为准。
+
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development 或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
 **目标：** 在 SolidWorks 2025 运行进程内拦截 `DrawFrameControl(DFC_CAPTION)` 调用，以 Windows 7 Aero 规格原生渲染最小化、还原与关闭三个子窗口控制按钮，与左侧自绘的 `[ <| ] [ |> ]` 达到 100% 视觉风格与交互统一（平滑渐变、无毛玻璃、珊瑚红关闭键）。

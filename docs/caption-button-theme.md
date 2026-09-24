@@ -27,8 +27,8 @@ ThemeActive = "0"
 
 在同一 bottle、同一 Part 和同一窗口状态下进行 A/B：`ThemeActive=1` 时复现混合风格；
 `ThemeActive=0` 时五个按钮统一。随后分别加载补丁版和原版 user32 做像素比较，结果 AE 与
-RMSE 都为 0，证明 0001 对实际界面没有作用。该补丁已从仓库删除，也从未进入当前 Builder
-的 0002–0004 正式补丁链。
+RMSE 都为 0，证明这一历史补丁对实际界面没有作用。该补丁已从仓库删除，也未进入正式
+补丁链；现行补丁清单以 [`scripts/build_winemac.sh`](../scripts/build_winemac.sh) 为准。
 
 ## 兼容边界
 

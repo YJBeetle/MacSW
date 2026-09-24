@@ -1,5 +1,7 @@
 # 独立 macOS 应用程序 (MacSW) 与 Wine Submodule 补丁构建系统实现计划
 
+> 历史方案存档，非当前实施指令。下文的路径、任务清单与技术方案保留原貌，不代表现行实现；请以仓库当前代码和 README 为准。
+
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development 或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
 **目标：** 构建一个完全脱离 CrossOver、无版权隐患、使用 Git Submodule 管理 Wine-crossover 源码并通过 Patches 补丁注入定制逻辑（Win7 Aero 标题栏按钮、Metal 避让）的独立 macOS 应用程序及 GitHub Actions CI 自动流水线。

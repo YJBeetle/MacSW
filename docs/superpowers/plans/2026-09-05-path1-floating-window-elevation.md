@@ -1,5 +1,7 @@
 # 路径 1：SolidWorks 浮动窗口/属性面板提权与原生图层独立化实现计划
 
+> 历史方案存档，非当前实施指令。下文的路径、任务清单与技术方案保留原貌，不代表现行实现；请以仓库当前代码和 README 为准。
+
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
 **目标：** 在不修改 Wine 源码的前提下，通过 UI 守护进程对 SolidWorks 的浮动工具栏、面板（`XTPDockingPaneMiniWnd`、`CMiniDockFrameWnd`）及弹出菜单进行 Win32 样式提权（`WS_EX_TOOLWINDOW | WS_EX_TOPMOST` 并设父窗口为桌面），促使 Wine 的 `winemac.drv` 为其创建独立的 Cocoa `NSWindow`（`NSFloatingWindowLevel`），彻底解决 macOS 下硬件 3D 视口（`CAMetalLayer`）遮挡浮动 UI 的图层优先级冲突；同时提供一键找回遗失/被遮挡浮动面板的重置恢复机制。
