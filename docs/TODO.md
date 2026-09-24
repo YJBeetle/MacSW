@@ -14,6 +14,7 @@
   - [x] 清除 Login Manager 隐藏模态循环：安装 Login Manager 并完成托管 COM 注册后，缺失提示不再创建，一级/二级菜单和轮盘不再被 `TaskDialogIndirect` 消息循环整体阻塞。
   - [x] 修复 SOLIDWORKS 的同窗口鼠标捕获重入：`win32u` 在显式启用 `WINE_NOCAPTURERESEND` 时不再向重复取得自身捕获的窗口发送 `WM_CAPTURECHANGED`。同一二进制开关前后 A/B 验证表明，PropertyManager 左上角确认按钮由释放后仍捕获、状态 `0x0c`，恢复为释放捕获、状态 `0x00` 并执行命令。见 [调查记录](login-manager-ui.md)。
   - [x] 修复硬件加速视口的前缓冲刷新：`winemac.drv` 不再把前缓冲 `glFlush`/`glFinish` 当作双缓冲交换。补丁版已验证空白画布连续点击和窗口失焦不再使模型消失，边线橙色预选可持续显示。见 [调查记录](opengl-front-buffer.md)。
+  - [x] 修复中文输入状态下模型视图空格快捷键失效：`winemac.drv` 仅在 SOLIDWORKS 图形视图空闲且无组合文字时保留原始 `VK_SPACE`，文字框选词仍走输入法。见 [调查记录](solidworks-space-ime.md)。
   - [ ] 继续覆盖 PropertyManager、草图、拉伸、旋转、保存和重开；创建/编辑拉伸的左上角确认按钮及模型保存已经通过本轮回归。
   - [ ] 修复鼠标手势轮盘的透明背景。`swGestureTarget` 是独立 Afx 顶层窗口；轮盘可响应，但本应透明的圆环外侧和中心当前显示为黑色。已采样到窗口扩展样式为 `0x88`（未含 `WS_EX_LAYERED`），后续单独核查 `SetWindowRgn`、`UpdateLayeredWindow` 与 Windows DWM 到 `winemac.drv` 的合成路径，不与右键菜单捕获问题混为一项。
   - [x] 统一 Part 文档窗口的五个标题按钮风格：安装时关闭 Wine ThemeManager 的活动主题，避免 Codejock 绘制的两个按钮与 Wine `DefWindowProc` 绘制的三个按钮混用不同皮肤。见 [调查记录](caption-button-theme.md)。
