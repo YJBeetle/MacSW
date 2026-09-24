@@ -163,12 +163,15 @@ public final class WineService: @unchecked Sendable {
     public func capturePairCancellable(_ process: Process) async throws
         -> (status: Int32, standardOutput: String, standardError: String)
     {
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        let outputTask = Task.detached { Self.drain(outputPipe.fileHandleForReading) }
-        let errorTask = Task.detached { Self.drain(errorPipe.fileHandleForReading) }
+        // Wine 的常驻 wineserver 会继承子进程的 stderr。若用 Pipe 并等 EOF，
+        // reg.exe 等短命令已经退出后，这里仍会一直等到 wineserver 退出。
+        // 临时文件在命令退出后即可读取，不受后代进程持有描述符的影响。
+        let outputFile = try CaptureFile()
+        defer { outputFile.cleanup() }
+        let errorFile = try CaptureFile()
+        defer { errorFile.cleanup() }
+        process.standardOutput = outputFile.handle
+        process.standardError = errorFile.handle
         let status = try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in continuation.resume(returning: finished.terminationStatus) }
@@ -177,26 +180,41 @@ public final class WineService: @unchecked Sendable {
                     if Task.isCancelled, process.isRunning { process.terminate() }
                 } catch {
                     process.terminationHandler = nil
-                    // 没启动成功时父进程仍握着写端，两个采集任务会永远读不到 EOF，先关掉。
-                    try? outputPipe.fileHandleForWriting.close()
-                    try? errorPipe.fileHandleForWriting.close()
                     continuation.resume(throwing: error)
                 }
             }
         }, onCancel: {
             self.terminateProcess(process)
         })
-        let output = await outputTask.value
-        let errors = await errorTask.value
         try Task.checkCancellation()
+        try outputFile.handle.close()
+        try errorFile.handle.close()
+        let output = try Data(contentsOf: outputFile.url)
+        let errors = try Data(contentsOf: errorFile.url)
         // Wine 工具在中文 locale 下会输出遗留代码页字节（如 reg 的本地化“默认”），
         // 严格解码会整体失败并丢掉 ASCII 内容，这里按有损 UTF-8 解码。
         return (status, String(decoding: output, as: UTF8.self), String(decoding: errors, as: UTF8.self))
     }
 
-    private static func drain(_ handle: FileHandle) -> Data {
-        defer { try? handle.close() }
-        return handle.readDataToEndOfFile()
+    private struct CaptureFile {
+        let url: URL
+        let handle: FileHandle
+
+        init() throws {
+            var path = Array(FileManager.default.temporaryDirectory
+                .appendingPathComponent("MacSW-capture-XXXXXX").path.utf8CString)
+            let descriptor = mkstemp(&path)
+            guard descriptor >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            url = URL(fileURLWithPath: String(cString: path))
+            handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        }
+
+        func cleanup() {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     public func stopWineServerForCleanup(prefix: URL) async throws -> Bool {

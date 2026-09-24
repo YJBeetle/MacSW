@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import MacSWCore
@@ -32,13 +33,28 @@ final class IsoServiceTests: XCTestCase {
         XCTAssertEqual(capture.standardError, "warning: noisy\n")
     }
 
-    /// 超过管道缓冲的输出必须在等待退出前抽干，否则子进程与父进程互等。
+    /// 大量输出也必须完整捕获，不能让子进程因写满缓冲而卡住。
     func testCaptureDrainsLargeOutputWithoutDeadlocking() async throws {
         let capture = try await WineService.shared.capturePairCancellable(
             shell("i=0; while [ $i -lt 4000 ]; do printf 'line-%s-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n' $i; i=$((i+1)); done")
         )
         XCTAssertEqual(capture.status, 0)
         XCTAssertEqual(capture.standardOutput.split(separator: "\n").count, 4000)
+    }
+
+    /// 后台子进程继承 stderr 时，主命令退出后不能继续等待它关闭描述符。
+    func testCaptureReturnsWhenDescendantKeepsStderrOpen() async throws {
+        let started = Date()
+        let capture = try await WineService.shared.capturePairCancellable(
+            shell("sleep 8 >&2 & printf 'child=%s\\n' \"$!\"; printf 'warning\\n' >&2")
+        )
+        let pidText = capture.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "child=", with: "")
+        let pid = try XCTUnwrap(Int32(pidText))
+        defer { _ = kill(pid, SIGTERM) }
+        XCTAssertEqual(capture.status, 0)
+        XCTAssertEqual(capture.standardError, "warning\n")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4)
     }
 
     func testExistingMountPointIgnoresMissingAndDirectoryPaths() async throws {
