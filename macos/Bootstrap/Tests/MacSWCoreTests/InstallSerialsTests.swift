@@ -114,8 +114,18 @@ final class LanguageCatalogTests: XCTestCase {
         try fileManager.createDirectory(at: empty, withIntermediateDirectories: true)
 
         let languages = LanguageCatalog.discover(in: root, fileManager: fileManager)
-        XCTAssertEqual(languages.map(\.directoryName), ["chinese-simplified", "german"])
-        XCTAssertEqual(languages.map(\.displayName), ["简体中文", "Deutsch"])
+        XCTAssertEqual(languages.count, 2)
+        XCTAssertEqual(
+            Set(languages),
+            Set([
+                SolidWorksLanguage(
+                    directoryName: "chinese-simplified",
+                    msiFileName: "chinese-simplified.msi",
+                    displayName: "简体中文"
+                ),
+                SolidWorksLanguage(directoryName: "german", msiFileName: "german.msi", displayName: "Deutsch")
+            ])
+        )
     }
 
     func testDiscoveryAcceptsMismatchedMSIBasename() throws {
