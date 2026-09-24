@@ -25,17 +25,33 @@ Wine 11.16 则继续执行位置与尺寸更新。SOLIDWORKS 的 PropertyManager
 
 ## MacSW 本地修复与验证边界
 
-本地 `0005` 在 `NtUserSetWindowPos` 中，对 `WS_CHILD` 且未设置 `SWP_NOZORDER`
-的 `HWND_TOPMOST/NOTOPMOST` 请求直接返回成功。保留 `SWP_NOZORDER` 边界很重要：
-此标志表示忽略 `hWndInsertAfter`，位置与尺寸更新仍应正常执行。此前最小 Win32
-对照及真实 SOLIDWORKS 复测确认，修补后标题不再连续缩窄；MacSW 当时通过
+本地 `0005` 在 `NtUserSetWindowPos` 中，仅对有**非桌面父窗口**的真正 `WS_CHILD`
+窗口、且未设置 `SWP_NOZORDER` 的 `HWND_TOPMOST/NOTOPMOST` 请求直接返回成功。
+保留 `SWP_NOZORDER` 边界很重要：此标志表示忽略 `hWndInsertAfter`，位置与尺寸
+更新仍应正常执行。此前最小 Win32 对照及真实 SOLIDWORKS 复测确认，修补后标题
+不再连续缩窄；MacSW 当时通过
 `make app`、132 项 Swift 测试及 137 项 Python 测试。这些是 **MacSW 集成验证**，
 不是 Wine 上游 CI 或 Wine Test Bot 的结果。
 
 2026-09-24 对 Wine master `1977760e3745c58ee9c2b8aeb93e54e5fe7f14e2` 做了
 `git apply --check`，本地补丁可应用；**尚未**在该 master 上完成构建或全套 Wine
-测试。补丁本身也不宜直接提交上游：它只检查 `WS_CHILD` 样式，没有区分父窗口
-已变为桌面的情形，而 Windows 在该情形下仍可正常改变 topmost 状态和几何。
+测试。2026-09-25 发现先前版本的补丁拦截范围过宽：Wine 的 `ComboLBox` 虽有
+`WS_CHILD` 样式，实际父窗口是桌面；`winecfg` 中 Windows 版本下拉框点击后
+`CB_GETDROPPEDSTATE=1`、有 20 个选项，但列表未显示，位置也没有更新。方向键
+仍可切换选项；诊断时用 `SWP_NOZORDER | SWP_SHOWWINDOW` 强制显示后，移开主窗口
+才看到列表悬在旧位置。这个悬空列表是**诊断操作的结果**，不是普通点击时的表现。
+因此本地补丁已增加非桌面父窗口检查，避免吞掉 `ComboLBox` 展开时的
+`SetWindowPos(..., HWND_TOPMOST, ..., SWP_SHOWWINDOW)`。这仍是本地兼容性补丁，
+不能替代上游 MR 的完整测试与审查。
+
+修补前后用 [`check_combobox_drop.c`](../scripts/diagnostics/check_combobox_drop.c)
+在独立 Wine 前缀测试：两次均为 20 个选项、`CB_GETDROPPEDSTATE=1`，修补前
+`list_visible=0`，修补后 `list_visible=1`，列表位于控件正下方；真正的非桌面
+子窗口仍保持几何不变，而 `SWP_NOZORDER` 时仍可移动。`make app` 与 `make test`
+通过，后者为 133 项 Swift、137 项 Python 测试。实际 `winecfg` 的 Windows
+版本列表已由用户截图确认正常展开；用户随后用新包确认 SOLIDWORKS
+PropertyManager 标题也正常，两项回归均通过。此前另一次手工启动未使用 App
+的完整运行库覆盖配置，遇到 `concrt140` 崩溃；它不属于这两项通过的验证结果。
 
 ## Wine 上游现状
 
@@ -67,3 +83,5 @@ Wine 官方[提交指南](https://gitlab.winehq.org/wine/wine/-/wikis/Submitting
 3. 保留非桌面父窗口、桌面父窗口、跨线程与 `SWP_NOZORDER` 的语义边界；不要直接
    把 MacSW 的简化 `0005` 复制到 Wine master。
 4. 在 SOLIDWORKS 实机验证 PropertyManager 标题，同时单独追踪特征树左侧裁切。
+5. 在 `winecfg` 验证 Windows 版本下拉框点击后列表紧邻控件显示，且选中项可变；
+   再确认 SOLIDWORKS 设置页的下拉框同样正常。
