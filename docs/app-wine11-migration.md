@@ -29,7 +29,6 @@ SwiftPM 编译与测试：
 ```bash
 make launcher
 make test
-./script/build_and_run.sh --verify
 ```
 
 XCTest 覆盖序列号分区解析与 Security 拆分写入、介质同级及向下一层文件发现、多服务器规范化和本地地址合并/移除、FlexNet 包结构、安装子进程取消、Wine-Mono COM 注册运行时哈希校验与 RegAsm/stdole 原子放置、环境隔离、原生 VC 加载策略、含空格/单引号路径的 shell 转义和进程启动错误。SW GUI 由用户验证，以上检查不能替代建模验收。
