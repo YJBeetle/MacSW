@@ -80,6 +80,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacPatchSHA256' "${BUILD_MANIFEST
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacOpenGLPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineChildTopmostPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0005-win32u-ignore-child-topmost.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacSpacePatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-solidworks-view-space.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WINEMAC_DRIVER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WIN32U_DRIVER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNtdllModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${NTDLL_UNIX}" | awk '{print $1}')"

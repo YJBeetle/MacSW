@@ -9,6 +9,7 @@ DRIVER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-
 INPUT_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0003-win32u-no-capture-resend.patch"
 OPENGL_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch"
 TOPMOST_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0005-win32u-ignore-child-topmost.patch"
+SPACE_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-solidworks-view-space.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
@@ -51,8 +52,9 @@ DRIVER_PATCH_SHA256="$(shasum -a 256 "${DRIVER_PATCH}" | awk '{print $1}')"
 INPUT_PATCH_SHA256="$(shasum -a 256 "${INPUT_PATCH}" | awk '{print $1}')"
 OPENGL_PATCH_SHA256="$(shasum -a 256 "${OPENGL_PATCH}" | awk '{print $1}')"
 TOPMOST_PATCH_SHA256="$(shasum -a 256 "${TOPMOST_PATCH}" | awk '{print $1}')"
+SPACE_PATCH_SHA256="$(shasum -a 256 "${SPACE_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SCRIPT_SHA256}"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${SCRIPT_SHA256}"
 if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
@@ -77,6 +79,8 @@ git -C "${SOURCE_DIR}" apply --check "${OPENGL_PATCH}"
 git -C "${SOURCE_DIR}" apply "${OPENGL_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${TOPMOST_PATCH}"
 git -C "${SOURCE_DIR}" apply "${TOPMOST_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${SPACE_PATCH}"
+git -C "${SOURCE_DIR}" apply "${SPACE_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
