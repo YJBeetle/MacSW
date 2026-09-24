@@ -2,10 +2,8 @@
 *.iso
 *.zip
 .DS_Store
-C/
 bottle
 bottle/
-prefixes/
 
 # Temporary logs, captures and artifacts
 scratch/
