@@ -53,8 +53,10 @@ Wine 官方[提交指南](https://gitlab.winehq.org/wine/wine/-/wikis/Submitting
 
 因此再开一个内容相同、覆盖边界更少的 MR 没有价值。更合适的上游动作是向
 `!667` 补充 SOLIDWORKS 2025 的实际受影响与 MacSW 回归验证，或在征得该 MR
-作者/维护者意见后协助刷新现有提交。当前主机 `glab auth status --hostname
-gitlab.winehq.org` 显示尚未认证；报告不代表已经向 Wine 提交 MR 或评论。
+作者/维护者意见后协助刷新现有提交。2026-09-24 已通过已认证的 WineHQ GitLab
+账号，在 [`!667` 的评论](https://gitlab.winehq.org/wine/wine/-/merge_requests/667#note_152626)
+中补充 SOLIDWORKS 2025 的复现与本地修补后验证情况；没有新建重复 MR，也没有
+声称已完成 Wine 上游 CI 或提交原始 probe 日志。
 
 ## 复核清单
 
