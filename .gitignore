@@ -7,6 +7,7 @@ bottle/
 
 # Temporary logs, captures and artifacts
 scratch/
+/Binary/
 macos/Bootstrap/.build/
 *.png
 *.icns
@@ -16,6 +17,3 @@ build/
 dist/
 *.dll
 resources/*.dll
-
-crack/
-/Binary/
