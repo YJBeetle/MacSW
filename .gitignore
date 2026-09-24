@@ -3,7 +3,6 @@
 *.zip
 .DS_Store
 C/
-DS.SolidWorks*/
 bottle
 bottle/
 prefixes/
