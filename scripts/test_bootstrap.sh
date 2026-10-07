@@ -15,6 +15,7 @@ export CLANG_MODULE_CACHE_PATH="${MODULE_CACHE_DIR}"
 export SWIFT_MODULECACHE_PATH="${MODULE_CACHE_DIR}"
 
 "${WORKSPACE_ROOT}/scripts/test_swcli_launcher.sh"
+bash -n "${WORKSPACE_ROOT}/scripts/ci/fetch-runtime-inputs.sh"
 python3 -m unittest discover -s "${WORKSPACE_ROOT}/scripts/tests" -p 'test_*.py'
 
 swift test \

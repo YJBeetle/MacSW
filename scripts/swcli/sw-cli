@@ -29,7 +29,7 @@ export WINE_MONO_AOT="none"
 export WINEDLLOVERRIDES="atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b"
 
 to_windows_path() {
-    printf 'Z:%s\n' "${1//\//\\}"
+    "${NATIVE_PATH_HELPER}" "$1"
 }
 
 if [ ! -x "${WINELOADER}" ] || [ ! -x "${WINESERVER}" ]; then
@@ -41,7 +41,6 @@ if [ ! -x "${NATIVE_PYTHON}" ] || [ ! -x "${NATIVE_PATH_HELPER}" ]; then
     exit 1
 fi
 
-SWCLI_PATH_HELPER_WIN="$(to_windows_path "${SWCLI_RESOURCES}/bin/swcli_path.exe")"
 export SWCLI_ENDPOINT="${SWCLI_ENDPOINT:-127.0.0.1:18495}"
 export SWCLI_HOST_PLATFORM="macos-wine"
 export PYTHONDONTWRITEBYTECODE=1
@@ -51,6 +50,7 @@ require_windows_runtime() {
         echo "SWCLI Windows runtime is not installed in this MacSW bottle; reinstall SOLIDWORKS with MacSW." >&2
         exit 1
     fi
+    SWCLI_PATH_HELPER_WIN="$(to_windows_path "${SWCLI_RESOURCES}/bin/swcli_path.exe")"
 }
 
 run_windows_windowless_cli() {

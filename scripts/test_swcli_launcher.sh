@@ -101,3 +101,12 @@ test "$(cd /tmp && "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" model.SLDPRT
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" 'C:\model.SLDPRT')" = 'C:\model.SLDPRT'
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" \
     "${PREFIX}/drive_c/models/part with spaces.SLDPRT")" = 'C:\models\part with spaces.SLDPRT'
+
+# Lifecycle paths also use real bottle mappings, rather than hard-coding Z:.
+rm "${PREFIX}/dosdevices/z:"
+ln -s "${TEST_ROOT}" "${PREFIX}/dosdevices/h:"
+mkdir -p "${PREFIX}/drive_c/tmp"
+: > "${LOG_FILE}"
+(cd "${PREFIX}/drive_c" && TMPDIR="${PREFIX}/drive_c/tmp/" "${LAUNCHER}" daemon serve --port 18496)
+grep -Fq 'windows translator=H:\MacSW.app\Contents\Resources\SWCLI\bin\swcli_path.exe' "${LOG_FILE}"
+! grep -Fq 'translator=Z:' "${LOG_FILE}"

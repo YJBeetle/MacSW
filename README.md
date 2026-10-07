@@ -84,6 +84,8 @@ make app
 ```
 
 产物位于 `build/app/MacSW.app`。
+GitHub Actions 可通过手动触发的 `verify_solidworks` 选项运行隔离容器中的真实安装与
+SWCLI 共享建模测试；职责、私有夹具清理及验证边界见 [docs/runtime-ci.md](docs/runtime-ci.md)。
 首次构建需要联网下载固定依赖；校验通过的下载和 Wine 原生模块构建结果缓存在 `dist/`，
 相同配置再次构建时会复用。
 

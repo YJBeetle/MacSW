@@ -31,7 +31,8 @@ let package = Package(
     name: "MacSW",
     platforms: [.macOS(minimumMacOS)],
     products: [
-        .executable(name: "MacSW", targets: ["MacSWApp"])
+        .executable(name: "MacSW", targets: ["MacSWApp"]),
+        .executable(name: "MacSWCI", targets: ["MacSWCI"])
     ],
     targets: [
         .target(
@@ -42,6 +43,11 @@ let package = Package(
             name: "MacSWApp",
             dependencies: ["MacSWCore"],
             path: "Sources/MacSWApp"
+        ),
+        .executableTarget(
+            name: "MacSWCI",
+            dependencies: ["MacSWCore"],
+            path: "Sources/MacSWCI"
         ),
         .testTarget(
             name: "MacSWCoreTests",

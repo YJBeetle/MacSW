@@ -2,6 +2,30 @@ name: Build & Package MacSW.app
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_solidworks:
+        description: 'Fresh install and real MacSW Wine/SOLIDWORKS runtime gates'
+        type: boolean
+        default: false
+      runtime_stage:
+        description: 'Installation only, or installation plus shared runtime gates'
+        type: choice
+        options:
+          - install
+          - full
+        default: full
+      media_path:
+        description: 'ISO path in the gdrive remote'
+        type: string
+        default: 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso'
+      assets_path:
+        description: 'Private CI fixtures path in the gdrive remote'
+        type: string
+        default: 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/crack'
+      language:
+        description: 'Official language directory, or english for base media'
+        type: string
+        default: 'chinese-simplified'
   push:
     branches:
       - master
@@ -18,10 +42,25 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
   build-and-package:
+    # No PR execution. Private runtime inputs are available only to a trusted
+    # manual run of master in this repository, never forks or arbitrary refs.
+    if: >-
+      github.repository == 'YJBeetle/MacSW' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (!inputs.verify_solidworks ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'))
     runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.verify_solidworks && 360 || 60 }}
+    permissions:
+      contents: write # Existing tag release upload; runtime fixtures are never released.
+    concurrency:
+      group: macsw-${{ inputs.verify_solidworks && 'solidworks-runtime' || github.ref }}
+      cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
@@ -31,6 +70,24 @@ jobs:
         with:
           fetch-depth: 1
           submodules: recursive
+
+      - name: Check runtime prerequisites
+        if: inputs.verify_solidworks
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+          MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage }}
+        run: |
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
+          test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
+          test "$(uname -m)" = arm64
+          if test "$MACSW_RUNTIME_STAGE" = full; then
+            python3 scripts/ci/verify-runtime.py --check-shared-gates
+          fi
+          # ISO, fresh installed bottle and build inputs must coexist. Fail before downloading.
+          df -h "$RUNNER_TEMP"
+          available_kib="$(df -k "$RUNNER_TEMP" | awk 'END {print $4}')"
+          test "$available_kib" -ge 47185920 || { echo 'Runtime gate requires 45 GiB free disk' >&2; exit 1; }
 
       - name: Load build configuration
         id: build-config
@@ -97,6 +154,76 @@ jobs:
           path: |
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
+          retention-days: 14
+
+      - name: Prepare private runtime test bundle
+        if: inputs.verify_solidworks
+        run: |
+          brew install rclone
+          sudo softwareupdate --install-rosetta --agree-to-license
+          swift build --package-path macos/Bootstrap --scratch-path build/swift \
+            --configuration release --product MacSWCI
+          binary_dir="$(swift build --package-path macos/Bootstrap --scratch-path build/swift \
+            --configuration release --show-bin-path)"
+          mkdir -p "$RUNNER_TEMP/MacSW-runtime"
+          ditto build/app/MacSW.app "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
+          cp "$binary_dir/MacSWCI" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
+
+      - name: Download private installation inputs
+        if: inputs.verify_solidworks
+        timeout-minutes: 60
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
+          MACSW_ASSETS_PATH: ${{ inputs.assets_path }}
+        run: bash scripts/ci/fetch-runtime-inputs.sh
+
+      - name: Fresh installation using MacSWCore
+        if: inputs.verify_solidworks
+        timeout-minutes: 120
+        env:
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+          MACSW_CI_LANGUAGE: ${{ inputs.language }}
+        run: |
+          export MACSW_CI_MEDIA="$RUNNER_TEMP/MacSW-runtime/private/media.iso"
+          export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
+          "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" install
+
+      - name: Shared modeling then driving dimensions on one host
+        if: inputs.verify_solidworks && inputs.runtime_stage == 'full'
+        timeout-minutes: 120
+        run: |
+          .venv/bin/python scripts/ci/verify-runtime.py \
+            --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
+            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence"
+
+      - name: Stop isolated runtime test bottle
+        if: always() && inputs.verify_solidworks
+        timeout-minutes: 3
+        run: |
+          # Bounded process cleanup, then erase private data even if stopping failed.
+          python3 scripts/ci/verify-runtime.py --cleanup-private
+
+      - name: Redact runtime evidence before publication
+        if: always() && inputs.verify_solidworks
+        id: redact-runtime
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+        run: python3 scripts/ci/redact-evidence.py
+
+      - name: Upload runtime evidence (no installation or license data)
+        if: always() && inputs.verify_solidworks && steps.redact-runtime.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacSW-SOLIDWORKS-runtime-evidence
+          path: |
+            ${{ runner.temp }}/MacSW-runtime/evidence/*.json
+            ${{ runner.temp }}/MacSW-runtime/evidence/*.log
+            ${{ runner.temp }}/MacSW-runtime/evidence/**/*.json
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Publish Release Assets (on tag)
