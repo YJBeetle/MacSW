@@ -16,6 +16,9 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 2. 通过 rclone 下载较小的私有验证夹具，使用 `rclone nfsmount` 只读挂载 ISO
    所在目录。不引入 macOS FUSE 依赖，也不完整下载 ISO；`MacSWCore` 仍使用原有
    `IsoService`/`hdiutil` 挂载路径，安装器访问哪些镜像区段就读取哪些区段。
+   NFS 使用 `ro,locallocks,intr`：镜像文件的 advisory lock 由 runner 本地处理，
+   不请求 rclone 未提供的网络锁管理器。首轮没有此设置时 `hdiutil` 报
+   `No locks available`；这发生在读取 ISO/运行 MSI 之前，不是 SOLIDWORKS 安装失败。
 3. 在 `$RUNNER_TEMP/MacSW-runtime/app-support/bottle` 创建全新测试容器。
    CI 专用 `MacSWCI` 入口调用 `BootstrapStore`，复用介质、Wine/Mono/COM、VC++、
    Login Manager、核心 MSI、语言、主题和安装结果校验。这里先选“不配置许可”，

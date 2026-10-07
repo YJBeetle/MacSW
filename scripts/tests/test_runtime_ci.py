@@ -109,6 +109,13 @@ class RuntimeAdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "relative ISO"):
                 media.media_location(invalid)
 
+    def test_read_only_nfs_mount_provides_local_hdiutil_locks(self):
+        command = media.mount_command("private.conf", "gdrive:media", "mount", "files.txt", "cache")
+        self.assertIn("nfsmount", command)
+        self.assertIn("--read-only", command)
+        self.assertEqual(command[command.index("--option") + 1], "ro,locallocks,intr")
+        self.assertEqual(command[command.index("--files-from-raw") + 1], "files.txt")
+
     def test_media_cleanup_detaches_only_this_ci_image(self):
         mountpoint = self.root / "media-mount"
         mountpoint.mkdir()

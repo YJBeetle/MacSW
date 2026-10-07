@@ -37,6 +37,20 @@ def mounted(mountpoint):
                for line in result.stdout.splitlines())
 
 
+def mount_command(config, remote, mountpoint, file_list, cache):
+    return [
+        "rclone", "--config", str(config), "nfsmount", remote, str(mountpoint),
+        "--files-from-raw", str(file_list), "--sudo", "--read-only",
+        # rclone serves NFSv3 without a network lock manager. hdiutil needs
+        # advisory locks; satisfy them in this one runner's VFS, not via NLM.
+        "--option", "ro,locallocks,intr", "--vfs-cache-mode", "full",
+        "--cache-dir", str(cache), "--vfs-cache-max-size", "8G",
+        "--vfs-cache-min-free-space", "4G", "--vfs-cache-poll-interval", "10s",
+        "--buffer-size", "1M", "--vfs-read-ahead", "0",
+        "--vfs-read-chunk-size", "4M", "--vfs-read-chunk-size-limit", "16M",
+        "--poll-interval", "0", "--dir-cache-time", "24h"]
+
+
 def stop_mount(root, process=None):
     if root != ci_root():
         raise RuntimeError("Refusing cleanup outside the isolated CI root")
@@ -104,15 +118,7 @@ def install():
     record = {"completed": False, "transport": "rclone-nfsmount", "initial_free_bytes": initial_free}
     try:
         with (private / "mount.log").open("w") as log:
-            process = subprocess.Popen([
-                "rclone", "--config", str(config), "nfsmount", remote, str(mountpoint),
-                "--files-from-raw", str(file_list),
-                "--sudo", "--read-only", "--vfs-cache-mode", "full",
-                "--cache-dir", str(private / "vfs"), "--vfs-cache-max-size", "8G",
-                "--vfs-cache-min-free-space", "4G", "--vfs-cache-poll-interval", "10s",
-                "--buffer-size", "1M", "--vfs-read-ahead", "0",
-                "--vfs-read-chunk-size", "4M", "--vfs-read-chunk-size-limit", "16M",
-                "--poll-interval", "0", "--dir-cache-time", "24h"],
+            process = subprocess.Popen(mount_command(config, remote, mountpoint, file_list, private / "vfs"),
                 env=mount_env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
             (private / "mount-process.json").write_text(json.dumps({"pid": process.pid}))
             deadline = time.monotonic() + 90
