@@ -12,6 +12,38 @@ Builder 的版本选择。
 
 This table records observed behavior, not a promise that every component or workflow is supported.
 
+## SWCLI development snapshot (2026-10-08)
+
+MacSW now pins SWCLI `0.1.0a5.dev0` at `b1c78d3`. This is a development
+snapshot, not a published a5 release. Native macOS clients and Wine Windows
+workers both include checksum-locked JSON Schema dependencies; the `rpds-py`
+extension is packaged separately for ARM64 macOS and AMD64 Windows Python 3.11.
+
+Verified locally:
+
+- 133 Swift tests, 547 SWCLI tests (8 expected macOS skips), and 5 offline
+  dependency-packaging tests passed.
+- A complete fresh App was built and passed `verify_app.sh`; the deployed App
+  was then verified against the same source and dependency manifest.
+- Both the native client and the installed Wine Python imported the complete
+  dependency set successfully. The foreground `daemon serve` launcher also
+  has a regression test for its Windows Python path.
+
+The real modeling sequence is **not yet verified on this Mac**. Before the
+complete App replacement, the long-running main bottle acquired SOLIDWORKS
+2025 SP5.0 in hidden mode, but the generic gate's first `document create` did
+not return within its 600-second outer deadline. It never reached the driving
+dimension gate or the later `InsertSketch` operation that failed on Linux
+Wine. Subsequent visible COM activation failed even though `doctor` still
+found the registered local server and its executable. This is diagnostic
+evidence, not proof of the same Linux exception or its cause.
+
+Keep these experiments separate from the graphics/manual baseline above.
+The next verification must start from a confirmed healthy host, run generic
+modeling followed by driving dimensions in **one unchanged COM session**, and
+retain all failures. Passing driving dimensions alone or restarting between
+the two gates does not establish that sequence's correctness.
+
 ## Community reports
 
 Compatibility reports are welcome as pull requests. Add one row below and include enough evidence to distinguish
