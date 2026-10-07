@@ -144,8 +144,9 @@ class RuntimeAdapterTests(unittest.TestCase):
         evidence = self.root / "evidence/installer-logs"
         self.assertEqual({path.name for path in evidence.iterdir()}, {"install_msi.log", "vc-installer-0.log"})
         self.assertEqual((evidence / "vc-installer-0.log").read_text(), "Error 0x80070656")
-        self.assertEqual(privacy.redact((evidence / "install_msi.log").read_text(), ["fake serial"]),
-                         "MSI failure: [REDACTED]")
+        self.assertEqual(privacy.redact((evidence / "install_msi.log").read_text(),
+                                       privacy.sensitive_values({"SW_SERIAL_SOLIDWORKS": "fake serial"})),
+                         "MSI failure: fake serial")
 
     def test_media_cleanup_detaches_only_this_ci_image(self):
         mountpoint = self.root / "media-mount"
@@ -203,14 +204,16 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertFalse(self.app.exists())
         self.assertFalse((self.root / "app-support").exists())
 
-    def test_publication_redacts_formatted_serial_and_drive_tokens(self):
+    def test_publication_retains_authorized_fake_serial_but_redacts_drive_tokens(self):
         serial = "ABCD-EFGH-IJKL-MNOP-QRST-UVWX"
         configuration = '[gdrive]\ntype = drive\ntoken = {"access_token":"private-access-token","refresh_token":"private-refresh-token"}\n'
         values = privacy.sensitive_values({"SW_SERIAL_SOLIDWORKS": serial,
                                           "RCLONE_CONFIG_B64": base64.b64encode(configuration.encode()).decode()})
-        for value in (serial, serial.replace("-", ""), serial.replace("-", " "),
-                      "private-access-token", "private-refresh-token"):
+        for value in ("private-access-token", "private-refresh-token"):
             self.assertEqual(privacy.redact(value, values), "[REDACTED]")
+        for value in (serial, serial.replace("-", ""), serial.replace("-", " "),
+                      "SOLIDWORKSSERIALNUMBER=" + serial):
+            self.assertEqual(privacy.redact(value, values), value)
         self.assertEqual(privacy.redact("SIMULATIONSERIALNUMBER=unexpected", values),
                          "SIMULATIONSERIALNUMBER=[REDACTED]")
 

@@ -1,4 +1,4 @@
-"""Final publication barrier for CI text evidence, never raw installer logs."""
+"""Final publication barrier for CI text evidence and whitelisted installer logs."""
 
 import base64
 import configparser
@@ -11,12 +11,9 @@ import sys
 
 def sensitive_values(environment):
     values = set()
-    serial = environment.get("SW_SERIAL_SOLIDWORKS", "")
-    if serial:
-        normalized = re.sub("[^A-Za-z0-9]", "", serial).upper()
-        values.update((serial, normalized))
-        groups = [normalized[index:index + 4] for index in range(0, len(normalized), 4)]
-        values.update((" ".join(groups), "-".join(groups)))
+    # The owner confirmed this repository's SOLIDWORKS SN is a fake CI fixture
+    # and explicitly authorized retaining it in installation diagnostics.
+    # Rclone credentials are real and must still be hidden.
     encoded = environment.get("RCLONE_CONFIG_B64", "")
     if encoded:
         values.add(encoded)
@@ -40,7 +37,7 @@ def redact(text, values):
         text = re.sub(re.escape(value), "[REDACTED]", text, flags=re.IGNORECASE)
     # Other serial properties should not occur in runtime evidence, but fail
     # closed by hiding them if a future diagnostic accidentally prints them.
-    text = re.sub(r"(?i)((?:SOLIDWORKS|SIMULATION|MOTION|MBD)SERIALNUMBER\s*=\s*)[^\s\";]+",
+    text = re.sub(r"(?i)((?:SIMULATION|MOTION|MBD)SERIALNUMBER\s*=\s*)[^\s\";]+",
                   r"\1[REDACTED]", text)
     return text
 
