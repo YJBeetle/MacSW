@@ -27,7 +27,7 @@ def ci_root():
 def remove_private_inputs(root):
     if root != ci_root():
         raise RuntimeError("Refusing cleanup outside the isolated CI root")
-    for name in ("private", "app-support", "MacSW.app"):
+    for name in ("private", "app-support", "MacSW.app", "base-cache"):
         target = root / name
         if target.is_symlink():
             target.unlink()
@@ -222,10 +222,12 @@ class RuntimeGate:
                     # Both namespaces must refer to the SAME physical directory:
                     # the shared modeling gate checks the locally saved artifact.
                     self.same_host(host)
-                    self.command([sys.executable, script, "--output-dir", output,
-                                  "--host-output-dir", self.windows_path(output),
-                                  "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"]],
-                                 timeout=2400)
+                    arguments = [sys.executable, script, "--output-dir", output,
+                                 "--host-output-dir", self.windows_path(output),
+                                 "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"]]
+                    if name == "driving":
+                        arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
+                    self.command(arguments, timeout=2400)
                     self.same_host(host)
             finally:
                 self.collect_evidence(mode)

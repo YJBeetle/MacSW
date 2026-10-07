@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 import plistlib
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -84,6 +85,8 @@ def install():
     mountpoint = root / "media-mount"
     mountpoint.mkdir()  # Refuse any pre-existing mountpoint/state.
     remote, filename = media_location(os.environ["MACSW_MEDIA_PATH"])
+    file_list = private / "mount-files.txt"
+    file_list.write_text(filename + "\n")
     config = private / "mount-rclone.conf"
     descriptor = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "wb") as stream:
@@ -103,6 +106,7 @@ def install():
         with (private / "mount.log").open("w") as log:
             process = subprocess.Popen([
                 "rclone", "--config", str(config), "nfsmount", remote, str(mountpoint),
+                "--files-from-raw", str(file_list),
                 "--sudo", "--read-only", "--vfs-cache-mode", "full",
                 "--cache-dir", str(private / "vfs"), "--vfs-cache-max-size", "8G",
                 "--vfs-cache-min-free-space", "4G", "--vfs-cache-poll-interval", "10s",
@@ -130,7 +134,7 @@ def install():
                 time.sleep(2)
             if installation.returncode != 0:
                 raise RuntimeError("MacSWCore installation failed; see sanitized setup evidence")
-            record["completed"] = True
+            record["installation_completed"] = True
     finally:
         if installation is not None and installation.poll() is None:
             installation.terminate()
@@ -147,6 +151,7 @@ def install():
         finally:
             try:
                 stop_mount(root, process)
+                record["mount_cleanup_completed"] = True
             finally:
                 config.unlink(missing_ok=True)
                 record["minimum_free_bytes"] = minimum_free
@@ -155,6 +160,9 @@ def install():
                     size = subprocess.run(["/usr/bin/du", "-sk", str(cache)], capture_output=True,
                                           text=True, check=True, timeout=30)
                     record["vfs_allocated_bytes"] = int(size.stdout.split()[0]) * 1024
+                    if record.get("mount_cleanup_completed"):
+                        shutil.rmtree(cache)  # Exact local cache only, after NFS and ISO unmount.
+                record["completed"] = bool(record.get("installation_completed") and record.get("mount_cleanup_completed"))
                 evidence = root / "evidence"
                 evidence.mkdir(exist_ok=True)
                 (evidence / "media.json").write_text(json.dumps(record, indent=2) + "\n")

@@ -2,8 +2,10 @@
 
 import importlib.util
 import base64
+import json
 import os
 import plistlib
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -20,6 +22,9 @@ redact_spec.loader.exec_module(privacy)
 mount_spec = importlib.util.spec_from_file_location("macsw_mount", PROJECT / "scripts/ci/mount-install.py")
 media = importlib.util.module_from_spec(mount_spec)
 mount_spec.loader.exec_module(media)
+cache_spec = importlib.util.spec_from_file_location("macsw_base_cache", PROJECT / "scripts/ci/bottle-cache.py")
+base_cache = importlib.util.module_from_spec(cache_spec)
+cache_spec.loader.exec_module(base_cache)
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -68,6 +73,12 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIn("--endpoint", args)
             output = args[args.index("--output-dir") + 1]
             self.assertTrue(output.is_relative_to(gate.prefix / "drive_c"))
+            if args[1].name == "verify-driving-dimensions.py":
+                self.assertIn("--after-modeling", args)
+                self.assertEqual(args[args.index("--after-modeling") + 1],
+                                 output.parent / "modeling/modeling.json")
+            else:
+                self.assertNotIn("--after-modeling", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
                 patch.object(gate, "start", side_effect=lambda mode: events.append("start:" + mode) or host), \
                 patch.object(gate, "same_host", side_effect=lambda expected: self.assertEqual(expected, host)), \
@@ -164,6 +175,64 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertEqual(privacy.redact(value, values), "[REDACTED]")
         self.assertEqual(privacy.redact("SIMULATIONSERIALNUMBER=unexpected", values),
                          "SIMULATIONSERIALNUMBER=[REDACTED]")
+
+    def official_base(self):
+        serial = "ABCD-EFGH-IJKL-MNOP-QRST-UVWX"
+        os.environ["SW_SERIAL_SOLIDWORKS"] = serial
+        evidence = self.root / "evidence"
+        evidence.mkdir()
+        (evidence / "setup.json").write_text(json.dumps({"completed": True, "fixture_ready": False}))
+        bottle = self.root / "app-support/bottle"
+        program = bottle / "drive_c/Program Files/SOLIDWORKS/SLDWORKS.exe"
+        program.parent.mkdir(parents=True)
+        program.write_bytes(b"official test binary")
+        (bottle / "dosdevices/c:").symlink_to("../drive_c")
+        (bottle / "dosdevices/z:").symlink_to("/")
+        (bottle / "system.reg").write_text('"Serial Number"="' + serial.replace("-", "") + '"\n')
+        (bottle / "install.log").write_text(serial)
+        temporary = bottle / "drive_c/windows/temp"
+        temporary.mkdir(parents=True)
+        (temporary / "private-msi.tmp").write_text(serial)
+        return bottle, serial
+
+    def test_complete_base_cache_strips_serials_logs_and_per_run_mappings(self):
+        bottle, serial = self.official_base()
+        base_cache.export_snapshot("context")
+        snapshot = self.root / "base-cache/bottle"
+        self.assertNotIn(serial.replace("-", ""), (snapshot / "system.reg").read_text())
+        self.assertIn(serial.replace("-", ""), (bottle / "system.reg").read_text())
+        self.assertFalse((snapshot / "install.log").exists())
+        self.assertFalse((snapshot / "drive_c/windows/temp").exists())
+        self.assertTrue((snapshot / "dosdevices/c:").is_symlink())
+        self.assertFalse((snapshot / "dosdevices/z:").is_symlink())
+        shutil.rmtree(bottle)
+        base_cache.restore_snapshot("context")
+        self.assertTrue((bottle / "drive_c/Program Files/SOLIDWORKS/SLDWORKS.exe").is_file())
+        self.assertEqual(json.loads((self.root / "evidence/cache.json").read_text())["source"],
+                         "installed-base-cache")
+
+    def test_private_fixtures_and_binary_secrets_block_cache_publication(self):
+        bottle, serial = self.official_base()
+        (self.root / "evidence/setup.json").write_text(json.dumps({"completed": True, "fixture_ready": True}))
+        with self.assertRaisesRegex(RuntimeError, "before fixture injection"):
+            base_cache.export_snapshot("context")
+        (self.root / "evidence/setup.json").write_text(json.dumps({"completed": True, "fixture_ready": False}))
+        (bottle / "secret.bin").write_bytes(serial.replace("-", "").encode("utf-16le"))
+        with self.assertRaisesRegex(RuntimeError, "Sensitive data"):
+            base_cache.export_snapshot("context")
+        self.assertFalse((self.root / "base-cache").exists())
+
+    def test_base_cache_integrity_and_context_are_checked_before_restore(self):
+        bottle, serial = self.official_base()
+        base_cache.export_snapshot("context")
+        shutil.rmtree(bottle)
+        with self.assertRaisesRegex(RuntimeError, "context mismatch"):
+            base_cache.restore_snapshot("different-context")
+        snapshot = self.root / "base-cache/bottle/system.reg"
+        snapshot.write_text("tampered")
+        with self.assertRaisesRegex(RuntimeError, "integrity"):
+            base_cache.restore_snapshot("context")
+        self.assertFalse(bottle.exists())
 
 
 if __name__ == "__main__":

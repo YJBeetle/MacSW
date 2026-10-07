@@ -18,7 +18,9 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    `IsoService`/`hdiutil` 挂载路径，安装器访问哪些镜像区段就读取哪些区段。
 3. 在 `$RUNNER_TEMP/MacSW-runtime/app-support/bottle` 创建全新测试容器。
    CI 专用 `MacSWCI` 入口调用 `BootstrapStore`，复用介质、Wine/Mono/COM、VC++、
-   Login Manager、核心 MSI、语言、主题、托管 FlexNet 和安装结果校验。
+   Login Manager、核心 MSI、语言、主题和安装结果校验。这里先选“不配置许可”，
+   在隔离 Wine 停止后制作脱敏的官方已安装基底；托管 FlexNet 在下一阶段仍调用
+   `LicenseServerStore.configureDuringInstallation` 的实际安装路径。
 4. 官方安装结束后，在此临时容器应用与 DockerSW 相同布局的私有验证资源。
    此操作只是为了 CI 无法访问开发者局域网许可服务器时验证可行性，
    不是 MacSW 产品功能，也不证明正版许可服务器联通性。
@@ -37,8 +39,10 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
-已检查 SWCLI agent 的未提交通用建模入口，当前四个参数与尺寸入口一致。
-SWCLI 共享入口尚未进入固定子模块提交时，runtime 预检明确失败，**不静默跳过**。
+SWCLI 固定提交为 `e44610e4629e514ba15eaa22b50a9db8bdc6bf27`，与 DockerSW 的共享
+门禁接线一致。尺寸入口额外传入 `--after-modeling` 指向同一模式的成功 `modeling.json`，
+由 SWCLI 核对前序成功、拒绝切除后的续用证明及原生宿主 PID。外层宿主检查仍保留。
+共享入口缺失时，runtime 预检明确失败，**不静默跳过**。
 
 当前 MacSW 接线不自行复制 Windows/DockerSW 的启动矩阵、外部实例附着或几何断言。
 这些测试若需要纳入跨平台运行，也应由 SWCLI 提供共享入口，再在此调用。
@@ -49,6 +53,7 @@ Metal/OpenGL 图层或鼠标交互。
 
 CI 入口只允许在 GitHub Actions 中运行，路径固定在 runner 的临时目录。
 拒绝复用已有测试容器，不调用 `AppPaths.live()`，不使用日常主容器。
+缓存命中时，先校验清洁快照，再复制到新隔离目录，绝不在缓存本体上运行。
 `MacSWCI` 只放进 CI 私有 App 副本，不进入发布 zip。
 
 模型和临时 CLI 输出置于测试容器的 `drive_c` 内；给临时 App 配置独立 `M:` 映射。
@@ -77,10 +82,23 @@ NFS 仅绑定 runner 的 loopback，不对外提供服务，远端介质只读�
 `media.json` 记录安装期间最低空闲空间及 VFS 实际磁盘分配量，供后续调优。
 安装完就解除挂载，不删除或修改 Google Drive 上的 ISO。
 
-整体已安装容器缓存是后续加速层：必须在私有补丁/许可夹具注入前生成，并剥离安装
-序列号、许可配置和日志。禁用 PR 触发不能保证缓存只对维护者可读，不能直接缓存
-包含这些内容的测试容器。缓存命中也不等同于本次完成了全新安装，应明确记录来源，
-保留强制全新安装入口。首轮先验证按需挂载的真实安装链路。
+## 完整官方安装基底缓存
+
+缓存整个官方已安装 Wine bottle，但必须在私有补丁/许可夹具注入前生成：
+
+- 只复制 bottle，不包含宿主安装日志、ISO、rclone 配置、私有资源或托管 FlexNet。
+- 删除容器内日志、dump、临时目录及非 C: 的本次运行映射；保留官方安装程序、
+  Mono/COM/VC++、语言资源与注册表。序列号只从快照文本 hive 中抹除，不改动活动容器。
+- 再扫描所有普通文件中的原始、规范化及分组序列号（UTF-8/UTF-16）。二进制中仍有
+  序列号、存在许可文件或私有 FlexNet 时拒绝发布，不能靠修改二进制来通过隐私检查。
+- 缓存 key 包含 macOS/架构、介质路径、语言、版本配置和安装源码；恢复时逐文件核对
+  SHA-256、文件权限、符号链接和 manifest，校验失败不启动容器，也不把坏缓存当作成功安装。
+- `cache.json` 区分 `fresh-install` 与 `installed-base-cache`。缓存命中不是本次全新安装
+  证明；`force_fresh_install=true` 忽略缓存并重新挂载介质完成整个安装链。
+- 每次运行都重新下载、注入临时验证资源；不缓存补丁后的容器，不公开这些二进制。
+
+禁用 PR 触发不能保证缓存只有维护者可读，不能缓存含有敏感内容的测试容器。
+缓存的隔离副本和活动测试容器结束后都删除；只有通过隐私检查的官方基底留在 Actions cache。
 
 ## 触发与验证边界
 
@@ -92,7 +110,8 @@ gh workflow run build-app.yml --repo YJBeetle/MacSW --ref master \
   -f verify_solidworks=true -f runtime_stage=install -f language=chinese-simplified
 ```
 
-共享脚本进入固定版本后，将 `runtime_stage` 改为 `full` 执行完整验证。
+将 `runtime_stage` 改为 `full` 执行共享建模与尺寸完整验证。
+首次安装或排查安装回归时可追加 `-f force_fresh_install=true`。
 
 首次云端运行还需要确认 GUI 会话、Rosetta、磁盘、私有许可夹具与 Wine 冷启动行为。
 工作流接线与离线测试不能证明实际安装、COM 激活或连续建模已通过。

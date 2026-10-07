@@ -72,9 +72,9 @@ struct MacSWCI {
                 }
                 bootstrap.selectedLanguage = selected
             }
-            bootstrap.licenseMode = .managedFlexNet
-            bootstrap.chooseFlexNetDirectory(flexNet)
-            while bootstrap.flexNetCheck == .checking { try await Task.sleep(nanoseconds: 100_000_000) }
+            // The reusable official base must contain no private license package.
+            // The same Core licensing path runs in the separate fixtures stage.
+            bootstrap.licenseMode = .unconfigured
             guard bootstrap.canStart else { throw failure(bootstrap.startHint ?? "Installation inputs are not ready.") }
             bootstrap.start()
             var previous: InstallationState?
@@ -88,6 +88,21 @@ struct MacSWCI {
             }
             try writeInstallationEvidence(bootstrap, directory: evidence)
             guard bootstrap.state == .completed else { throw failure(bootstrap.statusMessage) }
+            try writeEvidence(["completed": true, "fixture_ready": false], directory: evidence, name: "setup.json")
+            print("CI fresh official installation completed.")
+        case "fixtures":
+            guard paths.solidWorksInstalled, let assetsPath = env["MACSW_CI_ASSETS"],
+                  URL(fileURLWithPath: assetsPath).resolvingSymlinksInPath().path == root.appendingPathComponent("private/assets").path else {
+                throw failure("Missing isolated installation or private fixtures.")
+            }
+            let assets = URL(fileURLWithPath: assetsPath)
+            let candidates = FlexNetLocator.discover(in: assets)
+            guard candidates.count == 1, let flexNet = candidates.first else {
+                throw failure("CI assets must contain exactly one FlexNet package.")
+            }
+            let check = await licensing.checkedPackage(at: flexNet)
+            guard case .ready = check else { throw failure("CI FlexNet package did not pass validation.") }
+            try await licensing.configureDuringInstallation(address: "", flexNetSource: flexNet)
             // These are CI-only private fixtures, never a product installer feature.
             let overlay = assets.appendingPathComponent("SOLIDWORKS Corp/SOLIDWORKS")
             guard FileManager.default.fileExists(atPath: overlay.path) else { throw failure("CI application fixture missing.") }
@@ -99,7 +114,14 @@ struct MacSWCI {
                 .filter { $0.lastPathComponent.lowercased().hasSuffix("serials_licensing.reg") }
             guard !registrations.isEmpty else { throw failure("CI licensing fixture missing.") }
             for registration in registrations {
-                let process = wine.makeProcess(arguments: ["reg", "import", registration.path], prefix: paths.bottle)
+                // Restored bases deliberately have no runner-root/Z: mapping.
+                // Import from the bottle's own C: instead of passing a Unix path.
+                let name = "MacSW-CI-\(UUID().uuidString).reg"
+                let local = paths.bottle.appendingPathComponent("drive_c/windows/temp").appendingPathComponent(name)
+                try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: registration, to: local)
+                defer { try? FileManager.default.removeItem(at: local) }
+                let process = wine.makeProcess(arguments: ["reg", "import", "C:\\windows\\temp\\\(name)"], prefix: paths.bottle)
                 guard try await wine.runCancellable(process) == 0 else { throw failure("CI fixture registry import failed.") }
             }
             await licensing.refreshInstallation()
@@ -108,7 +130,7 @@ struct MacSWCI {
             // The orchestrator unmounts the read-only remote and deletes sparse
             // VFS blocks after installation. Never delete the remote ISO itself.
             try writeEvidence(["completed": true, "fixture_ready": true], directory: evidence, name: "setup.json")
-            print("CI fresh installation completed.")
+            print("CI temporary runtime fixtures prepared.")
         case "prepare":
             guard paths.solidWorksInstalled else { throw failure("No CI installation to prepare.") }
             await licensing.refreshInstallation()
@@ -125,7 +147,7 @@ struct MacSWCI {
                 throw failure("CI Wine server did not stop.")
             }
         default:
-            throw failure("Usage: MacSWCI install|prepare|cleanup")
+            throw failure("Usage: MacSWCI install|fixtures|prepare|cleanup")
         }
     }
 

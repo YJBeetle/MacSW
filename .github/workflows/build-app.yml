@@ -14,6 +14,10 @@ on:
           - install
           - full
         default: full
+      force_fresh_install:
+        description: 'Ignore the clean installed-base cache and exercise installation again'
+        type: boolean
+        default: false
       media_path:
         description: 'ISO path in the gdrive remote'
         type: string
@@ -170,7 +174,38 @@ jobs:
           ditto build/app/MacSW.app "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
           cp "$binary_dir/MacSWCI" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
-          codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
+          # This is a CLI helper in a private resource bundle, not a signed App
+          # distribution. Signing the enclosing bundle rejects its shell launchers.
+          codesign --verify --verbose=2 "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+
+      - name: Resolve installed base cache identity
+        if: inputs.verify_solidworks
+        env:
+          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
+          MACSW_CI_LANGUAGE: ${{ inputs.language }}
+          MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py') }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, platform
+          context = {name: os.environ[name] for name in
+                     ('MACSW_MEDIA_PATH', 'MACSW_CI_LANGUAGE', 'MACSW_INSTALLER_HASH')}
+          context.update(macos=platform.mac_ver()[0], architecture=platform.machine())
+          digest = hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write('MACSW_BASE_CONTEXT=' + digest + '\n')
+          PY
+
+      - name: Restore official installed bottle cache
+        if: inputs.verify_solidworks && !inputs.force_fresh_install
+        id: installed-base
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/MacSW-runtime/base-cache
+          key: macsw-installed-base-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+
+      - name: Validate cache and copy into isolated test bottle
+        if: inputs.verify_solidworks && steps.installed-base.outputs.cache-hit == 'true'
+        run: python3 scripts/ci/bottle-cache.py restore --context "$MACSW_BASE_CONTEXT"
 
       - name: Download private runtime fixtures
         if: inputs.verify_solidworks
@@ -181,7 +216,7 @@ jobs:
         run: bash scripts/ci/fetch-runtime-inputs.sh
 
       - name: Mount media on demand and install using MacSWCore
-        if: inputs.verify_solidworks
+        if: inputs.verify_solidworks && steps.installed-base.outputs.cache-hit != 'true'
         timeout-minutes: 120
         env:
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
@@ -190,6 +225,26 @@ jobs:
           MACSW_CI_LANGUAGE: ${{ inputs.language }}
         run: |
           python3 scripts/ci/mount-install.py
+
+      - name: Strip serials and snapshot official installed bottle
+        if: inputs.verify_solidworks && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
+        env:
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+        run: python3 scripts/ci/bottle-cache.py export --context "$MACSW_BASE_CONTEXT"
+
+      - name: Save only verified official base (before private fixtures)
+        if: inputs.verify_solidworks && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/MacSW-runtime/base-cache
+          key: macsw-installed-base-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+
+      - name: Prepare temporary licensing and runtime fixtures
+        if: inputs.verify_solidworks
+        timeout-minutes: 15
+        run: |
+          export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
+          "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
       - name: Shared modeling then driving dimensions on one host
         if: inputs.verify_solidworks && inputs.runtime_stage == 'full'
@@ -201,7 +256,7 @@ jobs:
 
       - name: Stop isolated runtime test bottle
         if: always() && inputs.verify_solidworks
-        timeout-minutes: 3
+        timeout-minutes: 4
         run: |
           # Bounded process cleanup, then erase private data even if stopping failed.
           python3 scripts/ci/verify-runtime.py --cleanup-private
