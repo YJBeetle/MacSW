@@ -103,6 +103,11 @@ fetch_swcli_runtime() {
         "${SWCLI_NATIVE_PYTHON_ARCHIVE_URL}" \
         "${DIST_DIR}/${SWCLI_NATIVE_PYTHON_ARCHIVE_ASSET}" \
         "${SWCLI_NATIVE_PYTHON_ARCHIVE_SHA256}"
+    while read -r target asset checksum url; do
+        [[ -z "${target}" || "${target}" == \#* ]] && continue
+        download_verified "SWCLI ${target} dependency ${asset}" "${url}" \
+            "${DIST_DIR}/${asset}" "${checksum}"
+    done < "${SWCLI_WHEEL_MANIFEST}"
 }
 
 case "${1:-all}" in

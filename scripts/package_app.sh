@@ -47,7 +47,7 @@ for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW
     "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
     "${SWCLI_NATIVE_PATH_HELPER}" "${SWCLI_PATH_HELPER}" \
     "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}" \
-    "${SWCLI_NATIVE_PYTHON_ARCHIVE}"; do
+    "${SWCLI_NATIVE_PYTHON_ARCHIVE}" "${SWCLI_WHEEL_MANIFEST}"; do
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
@@ -99,6 +99,9 @@ unzip -q "${SWCLI_PYTHON_ARCHIVE}" -d "${SWCLI_RUNTIME}"
 unzip -q "${SWCLI_PYWIN32_WHEEL}" -d "${SWCLI_SITE_PACKAGES}"
 tar -xzf "${SWCLI_NATIVE_PYTHON_ARCHIVE}" -C "${SWCLI_NATIVE_RUNTIME}" \
     --strip-components=1
+bash "${WORKSPACE_ROOT}/scripts/package_swcli_dependencies.sh" \
+    "${SWCLI_SITE_PACKAGES}" "${SWCLI_NATIVE_SITE_PACKAGES}"
+cp -p "${SWCLI_WHEEL_MANIFEST}" "${RESOURCES_DIR}/SWCLI/wheels.tsv"
 tr -d '\r' < "${SWCLI_RUNTIME}/python311._pth" | awk '
     /^#import site$/ { print "Lib\\site-packages"; print "import site"; next }
     { print }
@@ -209,6 +212,7 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :SevenZipVersion string ${SEVEN_Z_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIVersion string ${SWCLI_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLISourceCommit string ${SWCLI_SOURCE_COMMIT}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :SWCLIWheelManifestSHA256 string $(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIPythonVersion string ${SWCLI_PYTHON_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIPythonArchiveSHA256 string ${SWCLI_PYTHON_ARCHIVE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :SWCLIPyWin32Version string ${SWCLI_PYWIN32_VERSION}" "${BUILD_MANIFEST}"

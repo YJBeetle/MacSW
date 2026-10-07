@@ -15,5 +15,8 @@ macos/Resources/*.icns
 scripts/diagnostics/*.exe
 build/
 dist/
+/.venv/
+__pycache__/
+*.pyc
 *.dll
 resources/*.dll

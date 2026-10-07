@@ -38,7 +38,8 @@ SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebre
 - App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
 - 中文界面优先使用系统苹方补字形，不额外打包字体；安装策略与验证边界见
   [docs/font-fallback.md](docs/font-fallback.md)。
-- App 内置固定提交的 SWCLI、Windows Python 3.11 与 pywin32。它们都在构建时下载或检出、校验并展开，
+- App 内置固定提交的 SWCLI、Windows Python 3.11、macOS 原生 Python、pywin32 与完整的 JSON Schema 依赖。
+  它们都在构建时下载或检出、校验并展开，
   全新安装时一次复制进容器，最终用户使用时不会联网下载依赖。
 
 ## 图形窗口修复
@@ -95,6 +96,9 @@ Builder 分为三层：
 应用、Wine、Wine-Mono、stdole 和 7-Zip 版本及 SHA-256 只在
 [`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
 SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
+SWCLI 的纯 Python 依赖和两种平台的 `rpds-py` wheel 固定在
+[`config/swcli-wheels.tsv`](config/swcli-wheels.tsv)，逐个校验 SHA-256 并保留许可证与包元数据。
+当前 SWCLI 固定为 `0.1.0a5.dev0` 开发快照，用于建模验证，不代表 a5 已正式发布。
 
 常用目标：
 
@@ -104,6 +108,15 @@ make app                  # 构建、打包并校验 MacSW.app
 make verify               # 校验已有 MacSW.app
 make archive              # 生成可上传的 zip（会占用额外磁盘空间）
 make ci                   # 测试并生成归档
+```
+
+`make test` 还会运行 SWCLI 的 Python 契约测试，需要宿主 Python 的 `jsonschema`
+依赖。建议用隔离环境，避免修改系统 Python：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install ./Dependencies/SWCLI
+PATH="${PWD}/.venv/bin:${PATH}" make test
 ```
 
 完整打包流程会：

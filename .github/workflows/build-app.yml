@@ -45,6 +45,7 @@ jobs:
           echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "swcli_python_archive_asset=${SWCLI_PYTHON_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "swcli_pywin32_wheel_asset=${SWCLI_PYWIN32_WHEEL_ASSET}" >> "$GITHUB_OUTPUT"
+          echo "swcli_native_python_archive_asset=${SWCLI_NATIVE_PYTHON_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
 
       - name: Report build toolchain
         run: |
@@ -64,8 +65,16 @@ jobs:
             dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
             dist/${{ steps.build-config.outputs.swcli_python_archive_asset }}
             dist/${{ steps.build-config.outputs.swcli_pywin32_wheel_asset }}
+            dist/${{ steps.build-config.outputs.swcli_native_python_archive_asset }}
+            dist/*.whl
             dist/7zz
-          key: macsw-runtime-${{ hashFiles('config/versions.env', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
+          key: macsw-runtime-${{ hashFiles('config/versions.env', 'config/swcli-wheels.tsv', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
+
+      - name: Prepare isolated SWCLI test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install ./Dependencies/SWCLI
+          echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install Wine build dependency
         run: brew install bison mingw-w64

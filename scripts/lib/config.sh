@@ -11,6 +11,7 @@ fi
 
 MACSW_CONFIG_ROOT="$(cd "$(dirname "${MACSW_CONFIG_SOURCE_PATH}")/../.." && pwd)"
 MACSW_VERSIONS_FILE="${MACSW_CONFIG_ROOT}/config/versions.env"
+SWCLI_WHEEL_MANIFEST="${MACSW_CONFIG_ROOT}/config/swcli-wheels.tsv"
 
 if [ ! -f "${MACSW_VERSIONS_FILE}" ]; then
     echo "Missing build version configuration: ${MACSW_VERSIONS_FILE}" >&2

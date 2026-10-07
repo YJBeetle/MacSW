@@ -55,6 +55,12 @@ test -f "${SWCLI_RUNTIME}/Lib/site-packages/swcli/schemas/v1/request.schema.json
 test -x "${SWCLI_NATIVE_RUNTIME}/bin/python3"
 test -f "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/__main__.py"
 test -f "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/schemas/v1/request.schema.json"
+test -f "${SWCLI_RUNTIME}/Lib/site-packages/jsonschema/__init__.py"
+test -f "${SWCLI_RUNTIME}/Lib/site-packages/rpds/rpds.cp311-win_amd64.pyd"
+test "$(shasum -a 256 "${SWCLI_DIR}/wheels.tsv" | awk '{print $1}')" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIWheelManifestSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
+PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -c \
+    'import attrs, jsonschema, referencing, rpds, typing_extensions; from swcli.operation_schemas import operation_schemas; [jsonschema.Draft202012Validator.check_schema(schema) for schema in operation_schemas().values()]'
 grep -Fxq 'Lib\site-packages' "${SWCLI_RUNTIME}/python311._pth"
 grep -Fxq 'import site' "${SWCLI_RUNTIME}/python311._pth"
 test -f "${SWCLI_DIR}/licenses/SWCLI-LICENSE"
