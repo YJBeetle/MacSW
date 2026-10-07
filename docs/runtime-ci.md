@@ -35,6 +35,9 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    此操作只是为了 CI 无法访问开发者局域网许可服务器时验证可行性，
    不是 MacSW 产品功能，也不证明正版许可服务器联通性。
 5. 执行 App 的 `RuntimeStore.startup(autoLaunch: false)` 字体准备路径，
+   在隔离活动容器中通过 MacSW 的 `SolidWorksResourceMonitorService` 禁用
+   `sldProcMon.exe`（可逆重命名，与 DockerSW 相同），记录 VC++ 模块大小、哈希和
+   Wine builtin/placeholder 标记，并将 Mono 的宿主路径按实际映射重新绑定，再
    启动打包 `sw-cli daemon serve`，等待健康检查确认 COM 主机就绪。
 6. 可见模式中顺序运行 `verify-modeling.py` 和 `verify-driving-dimensions.py`，
    每个入口前后核对同一个 daemon/SOLIDWORKS COM 主机的 PID、模式和元数据。
@@ -67,7 +70,11 @@ Metal/OpenGL 图层或鼠标交互。
 CI 入口只允许在 GitHub Actions 中运行，路径固定在 runner 的临时目录。
 拒绝复用已有测试容器，不调用 `AppPaths.live()`，不使用日常主容器。
 缓存命中时，先校验清洁快照，再复制到新隔离目录，绝不在缓存本体上运行。
-`MacSWCI` 只放进 CI 私有 App 副本，不进入发布 zip。
+`MacSWCI` 和 `MacSWCIRuntime` 只放进 CI 私有 App 副本，不进入发布 zip。
+后者只做运行前宿主准备和诊断，不执行安装、不改动官方基底，也不进入安装缓存身份；
+仅修改这些运行步骤时仍可恢复与当前安装源码及 Wine 模块一致的官方快照。
+缓存清除非 C: 盘映射后，安装期 Mono `RuntimePath` 不能沿用旧的 Z: 宿主路径；
+运行准备经 `winepath -w` 使用当前实际映射重新写入，路径也进入宿主准备证据。
 
 模型和临时 CLI 输出置于测试容器的 `drive_c` 内；给临时 App 配置独立 `M:` 映射。
 所有 Mac 路径经 App 的 `swcli-path` 按实际 `dosdevices` 转换；不拼接或假定 `Z:`。
@@ -159,4 +166,13 @@ CI 明确设置 150 秒，低于 daemon 的 180 秒启动预算及宿主的 210 
 同时移除海量 OLE trace，保留错误/警告和其他诊断，降低诊断自身对启动耗时的影响。
 延长等待能否解决实际启动、夹具校验及新基底恢复是否通过，仍需后续云端证据；
 不能将这个 HRESULT 的所有原因一概视为超时。
+
+[run 37700624906](https://github.com/YJBeetle/MacSW/actions/runs/37700624906)
+通过新增 Wine 模块的编译/打包校验、全新安装、新基底保存和全部 5 个程序夹具文件的
+逐字节校验（25,598,208 字节）。daemon 在约 64 秒后获得自有 COM 主机 PID 472，
+证明首次激活已超过原有 30 秒上限并成功；但未到就绪阶段，最终报 `WorkerStartupTimeout`，
+没有进入共享建模。日志中空地址崩溃属于 `sldProcMon.exe`，不能当作 SOLIDWORKS 主进程
+崩溃或断言它就是就绪阻塞的原因。下一轮在隔离容器复用已有禁用监视器设置，并补充
+VC++ 文件诊断；不禁用 CAD 功能、不重试实例、也不更改 `StartupProcessCompleted` 就绪要求。
+`runtime.json` 的 `host_acquisitions` 仅证明获得 COM 实例，`hosts` 才记录通过就绪检查的宿主。
 工作流接线与离线测试不能证明实际安装、COM 激活或连续建模已通过。

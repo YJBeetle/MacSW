@@ -90,9 +90,10 @@ class RuntimeGate:
         self.prefix = self.root / "app-support/bottle"
         self.cli = app / "Contents/MacOS/sw-cli"
         self.helper = app / "Contents/MacOS/MacSWCI"
+        self.runtime_helper = app / "Contents/MacOS/MacSWCIRuntime"
         self.path_helper = app / "Contents/Resources/SWCLI/bin/swcli-path"
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
-                       "host_observations": []}
+                       "host_observations": [], "host_acquisitions": []}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
                         # OLE trace emits millions of GUID/string events during
@@ -168,7 +169,9 @@ class RuntimeGate:
 
     def start(self, mode):
         self.phase(mode + ".prepare")
+        self.command([self.runtime_helper, "prepare", mode])
         self.command([self.helper, "prepare"])
+        self.command([self.runtime_helper, "inspect", mode])
         self.phase(mode + ".startup")
         self.log = (self.evidence / (mode + "-daemon.log")).open("w")
         flags = ["--visible"] if mode == "visible" else []
@@ -190,8 +193,29 @@ class RuntimeGate:
                 or host["shared_interactive"] or host["visible"] != (mode == "visible")):
             raise RuntimeError("Unexpected CI COM host platform/ownership/visibility")
         self.record["hosts"].append({"mode": mode, "host": host})
+        self.collect_startup_evidence()
         self.checkpoint()
         return host
+
+    def collect_startup_evidence(self):
+        acquisitions = []
+        for mode in ("visible", "hidden"):
+            log = self.evidence / (mode + "-daemon.log")
+            if not log.is_file():
+                continue
+            with log.open(encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    if not line.startswith("{"):
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (event.get("action") == "daemon.startup" and event.get("ok") is True
+                            and event.get("phase") == "host-acquired" and isinstance(event.get("host"), dict)):
+                        acquisitions.append({"mode": mode, "host": event["host"]})
+        # Acquisition is useful failure evidence but does not prove readiness.
+        self.record["host_acquisitions"] = acquisitions
 
     def stop(self):
         self.command([self.cli, "daemon", "stop", "--json"])
@@ -261,6 +285,10 @@ def main():
         gate.run()
     except Exception as error:
         gate.record["error"] = {"type": type(error).__name__, "message": str(error)}
+        try:
+            gate.collect_startup_evidence()
+        except OSError:
+            gate.record["startup_evidence_error"] = "Unable to read daemon startup log"
         gate.checkpoint()
         raise
     finally:

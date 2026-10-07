@@ -59,6 +59,50 @@ class RuntimeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "isolated CI"):
             ci.RuntimeGate(Path("/Applications/MacSW.app"), self.root / "evidence")
 
+    def test_acquisition_evidence_does_not_claim_host_readiness(self):
+        gate = self.gate()
+        event = {"action": "daemon.startup", "ok": True, "phase": "host-acquired",
+                 "host": {"owned_by_daemon": True, "process_id": 472}}
+        (gate.evidence / "visible-daemon.log").write_text(
+            "Wine diagnostic\n{invalid\n" + json.dumps(event) + "\n"
+            + json.dumps({"action": "daemon.serve", "ok": False}) + "\n")
+        gate.collect_startup_evidence()
+        self.assertEqual(gate.record["host_acquisitions"], [{"mode": "visible", "host": event["host"]}])
+        self.assertEqual(gate.record["hosts"], [])
+        self.assertFalse(gate.record["completed"])
+
+    def test_runtime_preparation_precedes_one_daemon_activation(self):
+        gate = self.gate()
+        host = {"platform": "macos-wine", "owned_by_daemon": True,
+                "shared_interactive": False, "visible": True, "process_id": 472}
+        with patch.object(gate, "command") as command, patch.object(gate, "host", return_value=host), \
+                patch.object(ci.subprocess, "Popen") as spawn:
+            spawn.return_value.poll.return_value = None
+            self.assertEqual(gate.start("visible"), host)
+        self.addCleanup(gate.log.close)
+        self.assertEqual([entry.args[0] for entry in command.call_args_list], [
+            [gate.runtime_helper, "prepare", "visible"], [gate.helper, "prepare"],
+            [gate.runtime_helper, "inspect", "visible"]])
+        self.assertEqual(spawn.call_count, 1)
+        self.assertNotIn("--attach-existing", spawn.call_args.args[0])
+
+    def test_host_helper_reuses_core_and_is_not_a_public_or_cached_payload(self):
+        helper = (PROJECT / "macos/Bootstrap/Sources/MacSWCIRuntime/MacSWCIRuntime.swift").read_text()
+        package = (PROJECT / "scripts/package_app.sh").read_text()
+        workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
+        self.assertIn("SolidWorksResourceMonitorService()", helper)
+        self.assertIn("monitor.setDisabled(true, paths: paths)", helper)
+        self.assertIn("wine.windowsPath(for: mono, prefix: paths.bottle)", helper)
+        self.assertIn('env["GITHUB_ACTIONS"] == "true"', helper)
+        self.assertIn("Bundle.main.bundleURL.resolvingSymlinksInPath()", helper)
+        self.assertNotIn("AppPaths.live", helper)
+        self.assertNotIn('"Z:"', helper)
+        self.assertIn("WineService.vcLibraries", helper)
+        self.assertNotIn("MacSWCIRuntime", package)
+        installer_hash = next(line for line in workflow.splitlines() if "MACSW_INSTALLER_HASH:" in line)
+        self.assertNotIn("Sources/MacSWCIRuntime", installer_hash)
+        self.assertIn("--product MacSWCIRuntime", workflow)
+
     def test_real_mapping_and_secrets_not_forwarded(self):
         gate = self.gate()
         self.assertNotIn("SW_SERIAL_SOLIDWORKS", gate.env)

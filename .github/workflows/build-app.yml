@@ -169,15 +169,20 @@ jobs:
           sudo softwareupdate --install-rosetta --agree-to-license
           swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --product MacSWCI
+          swift build --package-path macos/Bootstrap --scratch-path build/swift \
+            --configuration release --product MacSWCIRuntime
           binary_dir="$(swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --show-bin-path)"
           mkdir -p "$RUNNER_TEMP/MacSW-runtime"
           ditto build/app/MacSW.app "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
           cp "$binary_dir/MacSWCI" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          cp "$binary_dir/MacSWCIRuntime" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           # This is a CLI helper in a private resource bundle, not a signed App
           # distribution. Signing the enclosing bundle rejects its shell launchers.
           codesign --verify --verbose=2 "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          codesign --verify --verbose=2 "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
 
       - name: Resolve installed base cache identity
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
