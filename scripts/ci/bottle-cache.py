@@ -36,6 +36,20 @@ def serial_forms(serial):
 
 def clean_registry(path, forms):
     contents = path.read_text(encoding="utf-8", errors="strict")
+    # Wine's hive text can encode REG_BINARY/REG_MULTI_SZ as comma-separated
+    # hex rather than literal UTF-16 bytes. Decode before masking/checking, or
+    # a byte scan of the text file would overlook the same serial entirely.
+    contents = re.sub(r"\\\r?\n", "", contents)
+    def clean_hex(match):
+        data = bytes.fromhex(match[2].replace(",", " "))
+        for value in forms:
+            masked = re.sub(r"[A-Za-z0-9]", "0", value)
+            for encoding in ("utf-8", "utf-16le", "utf-16be"):
+                data = re.sub(re.escape(value.encode(encoding)), masked.encode(encoding), data,
+                              flags=re.IGNORECASE)
+        return match[1] + ",".join(format(byte, "02x") for byte in data)
+    contents = re.sub(r"^([^\n]+?=hex(?:\([0-9a-f]+\))?:)([0-9a-f, \t]*)$", clean_hex,
+                      contents, flags=re.MULTILINE | re.IGNORECASE)
     for value in forms:
         contents = re.sub(re.escape(value), lambda match: re.sub(r"[A-Za-z0-9]", "0", match.group()),
                           contents, flags=re.IGNORECASE)
@@ -117,7 +131,7 @@ def export_snapshot(context):
     cache = runtime / "base-cache"
     cache.mkdir()  # Never overwrite a restored or previously published snapshot.
     forms = serial_forms(os.environ["SW_SERIAL_SOLIDWORKS"])
-    forbidden = tuple({value.encode(encoding) for value in forms
+    forbidden = tuple({variant.encode(encoding) for value in forms for variant in (value, value.lower())
                        for encoding in ("utf-8", "utf-16le", "utf-16be")})
     snapshot = cache / "bottle"
     try:

@@ -234,6 +234,20 @@ class RuntimeAdapterTests(unittest.TestCase):
             base_cache.restore_snapshot("context")
         self.assertFalse(bottle.exists())
 
+    def test_hive_hex_multistring_serial_is_masked_without_changing_type(self):
+        bottle, serial = self.official_base()
+        text = "prefix\0" + serial.replace("-", "").lower() + "\0suffix\0\0"
+        payload = ",".join(format(byte, "02x") for byte in text.encode("utf-16le"))
+        hive = bottle / "user.reg"
+        # Include a continuation exactly as Wine/.reg multi-string text may use.
+        payload = payload[:90] + "\\\n  " + payload[90:]
+        hive.write_text('"Serials"=hex(7):' + payload + "\n")
+        base_cache.export_snapshot("context")
+        cached = (self.root / "base-cache/bottle/user.reg").read_text().strip()
+        self.assertTrue(cached.startswith('"Serials"=hex(7):'))
+        decoded = bytes.fromhex(cached.split(":", 1)[1].replace(",", " ")).decode("utf-16le")
+        self.assertEqual(decoded, "prefix\0" + "0" * 24 + "\0suffix\0\0")
+
 
 if __name__ == "__main__":
     unittest.main()
