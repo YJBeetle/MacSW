@@ -13,7 +13,9 @@ MacSW 只负责宿主准备、复用实际安装链路、路径转换、daemon �
 CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试维护：
 
 1. 检查 Secrets、runner 架构、共享入口和可用磁盘。
-2. 通过 rclone 下载官方 ISO 与私有验证夹具，不引入 macOS FUSE 依赖。
+2. 通过 rclone 下载较小的私有验证夹具，使用 `rclone nfsmount` 只读挂载 ISO
+   所在目录。不引入 macOS FUSE 依赖，也不完整下载 ISO；`MacSWCore` 仍使用原有
+   `IsoService`/`hdiutil` 挂载路径，安装器访问哪些镜像区段就读取哪些区段。
 3. 在 `$RUNNER_TEMP/MacSW-runtime/app-support/bottle` 创建全新测试容器。
    CI 专用 `MacSWCI` 入口调用 `BootstrapStore`，复用介质、Wine/Mono/COM、VC++、
    Login Manager、核心 MSI、语言、主题、托管 FlexNet 和安装结果校验。
@@ -26,7 +28,8 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    每个入口前后核对同一个 daemon/SOLIDWORKS COM 主机的 PID、模式和元数据。
    中途不能重启 daemon 或 SOLIDWORKS；通用建模失败就保留失败，不继续尺寸测试。
 7. 完成这两个入口后才停止第一套进程，再在隐藏模式重复上述顺序。
-8. 无论成功或失败，都停止隔离 Wine server，删除私有 ISO、验证资源、临时 App
+8. 无论成功或失败，都停止隔离 Wine server、弹出本次 ISO、卸载 rclone NFS，
+   删除本地 VFS 稀疏缓存、验证资源、临时 App
    和整个测试容器。只上传通过最终脱敏检查的测试 JSON 与 daemon 日志。
    测试生成的 SLDPRT 会被共享测试检查，但不上传二进制模型，以收紧敏感数据边界。
 
@@ -55,7 +58,9 @@ CLI 生命周期中的辅助 EXE、当前目录及临时输出也使用同一真
 ## 私密数据与产物
 
 需要 `RCLONE_CONFIG_B64` 与 `SW_SERIAL_SOLIDWORKS` 两个仓库 Secret。
-rclone 配置以 0600 临时文件保存并由退出 trap 删除。序列号只传给安装入口；
+rclone 配置以 0600 临时文件保存，下载脚本退出或安装挂载结束时删除。
+NFS 仅绑定 runner 的 loopback，不对外提供服务，远端介质只读。
+序列号只传给安装入口，rclone 进程不继承它；
 后续 daemon 和测试进程不继承这两个 Secret。
 
 原始 MSI 日志会包含序列号，因此**不上传安装日志、完整容器、注册表 hive、许可文件、
@@ -65,9 +70,17 @@ rclone 配置以 0600 临时文件保存并由退出 trap 删除。序列号只�
 失败时保留阶段、命令退出状态及部分 JSON 证据，不以日志上传成功代替运行验证成功。
 工作流的清理步骤覆盖通常的失败/取消；runner 被强制终止时由托管 VM 的销毁收尾。
 
-ISO、构建输入、App 和安装容器会同时占用磁盘。首轮下载前要求至少 45 GiB 空闲空间，
-这只是预检阈值，不是已测得的峰值。若标准 runner 容量不足，先依据实际 `df` 证据
-调整介质获取/释放时机或 runner 容量，不把磁盘失败当作 SOLIDWORKS 不兼容。
+本机现有容器实测约 8.3 GiB，其中 SOLIDWORKS 目录约 7.2 GiB（仅用于容量估算，
+不是 CI 峰值）。首轮 runner 提供约 39 GiB 空闲空间，旧的 45 GiB 预检门槛误挡安装，
+现改为挂载方案下的 24 GiB。VFS `full` 使用稀疏文件，只缓存已读取区段，目标缓存
+大小 8 GiB、最低剩余空间 4 GiB；这些是软目标，打开的 ISO 不能被逐出，不能当作硬上限。
+`media.json` 记录安装期间最低空闲空间及 VFS 实际磁盘分配量，供后续调优。
+安装完就解除挂载，不删除或修改 Google Drive 上的 ISO。
+
+整体已安装容器缓存是后续加速层：必须在私有补丁/许可夹具注入前生成，并剥离安装
+序列号、许可配置和日志。禁用 PR 触发不能保证缓存只对维护者可读，不能直接缓存
+包含这些内容的测试容器。缓存命中也不等同于本次完成了全新安装，应明确记录来源，
+保留强制全新安装入口。首轮先验证按需挂载的真实安装链路。
 
 ## 触发与验证边界
 

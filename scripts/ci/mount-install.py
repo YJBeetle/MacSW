@@ -1,0 +1,179 @@
+"""Mount only the ISO's parent directory via rclone NFS, then use MacSWCore.
+
+No FUSE driver or full ISO download. All credentials, VFS blocks and mount logs
+stay private. Never recursively delete the mountpoint, even when cleanup fails.
+"""
+
+import argparse
+import base64
+import json
+import os
+from pathlib import Path, PurePosixPath
+import plistlib
+import re
+import signal
+import subprocess
+import sys
+import time
+
+
+def ci_root():
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        raise RuntimeError("GitHub Actions runner required")
+    return Path(os.environ["RUNNER_TEMP"]).resolve() / "MacSW-runtime"
+
+
+def media_location(value):
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or path.suffix.lower() != ".iso" or ":" in value:
+        raise RuntimeError("Expected a relative ISO path in the gdrive remote")
+    return "gdrive:" + str(path.parent), path.name
+
+
+def mounted(mountpoint):
+    result = subprocess.run(["/sbin/mount"], capture_output=True, text=True, check=True, timeout=10)
+    return any(" on " + str(mountpoint) + " (" in line and "nfs" in line
+               for line in result.stdout.splitlines())
+
+
+def stop_mount(root, process=None):
+    if root != ci_root():
+        raise RuntimeError("Refusing cleanup outside the isolated CI root")
+    mountpoint = root / "media-mount"
+    # BootstrapStore normally detaches its image. Cover interruptions too, but
+    # only images backed by this exact CI mount, not any unrelated runner image.
+    result = subprocess.run(["/usr/bin/hdiutil", "info", "-plist"], capture_output=True,
+                            check=True, timeout=15)
+    for image in plistlib.loads(result.stdout).get("images", []):
+        path = image.get("image-path", "")
+        if not path.startswith(str(mountpoint) + "/"):
+            continue
+        devices = [entry.get("dev-entry", "") for entry in image.get("system-entities", [])]
+        disk = next((device for device in devices if re.fullmatch(r"/dev/disk\d+", device)), None)
+        if disk:
+            subprocess.run(["/usr/bin/hdiutil", "detach", disk, "-force"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
+    if mounted(mountpoint):
+        subprocess.run(["sudo", "-n", "/sbin/umount", "-f", str(mountpoint)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=30)
+    if process is not None:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    else:
+        state = root / "private/mount-process.json"
+        if state.is_file():
+            pid = json.loads(state.read_text())["pid"]
+            result = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="],
+                                    capture_output=True, text=True, timeout=10)
+            # Do not signal a reused PID or another rclone invocation.
+            if result.returncode == 0 and "nfsmount" in result.stdout and str(mountpoint) in result.stdout:
+                os.kill(pid, signal.SIGTERM)
+    if mountpoint.exists() and not mounted(mountpoint):
+        mountpoint.rmdir()  # Empty local directory only; never rmtree a network mount.
+
+
+def install():
+    root = ci_root()
+    private = root / "private"
+    private.mkdir(parents=True, exist_ok=True, mode=0o700)
+    mountpoint = root / "media-mount"
+    mountpoint.mkdir()  # Refuse any pre-existing mountpoint/state.
+    remote, filename = media_location(os.environ["MACSW_MEDIA_PATH"])
+    config = private / "mount-rclone.conf"
+    descriptor = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(base64.b64decode(os.environ["RCLONE_CONFIG_B64"], validate=True))
+    child_env = dict(os.environ)
+    child_env.pop("RCLONE_CONFIG_B64", None)
+    mount_env = dict(child_env)
+    mount_env.pop("SW_SERIAL_SOLIDWORKS", None)
+    helper = root / "MacSW.app/Contents/MacOS/MacSWCI"
+    child_env.update(MACSW_CI_MEDIA=str(mountpoint / filename), MACSW_CI_ASSETS=str(private / "assets"))
+    initial_free = os.statvfs(root).f_bavail * os.statvfs(root).f_frsize
+    minimum_free = initial_free
+    process = None
+    installation = None
+    record = {"completed": False, "transport": "rclone-nfsmount", "initial_free_bytes": initial_free}
+    try:
+        with (private / "mount.log").open("w") as log:
+            process = subprocess.Popen([
+                "rclone", "--config", str(config), "nfsmount", remote, str(mountpoint),
+                "--sudo", "--read-only", "--vfs-cache-mode", "full",
+                "--cache-dir", str(private / "vfs"), "--vfs-cache-max-size", "8G",
+                "--vfs-cache-min-free-space", "4G", "--vfs-cache-poll-interval", "10s",
+                "--buffer-size", "1M", "--vfs-read-ahead", "0",
+                "--vfs-read-chunk-size", "4M", "--vfs-read-chunk-size-limit", "16M",
+                "--poll-interval", "0", "--dir-cache-time", "24h"],
+                env=mount_env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+            (private / "mount-process.json").write_text(json.dumps({"pid": process.pid}))
+            deadline = time.monotonic() + 90
+            while not mounted(mountpoint):
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Read-only rclone NFS mount failed or timed out; diagnostics kept private")
+                time.sleep(1)
+            subprocess.run(["/bin/test", "-s", str(mountpoint / filename)], check=True, timeout=30)
+            print("ISO mounted read-only; installing through MacSWCore with on-demand reads.", flush=True)
+            installation = subprocess.Popen([str(helper), "install"], env=child_env, stdin=subprocess.DEVNULL)
+            deadline = time.monotonic() + 6900
+            while installation.poll() is None:
+                stats = os.statvfs(root)
+                minimum_free = min(minimum_free, stats.f_bavail * stats.f_frsize)
+                if process.poll() is not None:
+                    raise RuntimeError("rclone exited while installation was using the media")
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("MacSW installation exceeded its outer deadline")
+                time.sleep(2)
+            if installation.returncode != 0:
+                raise RuntimeError("MacSWCore installation failed; see sanitized setup evidence")
+            record["completed"] = True
+    finally:
+        if installation is not None and installation.poll() is None:
+            installation.terminate()
+            try:
+                installation.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                installation.kill()
+                installation.wait(timeout=5)
+        try:
+            # Release Wine's media handles before unmounting, including failed MSI.
+            if helper.is_file():
+                subprocess.run([str(helper), "cleanup"], env=mount_env, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90, check=True)
+        finally:
+            try:
+                stop_mount(root, process)
+            finally:
+                config.unlink(missing_ok=True)
+                record["minimum_free_bytes"] = minimum_free
+                cache = private / "vfs"
+                if cache.exists():
+                    size = subprocess.run(["/usr/bin/du", "-sk", str(cache)], capture_output=True,
+                                          text=True, check=True, timeout=30)
+                    record["vfs_allocated_bytes"] = int(size.stdout.split()[0]) * 1024
+                evidence = root / "evidence"
+                evidence.mkdir(exist_ok=True)
+                (evidence / "media.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cleanup", action="store_true")
+    args = parser.parse_args()
+    if args.cleanup:
+        stop_mount(ci_root())
+    else:
+        install()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        # Cloud/decoder exceptions can include tokens; never print their text.
+        print("CI media mount/installation failed; credentials and mount diagnostics remain private.", file=sys.stderr)
+        raise SystemExit(1)

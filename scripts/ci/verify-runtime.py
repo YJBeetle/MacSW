@@ -49,6 +49,13 @@ def cleanup_runtime(root):
     except (OSError, subprocess.TimeoutExpired):
         error = "CI Wine cleanup failed or exceeded its deadline"
     finally:
+        try:
+            result = subprocess.run([sys.executable, str(PROJECT / "scripts/ci/mount-install.py"), "--cleanup"],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
+            if result.returncode != 0:
+                error = error or "CI media mount cleanup failed"
+        except (OSError, subprocess.TimeoutExpired):
+            error = error or "CI media mount cleanup exceeded its deadline"
         # Still erase private fixtures/binaries if process cleanup failed. The
         # hosted VM's disposal is the final boundary for surviving processes.
         remove_private_inputs(root)

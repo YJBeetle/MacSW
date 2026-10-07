@@ -45,7 +45,9 @@ struct MacSWCI {
                   let serial = env["SW_SERIAL_SOLIDWORKS"], !serial.isEmpty else {
                 throw failure("Missing CI installation inputs.")
             }
-            guard URL(fileURLWithPath: media).resolvingSymlinksInPath().path == root.appendingPathComponent("private/media.iso").path,
+            let mediaURL = URL(fileURLWithPath: media).resolvingSymlinksInPath()
+            guard mediaURL.deletingLastPathComponent().path == root.appendingPathComponent("media-mount").path,
+                  mediaURL.pathExtension.lowercased() == "iso",
                   URL(fileURLWithPath: assetsPath).resolvingSymlinksInPath().path == root.appendingPathComponent("private/assets").path else {
                 throw failure("Only isolated private installation inputs are allowed.")
             }
@@ -103,9 +105,8 @@ struct MacSWCI {
             await licensing.refreshInstallation()
             guard let installed = licensing.installation else { throw failure("CI managed FlexNet missing.") }
             try await licensing.configureDuringInstallation(address: installed.managedAddress, flexNetSource: nil)
-            // ISO is no longer mounted once BootstrapStore completes. Release its
-            // disk allocation before the runtime gates; never upload installation logs.
-            try FileManager.default.removeItem(at: URL(fileURLWithPath: media))
+            // The orchestrator unmounts the read-only remote and deletes sparse
+            // VFS blocks after installation. Never delete the remote ISO itself.
             try writeEvidence(["completed": true, "fixture_ready": true], directory: evidence, name: "setup.json")
             print("CI fresh installation completed.")
         case "prepare":

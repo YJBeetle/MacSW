@@ -3,6 +3,7 @@
 import importlib.util
 import base64
 import os
+import plistlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,6 +17,9 @@ spec.loader.exec_module(ci)
 redact_spec = importlib.util.spec_from_file_location("macsw_redact", PROJECT / "scripts/ci/redact-evidence.py")
 privacy = importlib.util.module_from_spec(redact_spec)
 redact_spec.loader.exec_module(privacy)
+mount_spec = importlib.util.spec_from_file_location("macsw_mount", PROJECT / "scripts/ci/mount-install.py")
+media = importlib.util.module_from_spec(mount_spec)
+mount_spec.loader.exec_module(media)
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -86,6 +90,40 @@ class RuntimeAdapterTests(unittest.TestCase):
         with patch.object(ci, "PROJECT", self.directory):
             with self.assertRaisesRegex(RuntimeError, "verify-modeling.py"):
                 ci.shared_gates()
+
+    def test_remote_mount_is_limited_to_iso_parent(self):
+        self.assertEqual(media.media_location("Share/Software/SW/media.iso"),
+                         ("gdrive:Share/Software/SW", "media.iso"))
+        for invalid in ("/media.iso", "../media.iso", "gdrive:media.iso", "media.exe"):
+            with self.assertRaisesRegex(RuntimeError, "relative ISO"):
+                media.media_location(invalid)
+
+    def test_media_cleanup_detaches_only_this_ci_image(self):
+        mountpoint = self.root / "media-mount"
+        mountpoint.mkdir()
+        images = {"images": [
+            {"image-path": str(mountpoint / "media.iso"),
+             "system-entities": [{"dev-entry": "/dev/disk7"}, {"dev-entry": "/dev/disk7s1"}]},
+            {"image-path": "/Volumes/unrelated/media.iso", "system-entities": [{"dev-entry": "/dev/disk8"}]}]}
+        with patch.object(media, "mounted", return_value=False), \
+                patch.object(media.subprocess, "run", return_value=SimpleNamespace(stdout=plistlib.dumps(images))) as run:
+            media.stop_mount(self.root)
+            calls = [call.args[0] for call in run.call_args_list]
+        self.assertIn(["/usr/bin/hdiutil", "detach", "/dev/disk7", "-force"], calls)
+        self.assertNotIn(["/usr/bin/hdiutil", "detach", "/dev/disk8", "-force"], calls)
+        self.assertFalse(mountpoint.exists())
+
+    def test_media_cleanup_never_recursively_deletes_live_mount(self):
+        mountpoint = self.root / "media-mount"
+        mountpoint.mkdir()
+        sentinel = mountpoint / "remote-sentinel"
+        sentinel.write_text("must survive")
+        with patch.object(media, "mounted", return_value=True), \
+                patch.object(media.subprocess, "run", return_value=SimpleNamespace(stdout=plistlib.dumps({}))), \
+                patch.object(media.os, "kill"):
+            # A still-mounted/nonempty directory must never be recursively erased.
+            media.stop_mount(self.root)
+        self.assertTrue(sentinel.exists())
 
     def test_cleanup_removes_only_private_products(self):
         for name in ("private", "app-support", "evidence"):

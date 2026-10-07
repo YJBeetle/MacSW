@@ -84,10 +84,11 @@ jobs:
           if test "$MACSW_RUNTIME_STAGE" = full; then
             python3 scripts/ci/verify-runtime.py --check-shared-gates
           fi
-          # ISO, fresh installed bottle and build inputs must coexist. Fail before downloading.
+          # Only accessed ISO ranges are fetched through the read-only NFS mount.
+          # Local bottle is about 8.3 GiB; leave room for VFS blocks and fixtures.
           df -h "$RUNNER_TEMP"
           available_kib="$(df -k "$RUNNER_TEMP" | awk 'END {print $4}')"
-          test "$available_kib" -ge 47185920 || { echo 'Runtime gate requires 45 GiB free disk' >&2; exit 1; }
+          test "$available_kib" -ge 25165824 || { echo 'Runtime gate requires 24 GiB free disk' >&2; exit 1; }
 
       - name: Load build configuration
         id: build-config
@@ -171,25 +172,24 @@ jobs:
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
 
-      - name: Download private installation inputs
+      - name: Download private runtime fixtures
         if: inputs.verify_solidworks
         timeout-minutes: 60
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
           MACSW_ASSETS_PATH: ${{ inputs.assets_path }}
         run: bash scripts/ci/fetch-runtime-inputs.sh
 
-      - name: Fresh installation using MacSWCore
+      - name: Mount media on demand and install using MacSWCore
         if: inputs.verify_solidworks
         timeout-minutes: 120
         env:
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
           MACSW_CI_LANGUAGE: ${{ inputs.language }}
         run: |
-          export MACSW_CI_MEDIA="$RUNNER_TEMP/MacSW-runtime/private/media.iso"
-          export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
-          "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" install
+          python3 scripts/ci/mount-install.py
 
       - name: Shared modeling then driving dimensions on one host
         if: inputs.verify_solidworks && inputs.runtime_stage == 'full'
