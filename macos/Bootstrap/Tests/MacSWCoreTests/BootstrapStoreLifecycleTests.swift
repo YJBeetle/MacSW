@@ -59,6 +59,38 @@ final class BootstrapStoreLifecycleTests: XCTestCase {
         XCTAssertNil(store.serialSources[.solidWorks], "手工值不能冒充成新介质自动发现的值")
     }
 
+    func testDiscoveryTracksOnlyAcceptedFieldsAndPreservesMalformedManualInput() async throws {
+        let first = try media(named: "first")
+        try """
+        SolidWorks 1111 1111 1111 1111 1111 1111
+        COSMOSWorks 2222 2222 2222 2222 2222 2222
+        COSMOSMotion 3333 3333 3333 3333 3333 3333
+        MBD 4444 4444 4444 4444 4444 4444
+        """.write(to: first.appendingPathComponent("serials.txt"), atomically: true, encoding: .utf8)
+        let store = BootstrapStore(paths: AppPaths(appSupportDirectory: sandbox.appendingPathComponent("support")))
+        store.serialSolidWorks = "１２３４"
+        store.serialSimulation = " \n\t"
+        store.serialMotion = "manual"
+
+        store.selectMedia(first)
+        await waitForInspection(store)
+
+        XCTAssertEqual(store.serialSolidWorks, "１２３４")
+        XCTAssertEqual(store.serialMotion, "manual")
+        XCTAssertEqual(store.serialSimulation, "2222 2222 2222 2222 2222 2222")
+        XCTAssertEqual(store.serialMBD, "4444 4444 4444 4444 4444 4444")
+        XCTAssertEqual(Set(store.serialSources.keys), Set([.simulation, .mbd]))
+
+        store.selectMedia(try media(named: "second"))
+        await waitForInspection(store)
+
+        XCTAssertEqual(store.serialSolidWorks, "１２３４")
+        XCTAssertEqual(store.serialMotion, "manual")
+        XCTAssertTrue(store.serialSimulation.isEmpty)
+        XCTAssertTrue(store.serialMBD.isEmpty)
+        XCTAssertTrue(store.serialSources.isEmpty)
+    }
+
     func testInvalidSelectionCancelsInspectionStateImmediately() throws {
         let store = BootstrapStore(paths: AppPaths(appSupportDirectory: sandbox.appendingPathComponent("support")))
         store.selectMedia(try media(named: "valid"))

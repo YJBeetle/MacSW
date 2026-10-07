@@ -230,14 +230,7 @@ public final class BootstrapStore: ObservableObject {
 
     private func apply(discovery: SerialDiscoveryResult, flexNet: [URL]) {
         var merged = serials
-        var accepted = InstallSerials()
-        for field in InstallSerialField.allCases
-        where merged[field].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let value = discovery.serials[field]
-            guard !InstallSerials.normalized(value).isEmpty else { continue }
-            merged[field] = value
-            accepted[field] = value
-        }
+        let accepted = merged.mergeMissing(from: discovery.serials)
         serials = merged
         autoDiscoveredSerials = accepted
         serialSources = discovery.sources.filter {

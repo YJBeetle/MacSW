@@ -66,24 +66,30 @@ final class InstallSerialsTests: XCTestCase {
     func testMergingKeepsTypedButUnusableInput() {
         var typed = InstallSerials(values: [.solidWorks: "\u{FF11}\u{FF12}\u{FF13}\u{FF14}"])
         let discovered = InstallSerials(values: [.solidWorks: "DDDD DDDD DDDD DDDD DDDD DDDD"])
-        typed = typed.merging(discovered)
+        let accepted = typed.mergeMissing(from: discovered)
         XCTAssertEqual(typed[.solidWorks], "\u{FF11}\u{FF12}\u{FF13}\u{FF14}")
         XCTAssertEqual(typed.invalidFields(), [.solidWorks])
+        XCTAssertEqual(accepted, InstallSerials())
     }
 
     func testMergingFillsOnlyEmptyFields() {
-        var discovered = InstallSerials(values: [
+        let discovered = InstallSerials(values: [
             .solidWorks: "BBBB BBBB BBBB BBBB BBBB BBBB",
             .simulation: "CCCC CCCC CCCC CCCC CCCC CCCC",
-            .motion: "   "
+            .motion: "   ",
+            .mbd: "１２３４"
         ])
-        var typed = InstallSerials(values: [.solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA"])
-        typed = typed.merging(discovered)
+        var typed = InstallSerials(values: [
+            .solidWorks: "AAAA AAAA AAAA AAAA AAAA AAAA",
+            .simulation: " \n\t"
+        ])
+        let accepted = typed.mergeMissing(from: discovered)
         XCTAssertEqual(typed[.solidWorks], "AAAA AAAA AAAA AAAA AAAA AAAA")
         XCTAssertEqual(typed[.simulation], "CCCC CCCC CCCC CCCC CCCC CCCC")
         XCTAssertTrue(typed[.motion].isEmpty)
-        discovered[.mbd] = "  "
-        XCTAssertTrue(InstallSerials().merging(discovered)[.mbd].isEmpty)
+        XCTAssertTrue(typed[.mbd].isEmpty)
+        XCTAssertEqual(accepted, InstallSerials(values: [.simulation: discovered[.simulation]]))
+        XCTAssertEqual(typed.mergeMissing(from: discovered), InstallSerials(), "重复合并不应再次接受已有值")
     }
 }
 

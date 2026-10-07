@@ -97,27 +97,17 @@ public struct InstallSerials: Equatable, Sendable {
         }
     }
 
-    /// 只回填用户尚未填写的字段，不覆盖手工输入（哪怕是还没改对的输入）。
-    public func merging(_ discovered: InstallSerials) -> InstallSerials {
-        var result = self
+    /// 回填空字段，不覆盖手工输入（哪怕是还没改对的输入）；返回本次实际接受的值，
+    /// 供介质来源标记与切换介质时清除自动值使用。
+    public mutating func mergeMissing(from discovered: InstallSerials) -> InstallSerials {
+        var accepted = InstallSerials()
         for field in InstallSerialField.allCases
         where self[field].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let value = discovered[field]
             guard !Self.normalized(value).isEmpty else { continue }
-            result[field] = value
+            self[field] = value
+            accepted[field] = value
         }
-        return result
-    }
-}
-
-public enum InstallSerialsError: LocalizedError {
-    case malformedFields([InstallSerialField])
-
-    public var errorDescription: String? {
-        switch self {
-        case .malformedFields(let fields):
-            let names = fields.map(\.title).joined(separator: "、")
-            return "\(names) 序列号不符合六组四字符格式。"
-        }
+        return accepted
     }
 }
