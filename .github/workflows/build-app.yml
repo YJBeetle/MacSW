@@ -185,7 +185,7 @@ jobs:
           MACSW_MEDIA_PATH: ${{ inputs.media_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso' }}
           MACSW_CI_LANGUAGE: ${{ inputs.language || 'chinese-simplified' }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
-          MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py') }}
+          MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
         run: |
           python3 - <<'PY'
           import hashlib, json, os, platform

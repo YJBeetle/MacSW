@@ -106,10 +106,25 @@ struct MacSWCI {
             // These are CI-only private fixtures, never a product installer feature.
             let overlay = assets.appendingPathComponent("SOLIDWORKS Corp/SOLIDWORKS")
             guard FileManager.default.fileExists(atPath: overlay.path) else { throw failure("CI application fixture missing.") }
+            let files = try overlayFiles(in: overlay)
+            let destination = paths.solidWorksExecutable.deletingLastPathComponent()
             let copy = Process()
             copy.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-            copy.arguments = [overlay.path, paths.solidWorksExecutable.deletingLastPathComponent().path]
+            copy.arguments = [overlay.path, destination.path]
             guard try await wine.runCancellable(copy) == 0 else { throw failure("CI fixture copy failed.") }
+            var verifiedBytes = 0
+            for file in files {
+                let relative = String(file.path.dropFirst(overlay.path.count + 1))
+                let installed = destination.appendingPathComponent(relative)
+                guard installed.resolvingSymlinksInPath().path.hasPrefix(paths.bottle.path + "/"),
+                      FileManager.default.contentsEqual(atPath: file.path, andPath: installed.path) else {
+                    throw failure("CI application fixture verification failed.")
+                }
+                verifiedBytes += try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            }
+            // Aggregate proof only: never publish fixture names, license data or binaries.
+            try writeEvidence(["completed": true, "verified_files": files.count, "verified_bytes": verifiedBytes],
+                              directory: evidence, name: "fixture-copy.json")
             let registrations = try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: nil)
                 .filter { $0.lastPathComponent.lowercased().hasSuffix("serials_licensing.reg") }
             guard !registrations.isEmpty else { throw failure("CI licensing fixture missing.") }
@@ -173,6 +188,30 @@ struct MacSWCI {
 
     static func failure(_ message: String) -> NSError {
         NSError(domain: "MacSW.CI", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    static func overlayFiles(in directory: URL) throws -> [URL] {
+        guard try directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
+            throw failure("CI application fixture links are not allowed.")
+        }
+        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey]
+        var enumerationFailed = false
+        guard let entries = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: Array(keys), errorHandler: { _, _ in
+                enumerationFailed = true
+                return false
+            }
+        ) else { throw failure("CI application fixture cannot be enumerated.") }
+        var files: [URL] = []
+        for case let entry as URL in entries {
+            let values = try entry.resourceValues(forKeys: keys)
+            guard values.isSymbolicLink != true else { throw failure("CI application fixture links are not allowed.") }
+            if values.isDirectory == true { continue }
+            guard values.isRegularFile == true else { throw failure("CI application fixture contains a special file.") }
+            files.append(entry)
+        }
+        guard !enumerationFailed, !files.isEmpty else { throw failure("CI application fixture is empty or unreadable.") }
+        return files
     }
 
     static func sanitized(_ text: String) -> String {

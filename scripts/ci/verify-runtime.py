@@ -95,7 +95,11 @@ class RuntimeGate:
                        "host_observations": []}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
-                        WINEDEBUG="-all,+ole,+seh,+loaddll")
+                        # OLE trace emits millions of GUID/string events during
+                        # cold startup and can distort its timing. Keep
+                        # errors/warnings, exceptions and module-load evidence.
+                        WINEDEBUG="-all,err+ole,warn+ole,+seh,+loaddll,+timestamp",
+                        WINE_SOLIDWORKS_STARTUP_TIMEOUT="150")
         for secret in ("SW_SERIAL_SOLIDWORKS", "RCLONE_CONFIG_B64"):
             self.env.pop(secret, None)
         self.cwd = self.prefix / "drive_c/MacSW/CI"

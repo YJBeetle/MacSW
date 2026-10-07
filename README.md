@@ -126,9 +126,10 @@ PATH="${PWD}/.venv/bin:${PATH}" make test
 - 编译 SwiftUI 启动程序；
 - 从 C 源码重建原生 UI 辅助程序；
 - 下载并校验固定版本 Gcenx Wine 运行时；
-- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`、`win32u.so` 与 Wine loader；
+- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`、`win32u.so`、x64 `combase.dll` 与 Wine loader；
   `winemac.so` 修复原生图层裁剪和前缓冲刷新，`win32u.so` 提供由 App 为 SOLIDWORKS 单独启用
-  的鼠标捕获兼容路径，loader 内嵌 MacSW 的 macOS bundle 身份；
+  的鼠标捕获兼容路径，loader 内嵌 MacSW 的 macOS bundle 身份；`combase.dll`
+  延长 SOLIDWORKS 冷启动的首次 COM 类工厂注册等待，其他 CLSID 保持原有上限；
 - 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
 - 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
 - 对最终原生模块进行临时签名和校验。
@@ -162,7 +163,7 @@ SOLIDWORKS 可能返回内部错误并留下未完成加载的文档。
 
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
-`build_winemac.sh` 会按 Wine 版本、源码校验值、四份补丁、配置和构建脚本内容缓存产物。
+`build_winemac.sh` 会按 Wine 版本、源码校验值、全部补丁、配置和构建脚本内容缓存产物。
 重建 `win32u.so` 需要 Homebrew 的 Bison 与 FreeType 头文件；打包后的运行时仍使用包内固定的
 x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
 GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、

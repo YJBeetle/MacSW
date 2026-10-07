@@ -13,6 +13,7 @@ MONO_REGASM_X86="${RUNTIME_DIR}/lib/wine/i386-windows/regasm.exe"
 MONO_REGASM_X64="${RUNTIME_DIR}/lib/wine/x86_64-windows/regasm.exe"
 WINEMAC_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/winemac.so"
 WIN32U_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/win32u.so"
+COMBASE_MODULE="${RUNTIME_DIR}/lib/wine/x86_64-windows/combase.dll"
 NTDLL_UNIX="${RUNTIME_DIR}/lib/wine/x86_64-unix/ntdll.so"
 BRANDED_WINE_LOADER="${RUNTIME_DIR}/lib/wine/x86_64-unix/MacSW"
 WINE_LOADER_COMPAT="${RUNTIME_DIR}/lib/wine/x86_64-unix/wine"
@@ -97,8 +98,11 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputPatchSHA256' "${BUILD_MANIFE
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacOpenGLPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineChildTopmostPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0005-win32u-ignore-child-topmost.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacSpacePatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-solidworks-view-space.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineCOMActivationPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0007-combase-wait-solidworks-registration.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WINEMAC_DRIVER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineInputModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WIN32U_DRIVER}" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineCOMBaseModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${COMBASE_MODULE}" | awk '{print $1}')"
+cmp "${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/combase.dll" "${COMBASE_MODULE}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNtdllModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${NTDLL_UNIX}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineLoaderSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoPatchRelease' "${BUILD_MANIFEST}")" = "${MONO_PATCH_RELEASE}"
@@ -133,6 +137,7 @@ file "${MONO_REGASM_X64}" | grep -q 'PE32+ executable.*x86-64 Mono/.Net assembly
 file "${SWCLI_PATH_HELPER}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/python.exe" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_RUNTIME}/pythonw.exe" | grep -Fq 'PE32+ executable (GUI) x86-64'
+file "${COMBASE_MODULE}" | grep -q 'PE32+ executable.*x86-64'
 file "${SWCLI_NATIVE_RUNTIME}/bin/python3" | grep -q 'Mach-O 64-bit executable arm64'
 file "${WINEMAC_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'
 file "${WIN32U_DRIVER}" | grep -q 'Mach-O 64-bit dynamically linked shared library x86_64'

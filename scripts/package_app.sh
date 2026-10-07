@@ -16,6 +16,7 @@ WINE_SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${WINE_SOURCE_ASSET}"
 WINE_SOURCE_NOTICE_TEMPLATE="${WORKSPACE_ROOT}/resources/licenses/Wine-SOURCE.txt.in"
 WINEMAC_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/winemac.so"
 WIN32U_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/win32u.so"
+COMBASE_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/combase.dll"
 WINE_LOADER_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/MacSW"
 MONO_PATCH="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86.dll"
 MONO_MSCORLIB="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/mscorlib.dll"
@@ -43,7 +44,7 @@ require_file() {
 
 for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW_NOTICE}" \
     "${WINE_ARCHIVE}" "${WINE_SOURCE_ARCHIVE}" "${WINE_SOURCE_NOTICE_TEMPLATE}" \
-    "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
+    "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${COMBASE_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
     "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
     "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
     "${SWCLI_NATIVE_PATH_HELPER}" "${SWCLI_NATIVE_PATH_SCRIPT}" "${SWCLI_PATH_HELPER}" \
@@ -159,11 +160,13 @@ ln -sf wine "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 
 WINEMAC_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/winemac.so"
 WIN32U_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/win32u.so"
+COMBASE_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows/combase.dll"
 NTDLL_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/ntdll.so"
 BRANDED_WINE_LOADER="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/MacSW"
 WINE_LOADER_COMPAT="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/wine"
 cp "${WINEMAC_PATCH}" "${WINEMAC_TARGET}"
 cp "${WIN32U_PATCH}" "${WIN32U_TARGET}"
+cp "${COMBASE_PATCH}" "${COMBASE_TARGET}"
 cp "${WINE_LOADER_PATCH}" "${BRANDED_WINE_LOADER}"
 ln -sf MacSW "${WINE_LOADER_COMPAT}"
 codesign --force --sign - "${WINEMAC_TARGET}"
@@ -182,8 +185,10 @@ WIN32U_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0
 WINEMAC_OPENGL_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch" | awk '{print $1}')"
 WIN32U_TOPMOST_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0005-win32u-ignore-child-topmost.patch" | awk '{print $1}')"
 WINEMAC_SPACE_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-solidworks-view-space.patch" | awk '{print $1}')"
+COMBASE_PATCH_SHA256="$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0007-combase-wait-solidworks-registration.patch" | awk '{print $1}')"
 WINEMAC_MODULE_SHA256="$(shasum -a 256 "${WINEMAC_TARGET}" | awk '{print $1}')"
 WIN32U_MODULE_SHA256="$(shasum -a 256 "${WIN32U_TARGET}" | awk '{print $1}')"
+COMBASE_MODULE_SHA256="$(shasum -a 256 "${COMBASE_TARGET}" | awk '{print $1}')"
 NTDLL_MODULE_SHA256="$(shasum -a 256 "${NTDLL_TARGET}" | awk '{print $1}')"
 WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')"
 /usr/libexec/PlistBuddy -c "Add :AppVersion string ${APP_VERSION}" "${BUILD_MANIFEST}"
@@ -197,8 +202,10 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :WineMacOpenGLPatchSHA256 string ${WINEMAC_OPENGL_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineChildTopmostPatchSHA256 string ${WIN32U_TOPMOST_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMacSpacePatchSHA256 string ${WINEMAC_SPACE_PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineCOMActivationPatchSHA256 string ${COMBASE_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMacModuleSHA256 string ${WINEMAC_MODULE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineInputModuleSHA256 string ${WIN32U_MODULE_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineCOMBaseModuleSHA256 string ${COMBASE_MODULE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineNtdllModuleSHA256 string ${NTDLL_MODULE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineLoaderSHA256 string ${WINE_LOADER_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoVersion string ${WINE_MONO_VERSION}" "${BUILD_MANIFEST}"

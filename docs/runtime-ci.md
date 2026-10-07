@@ -31,6 +31,7 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    在隔离 Wine 停止后制作官方已安装基底快照（保留获准公开的假 SN）；托管 FlexNet 在下一阶段仍调用
    `LicenseServerStore.configureDuringInstallation` 的实际安装路径。
 4. 官方安装结束后，在此临时容器应用与 DockerSW 相同布局的私有验证资源。
+   对所有程序覆盖文件逐字节校验，只记录校验数量和总大小；复制命令成功本身不算覆盖证明。
    此操作只是为了 CI 无法访问开发者局域网许可服务器时验证可行性，
    不是 MacSW 产品功能，也不证明正版许可服务器联通性。
 5. 执行 App 的 `RuntimeStore.startup(autoLaunch: false)` 字体准备路径，
@@ -112,6 +113,7 @@ CI 序列号为私有验证夹具使用的测试值；经授权可以上传官�
 - 存在许可文件、rclone 配置或私有 FlexNet 时仍拒绝发布；必须在补丁夹具注入之前制作。
 - 缓存格式为 v2，key 包含 macOS/架构、介质路径、语言、版本配置、安装源码与假 SN 的指纹；恢复时逐文件核对
   SHA-256、文件权限、符号链接和 manifest，校验失败不启动容器，也不把坏缓存当作成功安装。
+  Wine 构建脚本和公开 Wine 补丁也进入缓存 key，避免恢复由旧模块初始化的基底。
 - `cache.json` 区分 `fresh-install` 与 `installed-base-cache`。缓存命中不是本次全新安装
   证明；`force_fresh_install=true` 忽略缓存并重新挂载介质完成整个安装链。
 - 每次运行都重新下载、注入临时验证资源；不缓存补丁后的容器，不公开这些二进制。
@@ -138,9 +140,23 @@ gh workflow run build-app.yml --repo YJBeetle/MacSW --ref master \
 
 首轮 [run 37694344157](https://github.com/YJBeetle/MacSW/actions/runs/37694344157)
 的真实安装、官方基底保存和夹具准备已经通过，VC++ 使用实际 Windows 日志路径后
-不再出现退出码 86。该轮共享运行尚未获得最终结果，且使用的是先前的 SWCLI 固定版本；
+不再出现退出码 86。该轮共享运行失败，且使用的是先前的 SWCLI 固定版本；
 最新版本与 v2 缓存恢复仍需要各自的实际验证。
 该轮 daemon 激活以 `REGDB_E_CLASSNOTREG` 失败，未进入共享建模；安装结束时的注册
 校验通过不代表之后能完成 COM 激活。后续 CI 在夹具及启动准备后收集 64 位 ProgID/CLSID
-查询，并在 daemon 日志保留 Wine OLE、异常及模块加载诊断，避免仅凭 HRESULT 猜原因。
+查询，并在 daemon 日志保留 Wine OLE 错误/警告、异常、模块加载及时间戳，避免仅凭 HRESULT 猜原因。
+
+[run 37697068522](https://github.com/YJBeetle/MacSW/actions/runs/37697068522)
+再次完成真实安装、v2 官方基底保存和夹具准备，但首次 COM 激活失败，未进入建模。
+64 位 ProgID/CLSID 校验成功；模块加载证据显示 `SLDWORKS.exe` 已启动，激活调用
+约 30 秒后失败时它仍在初始化，没有证据支持“注册表丢失”或“程序已崩溃”的归因。
+本轮移植 DockerSW 的公开 Wine `0007-combase-wait-solidworks-registration.patch`，
+从同版 Wine 11.16 源码构建 x64 `combase.dll`，包内清单校验补丁和模块 SHA-256。
+补丁仅针对 SOLIDWORKS CLSID：默认等待 300 秒，可经 `WINE_SOLIDWORKS_STARTUP_TIMEOUT`
+设置 1–3600 秒（小数向上取整），无效值退回原有 30 秒；其他 CLSID 不变。
+CI 明确设置 150 秒，低于 daemon 的 180 秒启动预算及宿主的 210 秒外层期限。
+这是同一次激活内等待类工厂，不是重新启动、附着既有实例或重试 CAD 原生操作。
+同时移除海量 OLE trace，保留错误/警告和其他诊断，降低诊断自身对启动耗时的影响。
+延长等待能否解决实际启动、夹具校验及新基底恢复是否通过，仍需后续云端证据；
+不能将这个 HRESULT 的所有原因一概视为超时。
 工作流接线与离线测试不能证明实际安装、COM 激活或连续建模已通过。
