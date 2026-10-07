@@ -2,8 +2,8 @@
 
 Snapshots are made after Wine stops and before license fixtures are installed.
 Only the bottle is copied: host logs, rclone config, media and fixtures are not.
-Serials are removed from text hives; any remaining secret in another file blocks
-publication instead of modifying a binary. Cache hits are integrity checked and
+The owner authorized retaining the fake CI serial without rewriting hives or
+binaries. License/configuration files remain prohibited. Hits are integrity checked and
 copied into a new isolated runtime directory, never used in place.
 """
 
@@ -12,12 +12,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import stat
 import sys
 
-FORMAT = 1
+FORMAT = 2
 
 
 def root():
@@ -26,51 +25,15 @@ def root():
     return Path(os.environ["RUNNER_TEMP"]).resolve() / "MacSW-runtime"
 
 
-def serial_forms(serial):
-    normalized = re.sub(r"[^A-Za-z0-9]", "", serial).upper()
-    if len(normalized) != 24:
-        raise RuntimeError("A valid installation serial is required for the privacy check")
-    groups = [normalized[index:index + 4] for index in range(0, 24, 4)]
-    return sorted({serial, normalized, " ".join(groups), "-".join(groups)}, key=len, reverse=True)
-
-
-def clean_registry(path, forms):
-    contents = path.read_text(encoding="utf-8", errors="strict")
-    # Wine's hive text can encode REG_BINARY/REG_MULTI_SZ as comma-separated
-    # hex rather than literal UTF-16 bytes. Decode before masking/checking, or
-    # a byte scan of the text file would overlook the same serial entirely.
-    contents = re.sub(r"\\\r?\n", "", contents)
-    def clean_hex(match):
-        data = bytes.fromhex(match[2].replace(",", " "))
-        for value in forms:
-            masked = re.sub(r"[A-Za-z0-9]", "0", value)
-            for encoding in ("utf-8", "utf-16le", "utf-16be"):
-                data = re.sub(re.escape(value.encode(encoding)), masked.encode(encoding), data,
-                              flags=re.IGNORECASE)
-        return match[1] + ",".join(format(byte, "02x") for byte in data)
-    contents = re.sub(r"^([^\n]+?=hex(?:\([0-9a-f]+\))?:)([0-9a-f, \t]*)$", clean_hex,
-                      contents, flags=re.MULTILINE | re.IGNORECASE)
-    for value in forms:
-        contents = re.sub(re.escape(value), lambda match: re.sub(r"[A-Za-z0-9]", "0", match.group()),
-                          contents, flags=re.IGNORECASE)
-    path.write_text(contents, encoding="utf-8")
-
-
-def digest_file(path, forbidden=()):
+def digest_file(path):
     digest = hashlib.sha256()
-    carry = b""
-    overlap = max(map(len, forbidden), default=1) - 1
     with path.open("rb") as stream:
         while block := stream.read(4 * 1024 * 1024):
             digest.update(block)
-            combined = carry + block
-            if any(value in combined for value in forbidden):
-                raise RuntimeError("Sensitive data remained in the snapshot; refusing cache publication")
-            carry = combined[-overlap:] if overlap else b""
     return digest.hexdigest()
 
 
-def inventory(directory, forbidden=()):
+def inventory(directory):
     if directory.is_symlink():
         raise RuntimeError("Refusing a snapshot root symlink")
     entries = {}
@@ -81,7 +44,7 @@ def inventory(directory, forbidden=()):
         elif path.is_file():
             if path.suffix.lower() == ".lic" or path.name.lower() in ("license.dat", "rclone.conf"):
                 raise RuntimeError("License/configuration file found in official base; refusing cache")
-            entries[relative] = {"sha256": digest_file(path, forbidden), "mode": stat.S_IMODE(path.stat().st_mode)}
+            entries[relative] = {"sha256": digest_file(path), "mode": stat.S_IMODE(path.stat().st_mode)}
     return entries
 
 
@@ -130,25 +93,19 @@ def export_snapshot(context):
     source = runtime / "app-support/bottle"
     cache = runtime / "base-cache"
     cache.mkdir()  # Never overwrite a restored or previously published snapshot.
-    forms = serial_forms(os.environ["SW_SERIAL_SOLIDWORKS"])
-    forbidden = tuple({variant.encode(encoding) for value in forms for variant in (value, value.lower())
-                       for encoding in ("utf-8", "utf-16le", "utf-16be")})
     snapshot = cache / "bottle"
     try:
         # Wine must be stopped by the mount orchestrator before this copy.
         shutil.copytree(source, snapshot, symlinks=True)
         prune_snapshot(snapshot)
-        for hive in snapshot.glob("*.reg*"):
-            if hive.is_file() and not hive.is_symlink():
-                clean_registry(hive, forms)
-        entries = inventory(snapshot, forbidden)
+        entries = inventory(snapshot)
         if not any(name.lower().endswith("/sldworks.exe") for name in entries):
             raise RuntimeError("Official base snapshot lacks SOLIDWORKS")
         manifest = {"format": FORMAT, "context": context, "files": entries}
         (cache / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         record = {"completed": True, "source": "fresh-install", "snapshot_files": len(entries)}
         write_evidence(runtime, record)
-        print("Official installed bottle snapshot passed serial/license privacy checks.")
+        print("Official installed bottle snapshot verified; authorized fake CI serial retained.")
     except Exception:
         shutil.rmtree(cache)
         raise

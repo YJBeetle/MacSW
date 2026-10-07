@@ -183,6 +183,7 @@ jobs:
         env:
           MACSW_MEDIA_PATH: ${{ inputs.media_path }}
           MACSW_CI_LANGUAGE: ${{ inputs.language }}
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
           MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py') }}
         run: |
           python3 - <<'PY'
@@ -190,6 +191,7 @@ jobs:
           context = {name: os.environ[name] for name in
                      ('MACSW_MEDIA_PATH', 'MACSW_CI_LANGUAGE', 'MACSW_INSTALLER_HASH')}
           context.update(macos=platform.mac_ver()[0], architecture=platform.machine())
+          context['ci_serial_sha256'] = hashlib.sha256(os.environ['SW_SERIAL_SOLIDWORKS'].encode()).hexdigest()
           digest = hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
           with open(os.environ['GITHUB_ENV'], 'a') as stream:
               stream.write('MACSW_BASE_CONTEXT=' + digest + '\n')
@@ -201,7 +203,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
-          key: macsw-installed-base-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+          key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Validate cache and copy into isolated test bottle
         if: inputs.verify_solidworks && steps.installed-base.outputs.cache-hit == 'true'
@@ -226,10 +228,8 @@ jobs:
         run: |
           python3 scripts/ci/mount-install.py
 
-      - name: Strip serials and snapshot official installed bottle
+      - name: Snapshot official installed bottle before private fixtures
         if: inputs.verify_solidworks && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
-        env:
-          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
         run: python3 scripts/ci/bottle-cache.py export --context "$MACSW_BASE_CONTEXT"
 
       - name: Save only verified official base (before private fixtures)
@@ -237,7 +237,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
-          key: macsw-installed-base-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+          key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Prepare temporary licensing and runtime fixtures
         if: inputs.verify_solidworks

@@ -236,11 +236,11 @@ class RuntimeAdapterTests(unittest.TestCase):
         (temporary / "private-msi.tmp").write_text(serial)
         return bottle, serial
 
-    def test_complete_base_cache_strips_serials_logs_and_per_run_mappings(self):
+    def test_complete_base_cache_retains_fake_serial_but_removes_logs_and_per_run_mappings(self):
         bottle, serial = self.official_base()
         base_cache.export_snapshot("context")
         snapshot = self.root / "base-cache/bottle"
-        self.assertNotIn(serial.replace("-", ""), (snapshot / "system.reg").read_text())
+        self.assertEqual((snapshot / "system.reg").read_bytes(), (bottle / "system.reg").read_bytes())
         self.assertIn(serial.replace("-", ""), (bottle / "system.reg").read_text())
         self.assertFalse((snapshot / "install.log").exists())
         self.assertFalse((snapshot / "drive_c/windows/temp").exists())
@@ -249,17 +249,18 @@ class RuntimeAdapterTests(unittest.TestCase):
         shutil.rmtree(bottle)
         base_cache.restore_snapshot("context")
         self.assertTrue((bottle / "drive_c/Program Files/SOLIDWORKS/SLDWORKS.exe").is_file())
+        self.assertIn(serial.replace("-", ""), (bottle / "system.reg").read_text())
         self.assertEqual(json.loads((self.root / "evidence/cache.json").read_text())["source"],
                          "installed-base-cache")
 
-    def test_private_fixtures_and_binary_secrets_block_cache_publication(self):
+    def test_private_fixtures_and_license_files_block_cache_publication(self):
         bottle, serial = self.official_base()
         (self.root / "evidence/setup.json").write_text(json.dumps({"completed": True, "fixture_ready": True}))
         with self.assertRaisesRegex(RuntimeError, "before fixture injection"):
             base_cache.export_snapshot("context")
         (self.root / "evidence/setup.json").write_text(json.dumps({"completed": True, "fixture_ready": False}))
-        (bottle / "secret.bin").write_bytes(serial.replace("-", "").encode("utf-16le"))
-        with self.assertRaisesRegex(RuntimeError, "Sensitive data"):
+        (bottle / "license.dat").write_bytes(b"private license")
+        with self.assertRaisesRegex(RuntimeError, "License/configuration"):
             base_cache.export_snapshot("context")
         self.assertFalse((self.root / "base-cache").exists())
 
@@ -275,7 +276,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             base_cache.restore_snapshot("context")
         self.assertFalse(bottle.exists())
 
-    def test_hive_hex_multistring_serial_is_masked_without_changing_type(self):
+    def test_authorized_fake_serial_does_not_rewrite_hex_hives_or_binary_data(self):
         bottle, serial = self.official_base()
         text = "prefix\0" + serial.replace("-", "").lower() + "\0suffix\0\0"
         payload = ",".join(format(byte, "02x") for byte in text.encode("utf-16le"))
@@ -283,11 +284,11 @@ class RuntimeAdapterTests(unittest.TestCase):
         # Include a continuation exactly as Wine/.reg multi-string text may use.
         payload = payload[:90] + "\\\n  " + payload[90:]
         hive.write_text('"Serials"=hex(7):' + payload + "\n")
+        binary = bottle / "installer-state.bin"
+        binary.write_bytes(text.encode("utf-16le"))
         base_cache.export_snapshot("context")
-        cached = (self.root / "base-cache/bottle/user.reg").read_text().strip()
-        self.assertTrue(cached.startswith('"Serials"=hex(7):'))
-        decoded = bytes.fromhex(cached.split(":", 1)[1].replace(",", " ")).decode("utf-16le")
-        self.assertEqual(decoded, "prefix\0" + "0" * 24 + "\0suffix\0\0")
+        self.assertEqual((self.root / "base-cache/bottle/user.reg").read_bytes(), hive.read_bytes())
+        self.assertEqual((self.root / "base-cache/bottle/installer-state.bin").read_bytes(), binary.read_bytes())
 
 
 if __name__ == "__main__":

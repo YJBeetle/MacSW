@@ -25,7 +25,7 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 3. 在 `$RUNNER_TEMP/MacSW-runtime/app-support/bottle` 创建全新测试容器。
    CI 专用 `MacSWCI` 入口调用 `BootstrapStore`，复用介质、Wine/Mono/COM、VC++、
    Login Manager、核心 MSI、语言、主题和安装结果校验。这里先选“不配置许可”，
-   在隔离 Wine 停止后制作脱敏的官方已安装基底；托管 FlexNet 在下一阶段仍调用
+   在隔离 Wine 停止后制作官方已安装基底快照（保留获准公开的假 SN）；托管 FlexNet 在下一阶段仍调用
    `LicenseServerStore.configureDuringInstallation` 的实际安装路径。
 4. 官方安装结束后，在此临时容器应用与 DockerSW 相同布局的私有验证资源。
    此操作只是为了 CI 无法访问开发者局域网许可服务器时验证可行性，
@@ -101,11 +101,10 @@ CI 序列号为私有验证夹具使用的测试值；经授权可以上传官�
 
 - 只复制 bottle，不包含宿主安装日志、ISO、rclone 配置、私有资源或托管 FlexNet。
 - 删除容器内日志、dump、临时目录及非 C: 的本次运行映射；保留官方安装程序、
-  Mono/COM/VC++、语言资源与注册表。序列号只从快照文本 hive 中抹除，不改动活动容器。
-- hive 的 `hex(...)`/折行十六进制表示先安全解码再抹除序列号，保留原类型和其他数据。
-  再扫描所有普通文件中的原始、规范化及分组序列号（UTF-8/UTF-16）。二进制中仍有
-  序列号、存在许可文件或私有 FlexNet 时拒绝发布，不能靠修改二进制来通过隐私检查。
-- 缓存 key 包含 macOS/架构、介质路径、语言、版本配置和安装源码；恢复时逐文件核对
+  Mono/COM/VC++、语言资源与注册表。假 SOLIDWORKS SN 经授权保留，不改写文本、
+  十六进制 hive 或二进制安装状态，也不因出现此假 SN 拒绝缓存。
+- 存在许可文件、rclone 配置或私有 FlexNet 时仍拒绝发布；必须在补丁夹具注入之前制作。
+- 缓存格式为 v2，key 包含 macOS/架构、介质路径、语言、版本配置、安装源码与假 SN 的指纹；恢复时逐文件核对
   SHA-256、文件权限、符号链接和 manifest，校验失败不启动容器，也不把坏缓存当作成功安装。
 - `cache.json` 区分 `fresh-install` 与 `installed-base-cache`。缓存命中不是本次全新安装
   证明；`force_fresh_install=true` 忽略缓存并重新挂载介质完成整个安装链。
@@ -113,6 +112,9 @@ CI 序列号为私有验证夹具使用的测试值；经授权可以上传官�
 
 禁用 PR 触发不能保证缓存只有维护者可读，不能缓存含有敏感内容的测试容器。
 缓存的隔离副本和活动测试容器结束后都删除；只有通过隐私检查的官方基底留在 Actions cache。
+参考 SWCLI Windows CI 的官方安装/私有夹具分层及缓存导出、恢复脚本。最新 Windows
+工作流暂禁用安装快照，等待新 runner 的原生 COM/方程等价性验证；MacSW 按要求保留
+整瓶缓存，但全新安装与缓存恢复必须分别验证，不能由快照完整性检查替代原生运行证明。
 
 ## 触发与验证边界
 
