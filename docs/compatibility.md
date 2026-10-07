@@ -38,6 +38,34 @@ Wine. Subsequent visible COM activation failed even though `doctor` still
 found the registered local server and its executable. This is diagnostic
 evidence, not proof of the same Linux exception or its cause.
 
+After full App replacement and a confirmed cold restart, an owned **visible**
+host successfully created parts and ran the generic gate's three-plane
+rectangle/circle extrusions, forward/reverse cuts, native save/read-only reopen,
+and intentional nonintersecting-cut rejection/cleanup checks. It then failed
+at the installed `Paper Airplane.SLDPRT` open, before driving dimensions ran.
+This was an internal SOLIDWORKS error, **not** an outer deadline termination.
+The failed open left an inactive native document; attempting to close that
+partial document timed out and the owned worker/host were terminated. Preserve
+this failed run rather than reporting it as a passing generic gate.
+
+A separate fresh-host path comparison isolated a MacSW translation problem:
+the sample opened and closed successfully through `C:\\...`, while its
+`Z:\\...bottle\\drive_c\\...` alias returned the internal error and left a
+partially opened document. The sample's SHA256 matched the Linux control, so
+this was not evidence of a different/corrupt sample. MacSW `c83ace3` now reads
+the active prefix's actual `dosdevices` mappings without starting Wine, chooses
+the most specific matching drive root, and refuses unmapped local paths.
+It neither assumes Z exists nor changes the user's drive configuration.
+
+The deployed corrected App passed full packaging verification, including a
+fixture deliberately **without Z**. Eleven path tests and five dependency
+packaging tests passed; the earlier full test run also passed 133 Swift and
+547 SWCLI tests (8 expected skips). Using the original Unix sample path through
+the installed `sw-cli` now reports native `C:\\...`, `api_errors=0` and
+`api_warnings=0`; normal close followed by `document list` confirms **count 0**.
+This establishes the path fix, not the full generic -> driving sequence or the
+root cause of Linux's separate unsaved-part `InsertSketch / 0x800703E6` failure.
+
 Keep these experiments separate from the graphics/manual baseline above.
 The next verification must start from a confirmed healthy host, run generic
 modeling followed by driving dimensions in **one unchanged COM session**, and
