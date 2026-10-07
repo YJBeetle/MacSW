@@ -69,6 +69,12 @@ grep -Fq "loader=${CONTENTS_DIR}/Frameworks/wine/bin/wineloader server=${CONTENT
 ! grep -Fq 'native ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
+"${LAUNCHER}" daemon serve --port 18496
+grep -Fq 'C:\MacSW\Python311\python.exe -m swcli daemon serve --port 18496' "${LOG_FILE}"
+! grep -Fq 'pythonw.exe' "${LOG_FILE}"
+! grep -Fq 'native ' "${LOG_FILE}"
+
+: > "${LOG_FILE}"
 "${LAUNCHER}" document list --json
 ! grep -Fq 'windows ' "${LOG_FILE}"
 grep -Fq 'native translator=' "${LOG_FILE}"
