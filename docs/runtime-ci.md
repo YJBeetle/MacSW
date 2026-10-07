@@ -45,8 +45,11 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
-SWCLI 固定提交为 `e44610e4629e514ba15eaa22b50a9db8bdc6bf27`，与 DockerSW 的共享
-门禁接线一致。尺寸入口额外传入 `--after-modeling` 指向同一模式的成功 `modeling.json`，
+SWCLI 固定提交为 `64e97eb07dcb250d783114d176e108961ba76e27`，沿用 DockerSW 的共享
+门禁调用顺序。两个共享门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
+续租；尺寸门禁的协议和 CLI 写操作均覆盖。此修改针对慢调用导致租约过期的测试问题，
+不改变 daemon 默认期限、原生断言或命令超时，也不重试过期/失败操作。
+尺寸入口额外传入 `--after-modeling` 指向同一模式的成功 `modeling.json`，
 由 SWCLI 核对前序成功、拒绝切除后的续用证明及原生宿主 PID。外层宿主检查仍保留。
 共享入口缺失时，runtime 预检明确失败，**不静默跳过**。
 
