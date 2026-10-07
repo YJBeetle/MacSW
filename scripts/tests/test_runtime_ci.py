@@ -132,6 +132,21 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertNotIn("serial", output)
         self.assertNotIn("credentials", output)
 
+    def test_installation_log_collection_is_whitelisted_and_decodes_utf16(self):
+        logs = self.root / "app-support/logs"
+        logs.mkdir()
+        (logs / "install_msi.log").write_text("MSI failure: fake serial")
+        (logs / "vcredist-x64_000_vcRuntimeMinimum_x64.log").write_bytes("Error 0x80070656".encode("utf-16"))
+        (logs / "rclone.log").write_text("credential")
+        (logs / "license.dat").write_text("private license")
+        (logs / "language-wine.log").symlink_to(logs / "rclone.log")
+        media.collect_installation_logs(self.root)
+        evidence = self.root / "evidence/installer-logs"
+        self.assertEqual({path.name for path in evidence.iterdir()}, {"install_msi.log", "vc-installer-0.log"})
+        self.assertEqual((evidence / "vc-installer-0.log").read_text(), "Error 0x80070656")
+        self.assertEqual(privacy.redact((evidence / "install_msi.log").read_text(), ["fake serial"]),
+                         "MSI failure: [REDACTED]")
+
     def test_media_cleanup_detaches_only_this_ci_image(self):
         mountpoint = self.root / "media-mount"
         mountpoint.mkdir()

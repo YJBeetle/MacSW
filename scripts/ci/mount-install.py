@@ -75,6 +75,37 @@ def prerequisite_diagnostics(root):
         json.dumps({"vc_log_created": (logs / "vcredist-x64.log").is_file(), "logs": records}, indent=2) + "\n")
 
 
+def collect_installation_logs(root):
+    """Collect only official prerequisite/MSI logs; publication redacts secrets."""
+    logs = root / "app-support/logs"
+    if logs.is_symlink() or not logs.is_dir():
+        return
+    allowed = {"wineboot.log", "vcredist-wine.log", "login-manager-install.log",
+               "login-manager-wine.log", "install_msi.log", "installer-wine.log",
+               "language-install.log", "language-wine.log"}
+    evidence = root / "evidence/installer-logs"
+    evidence.mkdir(parents=True, exist_ok=True)
+    vc_index = 0
+    for path in sorted(logs.iterdir()):
+        if path.is_symlink() or not path.is_file():
+            continue
+        if path.name in allowed:
+            name = path.name
+        elif re.fullmatch(r"vcredist-x64(?:_[A-Za-z0-9_-]+)?\.log", path.name):
+            name = f"vc-installer-{vc_index}.log"
+            vc_index += 1
+        else:
+            continue
+        with path.open("rb") as stream:
+            data = stream.read(16 * 1024 * 1024)
+            truncated = bool(stream.read(1))
+        encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+        text = data.decode(encoding, errors="replace")
+        if truncated:
+            text += "\n[CI log truncated at 16 MiB]\n"
+        (evidence / name).write_text(text, encoding="utf-8")
+
+
 def stop_mount(root, process=None):
     if root != ci_root():
         raise RuntimeError("Refusing cleanup outside the isolated CI root")
@@ -168,6 +199,7 @@ def install():
     finally:
         try:
             prerequisite_diagnostics(root)
+            collect_installation_logs(root)
         except Exception:
             # An evidence failure must not prevent process/mount cleanup.
             print("VC++ code-only diagnostics unavailable; private cleanup continues.", file=sys.stderr)
@@ -208,7 +240,10 @@ def main():
     parser.add_argument("--cleanup", action="store_true")
     args = parser.parse_args()
     if args.cleanup:
-        stop_mount(ci_root())
+        try:
+            collect_installation_logs(ci_root())
+        finally:
+            stop_mount(ci_root())
     else:
         install()
 

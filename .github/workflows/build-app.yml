@@ -269,7 +269,7 @@ jobs:
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
         run: python3 scripts/ci/redact-evidence.py
 
-      - name: Upload runtime evidence (no installation or license data)
+      - name: Upload sanitized runtime and installer evidence (no license files)
         if: always() && inputs.verify_solidworks && steps.redact-runtime.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -278,6 +278,7 @@ jobs:
             ${{ runner.temp }}/MacSW-runtime/evidence/*.json
             ${{ runner.temp }}/MacSW-runtime/evidence/*.log
             ${{ runner.temp }}/MacSW-runtime/evidence/**/*.json
+            ${{ runner.temp }}/MacSW-runtime/evidence/**/*.log
           if-no-files-found: warn
           retention-days: 14
 
