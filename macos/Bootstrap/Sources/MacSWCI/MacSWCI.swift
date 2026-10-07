@@ -140,6 +140,26 @@ struct MacSWCI {
             let runtime = RuntimeStore(paths: paths, licenseServer: licensing)
             await runtime.startup(autoLaunch: false)
             guard runtime.statusMessage.isEmpty else { throw failure(runtime.statusMessage) }
+            let registry = RegistryService()
+            let clsid = await registry.solidWorksApplicationCLSID(prefix: paths.bottle)
+            var queries: [[String: Any]] = []
+            var keys = [#"HKCR\SldWorks.Application"#]
+            if let clsid { keys.append("HKCR\\CLSID\\\(clsid)") }
+            for key in keys {
+                let result = try await wine.capturePairCancellable(
+                    wine.makeProcess(arguments: ["reg", "query", key, "/s", "/reg:64"], prefix: paths.bottle)
+                )
+                queries.append(["key": key, "exit_code": result.status,
+                                "stdout": result.standardOutput, "stderr": result.standardError])
+            }
+            try writeEvidence(["clsid": clsid ?? "", "queries": queries],
+                              directory: evidence, name: "com-registration.json")
+            guard let clsid else { throw failure("CI fixture/startup stage lost SldWorks.Application registration.") }
+            let missing = await registry.missingCOMRegistrations(
+                at: "HKCR\\CLSID\\\(clsid)", requires: InstallerDiagnostics.solidWorksRequirements,
+                prefix: paths.bottle
+            )
+            guard missing.isEmpty else { throw failure("CI COM registration missing: \(missing.joined(separator: ", ")).") }
             print("CI App startup font preparation completed.")
         case "cleanup":
             guard paths.bottleExists else { return }

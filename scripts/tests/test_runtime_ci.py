@@ -44,6 +44,12 @@ class RuntimeAdapterTests(unittest.TestCase):
     def gate(self):
         return ci.RuntimeGate(self.app, self.root / "evidence")
 
+    def test_runtime_captures_wine_com_diagnostics_without_credentials(self):
+        gate = self.gate()
+        self.assertEqual(gate.env["WINEDEBUG"], "-all,+ole,+seh,+loaddll")
+        self.assertNotIn("SW_SERIAL_SOLIDWORKS", gate.env)
+        self.assertNotIn("RCLONE_CONFIG_B64", gate.env)
+
     def test_non_ci_and_user_app_are_rejected(self):
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "false"}):
             with self.assertRaisesRegex(RuntimeError, "runner required"):

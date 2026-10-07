@@ -1,11 +1,14 @@
 # MacSW 真实安装与运行 CI
 
-`Build & Package MacSW.app` 的手动触发选项 `verify_solidworks=true` 增加 macOS/Wine
-真实验证。普通 push 的测试、构建和打包流程不变。使用 GitHub 托管的 Apple Silicon
+`Build & Package MacSW.app` 在本仓库 `master` push 时自动执行 macOS/Wine
+真实验证，手动触发时可使用 `verify_solidworks=true`。测试、构建和打包仍先执行。
+使用 GitHub 托管的 Apple Silicon
 `macos-14` runner、仓库固定版本的 Wine/Mono/SWCLI，以及打包后的 App。
 `runtime_stage=install` 只执行真实安装和私有夹具准备，不等待共享建模入口；
 `runtime_stage=full` 再顺序执行共享运行验证。工作流不响应 PR，且 job 层再次限制事件类型。
-带私有资源的验证只允许在本仓库 `master` 上手动触发，fork 或其他 ref 不能执行。
+带私有资源的验证只允许本仓库 `master` push 或 master 的手动选择执行，fork、PR
+或其他 ref 不能执行。tag 发布仍只构建和打包，不调用私有安装/运行步骤。
+push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动输入也不会跳过共享门禁。
 
 ## 职责与顺序
 
@@ -121,6 +124,7 @@ CI 序列号为私有验证夹具使用的测试值；经授权可以上传官�
 
 ## 触发与验证边界
 
+本仓库 master 的相关源码/配置/工作流 push 自动执行完整验证；不相关文档改动不触发。
 在 Actions 中选择该工作流，勾选 `verify_solidworks`，确认 Drive 介质与夹具路径。
 CLI 等效调用：
 
@@ -132,5 +136,11 @@ gh workflow run build-app.yml --repo YJBeetle/MacSW --ref master \
 将 `runtime_stage` 改为 `full` 执行共享建模与尺寸完整验证。
 首次安装或排查安装回归时可追加 `-f force_fresh_install=true`。
 
-首次云端运行还需要确认 GUI 会话、Rosetta、磁盘、私有许可夹具与 Wine 冷启动行为。
+首轮 [run 37694344157](https://github.com/YJBeetle/MacSW/actions/runs/37694344157)
+的真实安装、官方基底保存和夹具准备已经通过，VC++ 使用实际 Windows 日志路径后
+不再出现退出码 86。该轮共享运行尚未获得最终结果，且使用的是先前的 SWCLI 固定版本；
+最新版本与 v2 缓存恢复仍需要各自的实际验证。
+该轮 daemon 激活以 `REGDB_E_CLASSNOTREG` 失败，未进入共享建模；安装结束时的注册
+校验通过不代表之后能完成 COM 激活。后续 CI 在夹具及启动准备后收集 64 位 ProgID/CLSID
+查询，并在 daemon 日志保留 Wine OLE、异常及模块加载诊断，避免仅凭 HRESULT 猜原因。
 工作流接线与离线测试不能证明实际安装、COM 激活或连续建模已通过。

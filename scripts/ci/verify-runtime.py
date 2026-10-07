@@ -94,7 +94,8 @@ class RuntimeGate:
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
                        "host_observations": []}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
-                        SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1")
+                        SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
+                        WINEDEBUG="-all,+ole,+seh,+loaddll")
         for secret in ("SW_SERIAL_SOLIDWORKS", "RCLONE_CONFIG_B64"):
             self.env.pop(secret, None)
         self.cwd = self.prefix / "drive_c/MacSW/CI"

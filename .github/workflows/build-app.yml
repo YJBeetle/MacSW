@@ -52,21 +52,22 @@ permissions:
 jobs:
   build-and-package:
     # No PR execution. Private runtime inputs are available only to a trusted
-    # manual run of master in this repository, never forks or arbitrary refs.
+    # master push or opt-in manual master run, never forks or arbitrary refs.
     if: >-
       github.repository == 'YJBeetle/MacSW' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (!inputs.verify_solidworks ||
-       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'))
+       github.ref == 'refs/heads/master')
     runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
-    timeout-minutes: ${{ inputs.verify_solidworks && 360 || 60 }}
+    timeout-minutes: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 360 || 60 }}
     permissions:
       contents: write # Existing tag release upload; runtime fixtures are never released.
     concurrency:
-      group: macsw-${{ inputs.verify_solidworks && 'solidworks-runtime' || github.ref }}
+      group: macsw-${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 'solidworks-runtime' || github.ref }}
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+      MACSW_VERIFY_SOLIDWORKS: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 'true' || 'false' }}
 
     steps:
       - name: Checkout MacSW Repository
@@ -76,11 +77,11 @@ jobs:
           submodules: recursive
 
       - name: Check runtime prerequisites
-        if: inputs.verify_solidworks
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
-          MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage }}
+          MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage || 'full' }}
         run: |
           test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
           test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
@@ -162,7 +163,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare private runtime test bundle
-        if: inputs.verify_solidworks
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         run: |
           brew install rclone
           sudo softwareupdate --install-rosetta --agree-to-license
@@ -179,10 +180,10 @@ jobs:
           codesign --verify --verbose=2 "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
 
       - name: Resolve installed base cache identity
-        if: inputs.verify_solidworks
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         env:
-          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
-          MACSW_CI_LANGUAGE: ${{ inputs.language }}
+          MACSW_MEDIA_PATH: ${{ inputs.media_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso' }}
+          MACSW_CI_LANGUAGE: ${{ inputs.language || 'chinese-simplified' }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
           MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py') }}
         run: |
@@ -198,7 +199,7 @@ jobs:
           PY
 
       - name: Restore official installed bottle cache
-        if: inputs.verify_solidworks && !inputs.force_fresh_install
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install
         id: installed-base
         uses: actions/cache/restore@v4
         with:
@@ -206,48 +207,48 @@ jobs:
           key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Validate cache and copy into isolated test bottle
-        if: inputs.verify_solidworks && steps.installed-base.outputs.cache-hit == 'true'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit == 'true'
         run: python3 scripts/ci/bottle-cache.py restore --context "$MACSW_BASE_CONTEXT"
 
       - name: Download private runtime fixtures
-        if: inputs.verify_solidworks
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 60
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          MACSW_ASSETS_PATH: ${{ inputs.assets_path }}
+          MACSW_ASSETS_PATH: ${{ inputs.assets_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/crack' }}
         run: bash scripts/ci/fetch-runtime-inputs.sh
 
       - name: Mount media on demand and install using MacSWCore
-        if: inputs.verify_solidworks && steps.installed-base.outputs.cache-hit != 'true'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit != 'true'
         timeout-minutes: 120
         env:
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          MACSW_MEDIA_PATH: ${{ inputs.media_path }}
-          MACSW_CI_LANGUAGE: ${{ inputs.language }}
+          MACSW_MEDIA_PATH: ${{ inputs.media_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso' }}
+          MACSW_CI_LANGUAGE: ${{ inputs.language || 'chinese-simplified' }}
         run: |
           python3 scripts/ci/mount-install.py
 
       - name: Snapshot official installed bottle before private fixtures
-        if: inputs.verify_solidworks && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
         run: python3 scripts/ci/bottle-cache.py export --context "$MACSW_BASE_CONTEXT"
 
       - name: Save only verified official base (before private fixtures)
-        if: inputs.verify_solidworks && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
           key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Prepare temporary licensing and runtime fixtures
-        if: inputs.verify_solidworks
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 15
         run: |
           export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
       - name: Shared modeling then driving dimensions on one host
-        if: inputs.verify_solidworks && inputs.runtime_stage == 'full'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
         timeout-minutes: 120
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
@@ -255,14 +256,14 @@ jobs:
             --evidence "$RUNNER_TEMP/MacSW-runtime/evidence"
 
       - name: Stop isolated runtime test bottle
-        if: always() && inputs.verify_solidworks
+        if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 4
         run: |
           # Bounded process cleanup, then erase private data even if stopping failed.
           python3 scripts/ci/verify-runtime.py --cleanup-private
 
       - name: Redact runtime evidence before publication
-        if: always() && inputs.verify_solidworks
+        if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true'
         id: redact-runtime
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
@@ -270,7 +271,7 @@ jobs:
         run: python3 scripts/ci/redact-evidence.py
 
       - name: Upload sanitized runtime and installer evidence (no license files)
-        if: always() && inputs.verify_solidworks && steps.redact-runtime.outcome == 'success'
+        if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.redact-runtime.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: MacSW-SOLIDWORKS-runtime-evidence
