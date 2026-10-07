@@ -151,6 +151,13 @@ build/app/MacSW.app/Contents/MacOS/sw-cli document list --json
 若守护进程尚未运行，文档和零件命令会返回 `DaemonUnavailable` 与启动提示，
 不会擅自接管已有窗口或另启隐藏实例。
 
+本地文件路径由原生 helper 读取当前容器 `dosdevices` 的真实盘符映射转换，
+不会为此启动 Wine。优先采用最具体的目录映射：通常容器 `drive_c`（包括符号链接
+路径）映射到 `C:\...`，其他 Mac 路径仅在实际配置了 `Z: -> /` 时映射到 `Z:\...`。
+也支持其他已配置盘符；没有对应映射就明确失败，不假定 Z 盘必然存在。
+已有的 Windows / UNC 路径保持不变。不要把容器安装目录中的模型经 `Z:` 别名打开，
+SOLIDWORKS 可能返回内部错误并留下未完成加载的文档。
+
 每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
 
 `build_winemac.sh` 会按 Wine 版本、源码校验值、四份补丁、配置和构建脚本内容缓存产物。

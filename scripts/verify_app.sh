@@ -80,6 +80,16 @@ test -z "$(find "${SWCLI_RUNTIME}" -type d -name __pycache__ -print -quit)"
 test -z "$(find "${SWCLI_RUNTIME}" -type f -name '*.pyc' -print -quit)"
 test -f "${SWCLI_PATH_HELPER}"
 test -x "${SWCLI_NATIVE_PATH_HELPER}"
+cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py" "${SWCLI_DIR}/bin/swcli_path.py"
+(
+    mapping_test="$(mktemp -d)"
+    trap 'rm -rf -- "${mapping_test}"' EXIT
+    mkdir -p "${mapping_test}/drive_c" "${mapping_test}/dosdevices"
+    ln -s ../drive_c "${mapping_test}/dosdevices/c:"
+    # Deliberately omit Z:; a configured C: must still translate correctly.
+    test "$(WINEPREFIX="${mapping_test}" "${SWCLI_NATIVE_PATH_HELPER}" \
+        "${mapping_test}/drive_c/models/example.SLDPRT")" = 'C:\models\example.SLDPRT'
+)
 test "$(shasum -a 256 "${STDOLE_DLL}" | awk '{print $1}')" = "${STDOLE_DLL_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacBrandingPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0001-winemac-macsw-branding.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMacPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0002-winemac-metal-layer-clipping.patch" | awk '{print $1}')"

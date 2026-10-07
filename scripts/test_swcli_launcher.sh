@@ -15,10 +15,15 @@ mkdir -p \
     "${CONTENTS_DIR}/Resources/SWCLI/runtime/PythonNative/bin" \
     "${CONTENTS_DIR}/Resources/SWCLI/runtime/PythonNative/lib/python3.11/site-packages" \
     "${PREFIX}/drive_c/MacSW/Python311"
+mkdir -p "${PREFIX}/dosdevices"
+ln -s ../drive_c "${PREFIX}/dosdevices/c:"
+ln -s / "${PREFIX}/dosdevices/z:"
 
 cp "${WORKSPACE_ROOT}/scripts/swcli/sw-cli" "${CONTENTS_DIR}/MacOS/sw-cli"
 cp "${WORKSPACE_ROOT}/scripts/swcli/swcli-path" \
     "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path"
+cp "${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py" \
+    "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli_path.py"
 touch "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli_path.exe"
 touch "${PREFIX}/drive_c/MacSW/Python311/python.exe"
 touch "${PREFIX}/drive_c/MacSW/Python311/pythonw.exe"
@@ -40,6 +45,9 @@ exit 0
 EOF
 cat > "${CONTENTS_DIR}/Resources/SWCLI/runtime/PythonNative/bin/python3" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == */swcli_path.py ]]; then
+    exec "${SWCLI_TEST_PYTHON}" "$@"
+fi
 printf 'native translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> "${SWCLI_TEST_LOG}"
 EOF
 chmod +x \
@@ -51,6 +59,7 @@ chmod +x \
 
 export MACSW_WINEPREFIX="${PREFIX}"
 export SWCLI_TEST_LOG="${LOG_FILE}"
+export SWCLI_TEST_PYTHON="$(command -v python3)"
 LAUNCHER="${CONTENTS_DIR}/MacOS/sw-cli"
 
 "${LAUNCHER}" --help
@@ -85,6 +94,10 @@ grep -Fq -- '-m swcli document list --json' "${LOG_FILE}"
 ! grep -Fq 'windows ' "${LOG_FILE}"
 grep -Fq -- '-m swcli part create-box' "${LOG_FILE}"
 
-test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" /tmp/model.SLDPRT)" = 'Z:\tmp\model.SLDPRT'
-test "$(cd /tmp && "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" model.SLDPRT)" = 'Z:\tmp\model.SLDPRT'
+TMP_PHYSICAL="$(cd /tmp && pwd -P)"
+EXPECTED_TMP="Z:${TMP_PHYSICAL//\//\\}\\model.SLDPRT"
+test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" /tmp/model.SLDPRT)" = "${EXPECTED_TMP}"
+test "$(cd /tmp && "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" model.SLDPRT)" = "${EXPECTED_TMP}"
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" 'C:\model.SLDPRT')" = 'C:\model.SLDPRT'
+test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" \
+    "${PREFIX}/drive_c/models/part with spaces.SLDPRT")" = 'C:\models\part with spaces.SLDPRT'
