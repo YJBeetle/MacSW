@@ -51,6 +51,30 @@ def mount_command(config, remote, mountpoint, file_list, cache):
         "--poll-interval", "0", "--dir-cache-time", "24h"]
 
 
+def prerequisite_diagnostics(root):
+    """Publish codes only, not free-form installer text, paths or properties."""
+    logs = root / "app-support/logs"
+    records = {}
+    if logs.is_dir() and not logs.is_symlink():
+        for path in sorted(logs.glob("vcredist*.log")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            # Burn logs may be UTF-16; code extraction never publishes raw text.
+            with path.open("rb") as stream:
+                data = stream.read(1024 * 1024)
+            encoding = "utf-16" if data.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+            text = data.decode(encoding, errors="replace")
+            codes = re.findall(r"(?i)\b(?:error|result|hr)\s*[:=]?\s*(0x[0-9a-f]{8})\b", text)
+            # Do not publish arbitrary filenames (MSI properties can supply them).
+            records[str(len(records))] = {"bytes": path.stat().st_size,
+                "is_wine_log": path.name == "vcredist-wine.log",
+                "codes": sorted(set(code.lower() for code in codes))}
+    evidence = root / "evidence"
+    evidence.mkdir(exist_ok=True)
+    (evidence / "prerequisite-diagnostics.json").write_text(
+        json.dumps({"vc_log_created": (logs / "vcredist-x64.log").is_file(), "logs": records}, indent=2) + "\n")
+
+
 def stop_mount(root, process=None):
     if root != ci_root():
         raise RuntimeError("Refusing cleanup outside the isolated CI root")
@@ -142,6 +166,11 @@ def install():
                 raise RuntimeError("MacSWCore installation failed; see sanitized setup evidence")
             record["installation_completed"] = True
     finally:
+        try:
+            prerequisite_diagnostics(root)
+        except Exception:
+            # An evidence failure must not prevent process/mount cleanup.
+            print("VC++ code-only diagnostics unavailable; private cleanup continues.", file=sys.stderr)
         if installation is not None and installation.poll() is None:
             installation.terminate()
             try:

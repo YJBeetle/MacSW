@@ -116,6 +116,22 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(command[command.index("--option") + 1], "ro,locallocks,intr")
         self.assertEqual(command[command.index("--files-from-raw") + 1], "files.txt")
 
+    def test_prerequisite_evidence_contains_codes_not_private_log_text(self):
+        logs = self.root / "app-support/logs"
+        logs.mkdir()
+        (logs / "vcredist-x64.log").write_bytes(
+            "Error 0x80070656: private serial and credentials\nApply complete, result: 0x80070656".encode("utf-16"))
+        (logs / "vcredist-private.log").symlink_to(logs / "vcredist-x64.log")
+        media.prerequisite_diagnostics(self.root)
+        output = (self.root / "evidence/prerequisite-diagnostics.json").read_text()
+        record = json.loads(output)
+        self.assertTrue(record["vc_log_created"])
+        self.assertEqual(len(record["logs"]), 1)
+        self.assertEqual(record["logs"]["0"]["codes"], ["0x80070656"])
+        self.assertNotIn("private", output)
+        self.assertNotIn("serial", output)
+        self.assertNotIn("credentials", output)
+
     def test_media_cleanup_detaches_only_this_ci_image(self):
         mountpoint = self.root / "media-mount"
         mountpoint.mkdir()

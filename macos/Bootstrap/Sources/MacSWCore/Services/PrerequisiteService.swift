@@ -126,9 +126,13 @@ public final class PrerequisiteService: @unchecked Sendable {
             throw failure("所选介质缺少 VC_redist.x64.exe。")
         }
         let logs = wine.logDirectory(prefix.path)
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let windowsLog = try await wine.windowsPath(
+            for: logs.appendingPathComponent("vcredist-x64.log"), prefix: prefix
+        )
         let process = wine.makeProcess(arguments: [
             installer.path, "/install", "/quiet", "/norestart", "/log",
-            logs.appendingPathComponent("vcredist-x64.log").path
+            windowsLog
         ], prefix: prefix)
         let code = try await wine.runCancellable(process, log: logs.appendingPathComponent("vcredist-wine.log"))
         guard WineService.isSuccessfulPrerequisiteStatus(code) else {

@@ -22,7 +22,8 @@ public final class WineService: @unchecked Sendable {
         "regedit": #"C:\windows\regedit.exe"#,
         "taskkill": #"C:\windows\system32\taskkill.exe"#,
         "wineboot": #"C:\windows\system32\wineboot.exe"#,
-        "winecfg": #"C:\windows\system32\winecfg.exe"#
+        "winecfg": #"C:\windows\system32\winecfg.exe"#,
+        "winepath": #"C:\windows\system32\winepath.exe"#
     ]
     /// 停止时必须覆盖整套进程，只杀主程序会留下文件服务。
     /// 名单与"哪些进程算 SOLIDWORKS 自己的"是同一件事，只在 ProcessInventory 里定义一次。
@@ -111,6 +112,27 @@ public final class WineService: @unchecked Sendable {
         guard let command = arguments.first,
               let explicit = systemToolPaths[command.lowercased()] else { return arguments }
         return [explicit] + arguments.dropFirst()
+    }
+
+    /// Installer command-line values are not all translated by Wine. Resolve
+    /// through this prefix's actual drive mappings, never assume a Z: drive.
+    public func windowsPath(for url: URL, prefix: URL) async throws -> String {
+        let result = try await capturePairCancellable(
+            makeProcess(arguments: ["winepath", "-w", url.path], prefix: prefix)
+        )
+        guard result.status == 0, let path = Self.parsedWindowsPath(result.standardOutput) else {
+            throw NSError(domain: "MacSW.Wine", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "无法转换安装日志路径为当前 Wine 容器的 Windows 路径。"])
+        }
+        return path
+    }
+
+    static func parsedWindowsPath(_ output: String) -> String? {
+        let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.range(of: #"^[A-Za-z]:\\"#, options: .regularExpression) != nil,
+              !path.contains("\n"), !path.contains("\r"), !path.contains("\0"),
+              !path.contains("\u{FFFD}") else { return nil }
+        return path
     }
 
     @discardableResult

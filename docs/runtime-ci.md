@@ -19,6 +19,9 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    NFS 使用 `ro,locallocks,intr`：镜像文件的 advisory lock 由 runner 本地处理，
    不请求 rclone 未提供的网络锁管理器。首轮没有此设置时 `hdiutil` 报
    `No locks available`；这发生在读取 ISO/运行 MSI 之前，不是 SOLIDWORKS 安装失败。
+   VC++ 的 `/log` 参数经当前容器的 `winepath -w` 转换为 Windows 路径，不直接传
+   macOS 路径，也不假定 Z: 存在。退出码 86 可能是 1622（无法打开安装日志）的
+   低 8 位，但不能只凭截断码确认原因或将其忽略。
 3. 在 `$RUNNER_TEMP/MacSW-runtime/app-support/bottle` 创建全新测试容器。
    CI 专用 `MacSWCI` 入口调用 `BootstrapStore`，复用介质、Wine/Mono/COM、VC++、
    Login Manager、核心 MSI、语言、主题和安装结果校验。这里先选“不配置许可”，
@@ -76,6 +79,8 @@ NFS 仅绑定 runner 的 loopback，不对外提供服务，远端介质只读�
 上传前再次清除原始/规范化序列号、rclone 凭据与 token；此隐私检查失败时禁止上传。
 发布 App 在应用私有夹具前独立归档、上传，绝不能用测试容器内容重新打包。
 失败时保留阶段、命令退出状态及部分 JSON 证据，不以日志上传成功代替运行验证成功。
+`prerequisite-diagnostics.json` 仅记录 VC++ 日志是否生成、大小及固定格式的错误/结果码，
+不保存日志原文、文件名、命令行、注册表值或安装属性。
 工作流的清理步骤覆盖通常的失败/取消；runner 被强制终止时由托管 VM 的销毁收尾。
 
 本机现有容器实测约 8.3 GiB，其中 SOLIDWORKS 目录约 7.2 GiB（仅用于容量估算，

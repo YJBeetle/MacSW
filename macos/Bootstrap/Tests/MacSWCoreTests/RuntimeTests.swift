@@ -78,6 +78,18 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
+    func testInstallerLogPathUsesActualWineMappingAndRejectsAmbiguousOutput() {
+        XCTAssertEqual(WineService.parsedWindowsPath("H:\\logs with spaces\\vc.log\r\n"),
+                       #"H:\logs with spaces\vc.log"#)
+        XCTAssertEqual(WineService.resolvingSystemTool(in: ["winepath", "-w", "/tmp/vc.log"]),
+                       [#"C:\windows\system32\winepath.exe"#, "-w", "/tmp/vc.log"])
+        for invalid in ["", "/tmp/vc.log", "vc.log", "H:vc.log", "H:\\vc.log\nwarning",
+                        "H:\\bad\u{FFFD}.log", "H:\\bad\0.log"] {
+            XCTAssertNil(WineService.parsedWindowsPath(invalid))
+        }
+        XCTAssertFalse(WineService.isSuccessfulPrerequisiteStatus(86), "1622 日志打开失败不能视为成功")
+    }
+
     /// 已取消的任务里再调取消安全包装会直接抛错，所以"取消后收尾"不能就地跑。
     func testCancelledScopeRefusesToStartNewProcesses() async {
         let task = Task { () -> Bool in
