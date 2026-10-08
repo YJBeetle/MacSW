@@ -25,6 +25,9 @@ mount_spec.loader.exec_module(media)
 cache_spec = importlib.util.spec_from_file_location("macsw_base_cache", PROJECT / "scripts/ci/bottle-cache.py")
 base_cache = importlib.util.module_from_spec(cache_spec)
 cache_spec.loader.exec_module(base_cache)
+restore_spec = importlib.util.spec_from_file_location("macsw_cache_diagnostic", PROJECT / "scripts/ci/restore-base.py")
+restore_cache = importlib.util.module_from_spec(restore_spec)
+restore_spec.loader.exec_module(restore_cache)
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -327,6 +330,45 @@ class RuntimeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "integrity"):
             base_cache.restore_snapshot("context")
         self.assertFalse(bottle.exists())
+
+    def test_restore_diagnostic_preserves_fail_closed_validation_and_hides_paths(self):
+        bottle, _ = self.official_base()
+        base_cache.export_snapshot("context")
+        shutil.rmtree(bottle)
+        (self.root / "base-cache/bottle/system.reg").write_text("tampered private contents")
+        with self.assertRaisesRegex(RuntimeError, "integrity"):
+            restore_cache.restore("context")
+        evidence = (self.root / "evidence/cache-restore-failure.json").read_text()
+        result = json.loads(evidence)
+        self.assertEqual(result["error_category"], "inventory-mismatch")
+        self.assertEqual(result["inventory_difference"]["changed_fields"], {"sha256": 1})
+        self.assertNotIn("system.reg", evidence)
+        self.assertNotIn("tampered", evidence)
+        self.assertNotIn(str(self.root), evidence)
+        self.assertFalse(bottle.exists())
+
+    def test_restore_diagnostic_reports_copy_errno_without_error_text(self):
+        bottle, _ = self.official_base()
+        base_cache.export_snapshot("context")
+        shutil.rmtree(bottle)
+        error = shutil.Error([("private/source", "private/destination", "[Errno 28] private error text")])
+        with patch.object(restore_cache.cache.shutil, "copytree", side_effect=error):
+            with self.assertRaises(shutil.Error):
+                restore_cache.restore("context")
+        evidence = (self.root / "evidence/cache-restore-failure.json").read_text()
+        result = json.loads(evidence)
+        self.assertEqual(result["error_category"], "copy-error")
+        self.assertEqual(result["copy_errnos"], {"28": 1})
+        self.assertEqual(result["inventory_difference"]["changed_files"], 0)
+        self.assertNotIn("private", evidence)
+
+    def test_restore_diagnostic_does_not_turn_failure_into_success(self):
+        bottle, _ = self.official_base()
+        base_cache.export_snapshot("context")
+        shutil.rmtree(bottle)
+        restore_cache.restore("context")
+        self.assertTrue(bottle.exists())
+        self.assertFalse((self.root / "evidence/cache-restore-failure.json").exists())
 
     def test_authorized_fake_serial_does_not_rewrite_hex_hives_or_binary_data(self):
         bottle, serial = self.official_base()

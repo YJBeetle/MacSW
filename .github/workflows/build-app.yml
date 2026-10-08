@@ -213,7 +213,7 @@ jobs:
 
       - name: Validate cache and copy into isolated test bottle
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit == 'true'
-        run: python3 scripts/ci/bottle-cache.py restore --context "$MACSW_BASE_CONTEXT"
+        run: python3 scripts/ci/restore-base.py --context "$MACSW_BASE_CONTEXT"
 
       - name: Download private runtime fixtures
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
