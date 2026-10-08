@@ -75,6 +75,13 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 发布 App zip。它验证 MacSW 图形驱动，不复制 SWCLI 的 CAD 操作或几何断言；
 通过原生探针也不能代替后续共享建模/尺寸门禁。
 
+宿主命令通过私有匿名临时文件接收 stdout/stderr，单独等待直接子进程退出，
+不等待 Wine 后台进程关闭继承的日志管道。每条命令记录 `unix_pid`、真实
+`exit_code`、耗时和退出时的有限日志快照；真正超时仍失败，并记录
+`running_at_timeout`，终止、回收本条命令。日志只按原有 `runtime.json` 脱敏
+流程上传，不上传原始临时文件。位图的 60 秒期限、退出码 0 和八组完整断言
+均不变，也不为读取日志重启 Wine、daemon 或 SW。
+
 位图探针前还执行 `check_cgl_arm64` / `check_cgl_x86_64`，将原生与 Rosetta
 CGL renderer 清单和四种 legacy 上下文请求写入 `runtime.json.cgl_renderers`：
 Wine 原有主显示器加速请求、任意加速 renderer、自动选择和指定软件 renderer。

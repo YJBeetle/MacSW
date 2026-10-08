@@ -6,7 +6,10 @@ import json
 import os
 import plistlib
 import shutil
+import stat
 import subprocess
+import sys
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -137,6 +140,129 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def gate(self):
         return ci.RuntimeGate(self.app, self.root / "evidence")
+
+    def test_log_snapshot_is_bounded_and_preserves_inherited_write_offset(self):
+        native_pread = os.pread
+        with tempfile.TemporaryFile() as log:
+            log.write(b"initial")
+            log.flush()
+            def append_during_read(fd, size, offset):
+                os.write(fd, b" later")
+                return native_pread(fd, size, offset)
+            with patch.object(ci.os, "pread", side_effect=append_during_read):
+                self.assertEqual(ci.snapshot_output(log), "initial")
+            self.assertEqual(log.tell(), len(b"initial later"))
+            self.assertEqual(native_pread(log.fileno(), 100, 0), b"initial later")
+
+    def test_command_uses_regular_files_and_records_real_exit_and_text(self):
+        gate = self.gate()
+        def spawn(arguments, **kwargs):
+            for name in ("stdout", "stderr"):
+                self.assertTrue(stat.S_ISREG(os.fstat(kwargs[name].fileno()).st_mode))
+            self.assertNotIn("capture_output", kwargs)
+            self.assertEqual(kwargs["env"], gate.env)
+            kwargs["stdout"].write("结果\r\n".encode())
+            kwargs["stdout"].flush()
+            kwargs["stderr"].write(b"diagnostic\xff\r")
+            kwargs["stderr"].flush()
+            return SimpleNamespace(pid=123, wait=lambda timeout: 0)
+        with patch.object(ci.subprocess, "Popen", side_effect=spawn):
+            self.assertEqual(gate.command([Path("probe"), "argument"], timeout=60), "结果\n")
+        entry = gate.record["commands"][0]
+        self.assertTrue(entry["completed"])
+        self.assertEqual(entry["unix_pid"], 123)
+        self.assertEqual(entry["exit_code"], 0)
+        self.assertEqual(entry["stderr"], "diagnostic\ufffd\n")
+        self.assertNotIn("running_at_timeout", entry)
+        self.assertEqual(json.loads(gate.record_path.read_text())["commands"][0], entry)
+
+    def test_command_returns_without_waiting_for_descendant_log_handles(self):
+        gate = self.gate()
+        release = self.directory / "release"
+        ready = self.directory / "ready"
+        done = self.directory / "done"
+        child = ("from pathlib import Path; import sys,time; "
+                 "release,ready,done=map(Path,sys.argv[1:]); ready.touch(); "
+                 "deadline=time.monotonic()+30\n"
+                 "while not release.exists() and time.monotonic()<deadline: time.sleep(0.02)\n"
+                 "done.touch()\n")
+        parent = ("from pathlib import Path; import subprocess,sys,time; "
+                  "subprocess.Popen([sys.executable,'-c',sys.argv[1],*sys.argv[2:]]); "
+                  "ready=Path(sys.argv[3]); deadline=time.monotonic()+10\n"
+                  "while not ready.exists() and time.monotonic()<deadline: time.sleep(0.02)\n"
+                  "assert ready.exists(); print('parent done'); print('diagnostic',file=sys.stderr)\n")
+        try:
+            output = gate.command([sys.executable, "-c", parent, child, release, ready, done], timeout=5)
+            self.assertEqual(output, "parent done\n")
+            self.assertTrue(ready.exists())
+            self.assertFalse(done.exists())  # The descendant still holds both log descriptors.
+            self.assertEqual(gate.record["commands"][0]["exit_code"], 0)
+            self.assertEqual(gate.record["commands"][0]["stderr"], "diagnostic\n")
+        finally:
+            release.touch()
+            deadline = time.monotonic() + 5
+            while ready.exists() and not done.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+        self.assertTrue(done.exists())
+
+    def test_command_success_output_cannot_hide_nonzero_exit(self):
+        gate = self.gate()
+        with self.assertRaisesRegex(RuntimeError, "Command failed"):
+            gate.command([sys.executable, "-c", "print('{\"success\":true}'); raise SystemExit(7)"])
+        entry = gate.record["commands"][0]
+        self.assertTrue(entry["completed"])
+        self.assertEqual(entry["exit_code"], 7)
+        self.assertIn('"success":true', entry["stdout"])
+
+    def test_command_real_timeout_remains_failure_and_keeps_partial_logs(self):
+        gate = self.gate()
+        script = "import sys,time; print('partial',flush=True); print('diagnostic',file=sys.stderr,flush=True); time.sleep(30)"
+        with self.assertRaises(subprocess.TimeoutExpired):
+            gate.command([sys.executable, "-c", script], timeout=1)
+        entry = gate.record["commands"][0]
+        self.assertFalse(entry["completed"])
+        self.assertTrue(entry["running_at_timeout"])
+        self.assertNotEqual(entry["exit_code"], 0)
+        self.assertEqual(entry["stdout"], "partial\n")
+        self.assertEqual(entry["stderr"], "diagnostic\n")
+        with self.assertRaises(ProcessLookupError):
+            os.kill(entry["unix_pid"], 0)
+
+    def test_command_exit_racing_with_timeout_is_not_reclassified_as_success(self):
+        gate = self.gate()
+        with patch.object(ci.subprocess, "Popen") as spawn:
+            process = spawn.return_value
+            process.pid = 123
+            process.returncode = 0
+            process.poll.return_value = 0
+            process.wait.side_effect = subprocess.TimeoutExpired(["probe"], 60)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                gate.command(["probe"], timeout=60)
+            process.kill.assert_not_called()
+        entry = gate.record["commands"][0]
+        self.assertFalse(entry["completed"])
+        self.assertFalse(entry["running_at_timeout"])
+        self.assertEqual(entry["exit_code"], 0)
+        self.assertEqual(entry["error"], "Outer command deadline exceeded")
+
+    def test_command_termination_timeout_is_reported_without_hiding_original_failure(self):
+        gate = self.gate()
+        original = subprocess.TimeoutExpired(["probe"], 60)
+        with patch.object(ci.subprocess, "Popen") as spawn:
+            process = spawn.return_value
+            process.pid = 123
+            process.returncode = None
+            process.poll.return_value = None
+            process.wait.side_effect = [original, subprocess.TimeoutExpired(["probe"], 5)]
+            with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                gate.command(["probe"], timeout=60)
+            self.assertIs(caught.exception, original)
+            process.kill.assert_called_once_with()
+        entry = gate.record["commands"][0]
+        self.assertFalse(entry["completed"])
+        self.assertTrue(entry["running_at_timeout"])
+        self.assertIsNone(entry["exit_code"])
+        self.assertEqual(entry["cleanup_error"], "Command did not exit after termination")
 
     def test_process_metrics_keep_only_numeric_fields_of_known_wine_processes(self):
         output = "\n".join([

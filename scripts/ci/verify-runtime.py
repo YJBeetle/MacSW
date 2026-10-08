@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -170,6 +171,19 @@ def text_output(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
 
 
+def snapshot_output(output):
+    """Read only existing bytes, without moving an inherited writer's offset."""
+    size = os.fstat(output.fileno()).st_size
+    chunks, offset = [], 0
+    while offset < size:
+        chunk = os.pread(output.fileno(), min(size - offset, 1024 * 1024), offset)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        offset += len(chunk)
+    return text_output(b"".join(chunks)).replace("\r\n", "\n").replace("\r", "\n")
+
+
 class RuntimeGate:
     def __init__(self, app, evidence):
         self.root = ci_root()
@@ -233,21 +247,40 @@ class RuntimeGate:
         entry = {"arguments": list(map(str, arguments)), "completed": False}
         self.record["commands"].append(entry)
         self.checkpoint()
-        try:
-            result = subprocess.run(list(map(str, arguments)), env=self.env, cwd=self.cwd,
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                    encoding="utf-8", errors="replace", timeout=timeout)
-            entry.update(completed=True, exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
-            if result.returncode != 0:
-                raise RuntimeError("Command failed; see runtime.json: " + str(arguments[0]))
-            return result.stdout
-        except subprocess.TimeoutExpired as error:
-            entry.update(error="Outer command deadline exceeded", stdout=text_output(error.stdout),
-                         stderr=text_output(error.stderr))
-            raise
-        finally:
-            entry["duration_seconds"] = time.monotonic() - started
-            self.checkpoint()
+        # Wine background processes can inherit stdout/stderr after the command
+        # exits. Regular files separate its exit deadline from pipe EOF without
+        # stopping Wine or treating successful output as a successful exit.
+        with tempfile.TemporaryFile(dir=self.cwd / "tmp") as stdout, \
+                tempfile.TemporaryFile(dir=self.cwd / "tmp") as stderr:
+            process = None
+            try:
+                process = subprocess.Popen(entry["arguments"], env=self.env, cwd=self.cwd,
+                                           stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+                entry["unix_pid"] = process.pid
+                self.checkpoint()
+                entry["exit_code"] = process.wait(timeout=timeout)
+                entry["completed"] = True
+            except subprocess.TimeoutExpired:
+                entry["error"] = "Outer command deadline exceeded"
+                entry["running_at_timeout"] = process.poll() is None
+                if entry["running_at_timeout"]:
+                    process.kill()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        entry["cleanup_error"] = "Command did not exit after termination"
+                entry["exit_code"] = process.returncode
+                raise
+            finally:
+                # Snapshot a bounded byte count; descendants may still append.
+                # The anonymous files are private and never uploaded directly.
+                for name, output in (("stdout", stdout), ("stderr", stderr)):
+                    entry[name] = snapshot_output(output)
+                entry["duration_seconds"] = time.monotonic() - started
+                self.checkpoint()
+        if entry["exit_code"] != 0:
+            raise RuntimeError("Command failed; see runtime.json: " + str(arguments[0]))
+        return entry["stdout"]
 
     def windows_path(self, path):
         return self.command([self.path_helper, path]).strip()
