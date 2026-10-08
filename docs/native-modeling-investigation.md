@@ -18,6 +18,7 @@ MacSW 负责安装、Wine、App 打包、驱动映射、宿主准备和证据收
 | [37730038675](https://github.com/YJBeetle/MacSW/actions/runs/37730038675) | 保存后的后台文档 `document.close` 返回 `0x800703e6` | 缓存恢复、front/top/right 草图、拉伸、圆、切除和保存成功；未进入尺寸或隐藏模式 |
 | [37732440131](https://github.com/YJBeetle/MacSW/actions/runs/37732440131) | 首次拉伸在重建后的特征诊断遍历期间超过 120 秒 | 全新安装、可见模式就绪、首次矩形成功；未进入尺寸或隐藏模式 |
 | [37736636613](https://github.com/YJBeetle/MacSW/actions/runs/37736636613) | 首次切除在重建后的特征诊断遍历期间超过 120 秒 | 缓存恢复、可见模式就绪、矩形、拉伸、测量、圆及草图检查成功；未进入尺寸或隐藏模式 |
+| [37741088903](https://github.com/YJBeetle/MacSW/actions/runs/37741088903) | 保存后的后台文档关闭返回 `0x800703e6`，非超时 | 全新安装、可见模式及 front/top/right 建模、检查、测量和保存成功；未进入尺寸或隐藏模式 |
 
 `37727420806` 和 `37730038675` 都固定 SWCLI `86c52f27c0b2bdcfe0bf990debfc840481608d58`，
 获得就绪的自有 SOLIDWORKS PID 488、版本 `33.5.0`、简体中文、可见模式。
@@ -55,7 +56,8 @@ CI 设置 `SWCLI_TRACE_NATIVE_CALLS=1`，在普通 daemon 日志里记录立即�
 调用开始、结束与耗时。它不修改原生参数、几何断言、租约或恢复策略。
 按 `(worker_pid, request_id, sequence)` 配对事件；`end` 只表示调用返回，不表示
 业务成功。只对已经覆盖的调用边界作判断，不能把日志空白解释为任意原生方法阻塞。
-特别是请求前的 `RevisionNumber` 探测和直接 `CloseDoc` 当前没有独立方法边界。
+在既有 `93d40e2` / `f75a56f` 证据中，请求前的 `RevisionNumber` 探测和直接
+`CloseDoc` 没有独立方法边界；后述版本只补齐 `CloseDoc` 的边界。
 详见 [运行适配器与诊断约定](runtime-ci.md#原生调用分段诊断)。
 
 `37736636613` 使用 MacSW `0bf251e94ce2420446ec3f6376e584bbb32968f7`，
@@ -79,7 +81,7 @@ RSS 是宿主 `ps` 的观测值，尤其在 Rosetta 下不等同于真实物理 
 
 ## 当前改进版本：请求级原生 API 批次状态
 
-MacSW 的 gitlink 与版本配置现固定 SWCLI
+性能改进首次集成时的 gitlink 与版本配置固定 SWCLI
 `f75a56f05ae8246749514dbaf36d49a79b2cf495`（`0.1.0a6.dev0`）。
 本机另一独占可见实例 PID 1004 对同一后台文档完成只读对照：
 `CommandInProgress=false → true → false` 时，相同 18 个特征的诊断遍历分别
@@ -117,9 +119,22 @@ Windows CI 的四份共享结果及可见/隐藏 box BMP 已下载核对，两�
 
 [MacSW 正式 CI 37741088903](https://github.com/YJBeetle/MacSW/actions/runs/37741088903)
 使用本仓库 `71f23a7909e71e870b06bb083b2af634d293b681` 和相同 SWCLI 指针。
-构建、全新安装及官方基底快照已完成，本记录时仍在共享运行门禁阶段。
+构建、全新安装及官方基底快照成功，运行门禁失败，准确步骤为
+`SOLIDWORKS installation & runtime` / `Shared modeling then driving dimensions on one host`。
+首个失败为请求 `0d553828-551f-47ff-b946-b85ef048e0e0` 的后台模型关闭，返回
+`0x800703e6`，不是 `WorkerTimeout`。建模记录共 56 个事件；另两次关闭失败属于
+清理，尺寸和隐藏模式未进入。此前矩形、拉伸、切除的操作最大耗时分别约
+23.107、18.648、13.419 秒；这轮已越过原来的累计慢调用失败点，但不是整个
+托管流程通过的证明。该原生关闭异常在启用批次状态之前也已出现。
+27 次宿主采样的 SW CPU 中位数仍为约 176.1%，Python 为 0%。
 具体跨宿主证明边界见 SWCLI 的
 [验证记录](https://github.com/YJBeetle/SWCLI/blob/main/docs/verification/macsw-background-rectangle-2026-10-08.md#request-scoped-implementation-validation)。
+
+当前 gitlink 与版本配置已同步为
+`fb147c19e65a4d4b2a84e8e8c140c1589171c54e`。它只为既有 `CloseDoc` 调用增加
+可选、立即刷新的 begin/end/error 日志，沿用同一诊断开关，不记录文档标题或
+原生参数，也不改变关闭顺序、异常结果或门禁。621 项便携测试通过，8 项仅
+Windows 可执行的测试在本机跳过；新的托管运行结果尚待验证。
 
 ### 独立跟进：本机 BMP 白图
 
@@ -128,8 +143,11 @@ Windows CI 的四份共享结果及可见/隐藏 box BMP 已下载核对，两�
 另一可见自有实例 PID 396 对同一只读模型按 `CommandInProgress=false → true →
 false` 渲染，三张图均只有一种 RGB 颜色。随后显式调用官方
 `IModelView.GraphicsRedraw` 的同类对照也均为白图。
-因此该现象不以启用批次标志为必要条件，但来源仍未知；尚未验证窗口前台/遮挡
-假设，也不能从这次对照宣称旧版本渲染正常。它与累计调用延迟、原生关闭异常
+另一个自有可见实例 PID 1880 中，用户将 SW 切到前台并确认模型区能看到实体。
+同一模型、相同参数的前台渲染仍为白图，前后 BMP 的 SHA-256 完全相同；
+只读测量返回 5 个实体，均有非零体积。因此单纯切前台未改善本次捕获结果，
+可见场景与 BMP 捕获存在差异，但具体原生 API/Wine 模块尚未定位，也不能从
+这次对照宣称旧版本渲染正常。它与累计调用延迟、原生关闭异常
 分别跟进，不通过改动几何门禁、重试建模或中途重启来掩盖。
 
 ## 本机交叉验证
