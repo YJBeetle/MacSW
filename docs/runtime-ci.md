@@ -67,6 +67,14 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    和整个测试容器。只上传通过最终脱敏检查的测试 JSON、daemon 日志及白名单安装日志。
    测试生成的 SLDPRT 会被共享测试检查，但不上传二进制模型，以收紧敏感数据边界。
 
+启动可见 SOLIDWORKS 之前，运行 MacSW 专属的 `check_bitmap_opengl.exe` 原生
+位图探针。它不依赖 SW 或私有夹具，检查 24/32 位、宽度 7/8、上下行方向的
+八组 DIB/WGL 实际像素、深度模板和上下文切换；缺失、非零退出或任一结果不符
+都会使运行门禁失败。八组结果写入 `runtime.json` 的 `bitmap_driver`。
+探针从仓库 C 源码构建，随原有 helper tar 传递，仅注入临时 CI App，不进入
+发布 App zip。它验证 MacSW 图形驱动，不复制 SWCLI 的 CAD 操作或几何断言；
+通过原生探针也不能代替后续共享建模/尺寸门禁。
+
 共享入口参数约定：`--output-dir`（本机输出目录）、`--host-output-dir`
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给

@@ -163,8 +163,12 @@ jobs:
           binary_dir="$(swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --show-bin-path)"
           mkdir -p build/ci
+          x86_64-w64-mingw32-gcc -std=c99 -Wall -Wextra -Werror \
+            scripts/diagnostics/check_bitmap_opengl.c -lopengl32 -lgdi32 \
+            -o build/ci/check_bitmap_opengl.exe
           # tar preserves executable permissions across the artifact service.
-          tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime
+          tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime \
+            -C "$GITHUB_WORKSPACE/build/ci" check_bitmap_opengl.exe
 
       - name: Record build artifact checksums
         id: artifact-digests
@@ -282,6 +286,7 @@ jobs:
           tar -xzf "$helpers" -C "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS"
           test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
+          test -f "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/check_bitmap_opengl.exe"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           # This is a CLI helper in a private resource bundle, not a signed App

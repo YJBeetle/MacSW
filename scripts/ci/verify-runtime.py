@@ -338,6 +338,7 @@ class RuntimeGate:
 
     def run(self):
         scripts = shared_gates()
+        self.verify_bitmap_driver()
         for mode in ("visible", "hidden"):
             host = self.start(mode)
             try:
@@ -361,6 +362,26 @@ class RuntimeGate:
             self.stop()
         self.record["completed"] = True
         self.phase("completed")
+
+    def verify_bitmap_driver(self):
+        self.phase("bitmap-driver")
+        probe = self.app / "Contents/MacOS/check_bitmap_opengl.exe"
+        if not probe.is_file():
+            raise RuntimeError("CI-only native bitmap probe is missing")
+        loader = self.app / "Contents/Frameworks/wine/bin/wineloader"
+        self.env["WINELOADER"] = str(loader)
+        self.env["WINESERVER"] = str(self.app / "Contents/Frameworks/wine/bin/wineserver")
+        output = self.command([loader, self.windows_path(probe)], timeout=60)
+        records = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
+        expected = {(bpp, width, top_down) for bpp in (24, 32) for width in (7, 8) for top_down in (False, True)}
+        actual = {(item.get("bpp"), item.get("width"), item.get("top_down")) for item in records}
+        if (len(records) != 8 or actual != expected or
+                any(item.get("success") is not True or item.get("stage") != "complete" or
+                    item.get("red_pixels") != item["width"] * 8 or item.get("gl_error") != 0 or
+                    item.get("depth", 0) < 24 or item.get("stencil", 0) < 8 for item in records)):
+            raise RuntimeError("Native bitmap pixel/format/context verification failed")
+        self.record["bitmap_driver"] = records
+        self.checkpoint()
 
 
 def main():

@@ -96,6 +96,8 @@ class RuntimeWorkflowTests(unittest.TestCase):
             self.assertLess(self.runtime.index('shasum -a 256 "$' + archive + '"'),
                             self.runtime.index('ditto -x -k "$archive"'))
         self.assertIn('tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime', self.build)
+        self.assertIn("scripts/diagnostics/check_bitmap_opengl.c -lopengl32 -lgdi32", self.build)
+        self.assertIn('check_bitmap_opengl.exe', self.runtime)
         self.assertIn('tar -xzf "$helpers"', self.runtime)
         self.assertIn('test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"', self.runtime)
 
@@ -300,6 +302,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             else:
                 self.assertNotIn("--after-modeling", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
+                patch.object(gate, "verify_bitmap_driver", side_effect=lambda: events.append("bitmap-driver")), \
                 patch.object(ci, "HostMetrics") as metrics, \
                 patch.object(gate, "start", side_effect=lambda mode: events.append("start:" + mode) or host), \
                 patch.object(gate, "same_host", side_effect=lambda expected: self.assertEqual(expected, host)), \
@@ -310,9 +313,40 @@ class RuntimeAdapterTests(unittest.TestCase):
             gate.run()
         self.assertEqual([call.args for call in metrics.call_args_list],
                          [(gate, "visible"), (gate, "visible"), (gate, "hidden"), (gate, "hidden")])
-        self.assertEqual(events, ["start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "stop",
+        self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "stop",
                                   "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "stop"])
         self.assertTrue(gate.record["completed"])
+
+    def test_native_bitmap_driver_requires_all_eight_actual_pixel_cases(self):
+        records = [{"bpp": bpp, "width": width, "top_down": top_down, "success": True,
+                    "stage": "complete", "red_pixels": width * 8, "gl_error": 0,
+                    "depth": 24, "stencil": 8}
+                   for bpp in (24, 32) for width in (7, 8) for top_down in (False, True)]
+        gate = self.gate()
+        probe = gate.app / "Contents/MacOS/check_bitmap_opengl.exe"
+        with self.assertRaisesRegex(RuntimeError, "native bitmap probe is missing"):
+            gate.verify_bitmap_driver()
+        probe.parent.mkdir(parents=True)
+        probe.touch()
+        def check(items, success):
+            with patch.object(gate, "windows_path", return_value="M:\\MacSW.app\\Contents\\MacOS\\check_bitmap_opengl.exe"), \
+                    patch.object(gate, "command", return_value='\n'.join(map(json.dumps, items))) as command:
+                if success:
+                    gate.verify_bitmap_driver()
+                    self.assertEqual(gate.record["bitmap_driver"], records)
+                    self.assertEqual(command.call_args.kwargs["timeout"], 60)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "verification failed"):
+                        gate.verify_bitmap_driver()
+        check(records, True)
+        check(records[:-1], False)
+        check(records + [records[0]], False)
+        check(records[:-1] + [records[0]], False)
+        for field, value in (("success", False), ("gl_error", 1), ("red_pixels", 0),
+                             ("depth", 0), ("stencil", 0), ("stage", "create-context")):
+            failed = [dict(row) for row in records]
+            failed[0][field] = value
+            check(failed, False)
 
     def test_host_change_aborts_before_next_gate(self):
         gate = self.gate()
