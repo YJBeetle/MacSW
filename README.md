@@ -122,9 +122,11 @@ make app
 The output is `build/app/MacSW.app`. The first build downloads and verifies pinned
 dependencies; later builds reuse the `dist/` cache. See the
 [development guide](docs/development.md) for tests, packaging, installer internals,
-and Wine fixes. GitHub Actions uses the same `make ci` pipeline. Relevant master
-pushes in this repository automatically run isolated real installation/runtime
-validation; manual triggering is also supported. PRs do not access private runtime resources.
+and Wine fixes. GitHub Actions runs `make test` and `make archive` as separate steps
+in the `build` job. An independent `runtime-test` job downloads this run's App and
+performs isolated real installation/runtime validation without recompiling it.
+Relevant master pushes in this repository run automatically; manual triggering is
+also supported. PRs do not access private runtime resources.
 
 ## Documentation
 

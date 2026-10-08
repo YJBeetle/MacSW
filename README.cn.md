@@ -105,8 +105,9 @@ make app
 
 产物为 `build/app/MacSW.app`。首次构建联网获取并校验固定依赖，后续复用 `dist/` 缓存。
 测试、打包流程、安装实现和 Wine 修复见[开发说明](docs/development.md)。
-GitHub Actions 使用同一条 `make ci` 链路；本仓库 master 的相关 push 自动执行隔离的
-真实安装/运行验证，也支持手动触发，不在 PR 中调用私有运行资源。
+GitHub Actions 的 `build` job 分步执行 `make test` 和 `make archive`；独立的
+`runtime-test` job 下载本轮构建的 App，执行隔离的真实安装/运行验证，不重新编译。
+本仓库 master 的相关 push 自动运行，也支持手动触发；PR 不调用私有运行资源。
 
 ## 文档
 

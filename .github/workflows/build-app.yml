@@ -50,7 +50,8 @@ permissions:
   contents: read
 
 jobs:
-  build-and-package:
+  build:
+    name: Build & package
     # No PR execution. Private runtime inputs are available only to a trusted
     # master push or opt-in manual master run, never forks or arbitrary refs.
     if: >-
@@ -59,11 +60,15 @@ jobs:
       (!inputs.verify_solidworks ||
        github.ref == 'refs/heads/master')
     runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
-    timeout-minutes: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 360 || 60 }}
+    timeout-minutes: 60
+    outputs:
+      app_archive: ${{ steps.build-config.outputs.app_archive }}
+      app_sha256: ${{ steps.artifact-digests.outputs.app_sha256 }}
+      helpers_sha256: ${{ steps.artifact-digests.outputs.helpers_sha256 }}
     permissions:
       contents: write # Existing tag release upload; runtime fixtures are never released.
     concurrency:
-      group: macsw-${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 'solidworks-runtime' || github.ref }}
+      group: macsw-build-${{ github.ref }}
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
@@ -76,29 +81,11 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Check runtime prerequisites
-        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
-        env:
-          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
-          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
-          MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage || 'full' }}
-        run: |
-          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
-          test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
-          test "$(uname -m)" = arm64
-          if test "$MACSW_RUNTIME_STAGE" = full; then
-            python3 scripts/ci/verify-runtime.py --check-shared-gates
-          fi
-          # Only accessed ISO ranges are fetched through the read-only NFS mount.
-          # Local bottle is about 8.3 GiB; leave room for VFS blocks and fixtures.
-          df -h "$RUNNER_TEMP"
-          available_kib="$(df -k "$RUNNER_TEMP" | awk 'END {print $4}')"
-          test "$available_kib" -ge 25165824 || { echo 'Runtime gate requires 24 GiB free disk' >&2; exit 1; }
-
       - name: Load build configuration
         id: build-config
         run: |
           source scripts/lib/config.sh
+          echo "app_archive=build/archive/MacSW-${APP_VERSION}-macOS.zip" >> "$GITHUB_OUTPUT"
           echo "wine_runtime_asset=${WINE_RUNTIME_ASSET}" >> "$GITHUB_OUTPUT"
           echo "wine_source_asset=${WINE_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "winemac_output_name=${WINEMAC_OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
@@ -148,9 +135,12 @@ jobs:
           echo "==> 检查 Wine 运行时状态..."
           ls -lh dist/ || true
 
-      - name: Test, build, verify and archive MacSW.app
+      - name: Run unit tests
+        run: make test
+
+      - name: Build, verify and archive MacSW.app
         run: |
-          make ci
+          make archive
           ls -lh build/archive/*.zip
 
       - name: Upload MacSW App Artifact
@@ -162,21 +152,134 @@ jobs:
             dist/${{ steps.build-config.outputs.wine_source_asset }}
           retention-days: 14
 
-      - name: Prepare private runtime test bundle
+      - name: Build and archive CI-only helpers
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         run: |
-          brew install rclone
-          sudo softwareupdate --install-rosetta --agree-to-license
           swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --product MacSWCI
           swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --product MacSWCIRuntime
           binary_dir="$(swift build --package-path macos/Bootstrap --scratch-path build/swift \
             --configuration release --show-bin-path)"
+          mkdir -p build/ci
+          # tar preserves executable permissions across the artifact service.
+          tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime
+
+      - name: Record build artifact checksums
+        id: artifact-digests
+        env:
+          MACSW_APP_ARCHIVE: ${{ steps.build-config.outputs.app_archive }}
+        run: |
+          echo "app_sha256=$(shasum -a 256 "$MACSW_APP_ARCHIVE" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          if test "$MACSW_VERIFY_SOLIDWORKS" = true; then
+            echo "helpers_sha256=$(shasum -a 256 build/ci/MacSW-CI-Helpers.tar.gz | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload CI-only helper artifact (no runtime fixtures)
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacSW-CI-Helpers
+          path: build/ci/MacSW-CI-Helpers.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish Release Assets (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/archive/MacSW-*-macOS.zip
+            dist/${{ steps.build-config.outputs.wine_source_asset }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  runtime-test:
+    name: SOLIDWORKS installation & runtime
+    needs: build
+    # Private resources must never be available to PRs, forks, tags or other refs.
+    if: >-
+      github.repository == 'YJBeetle/MacSW' &&
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.verify_solidworks))
+    runs-on: macos-14
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    concurrency:
+      group: macsw-solidworks-runtime
+      cancel-in-progress: false
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+      MACSW_VERIFY_SOLIDWORKS: 'true'
+
+    steps:
+      - name: Checkout MacSW Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Check runtime prerequisites
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+          SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
+          MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage || 'full' }}
+        run: |
+          test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
+          test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
+          test "$(uname -m)" = arm64
+          if test "$MACSW_RUNTIME_STAGE" = full; then
+            python3 scripts/ci/verify-runtime.py --check-shared-gates
+          fi
+          # Only accessed ISO ranges are fetched through the read-only NFS mount.
+          # Local bottle is about 8.3 GiB; leave room for VFS blocks and fixtures.
+          df -h "$RUNNER_TEMP"
+          available_kib="$(df -k "$RUNNER_TEMP" | awk 'END {print $4}')"
+          test "$available_kib" -ge 25165824 || { echo 'Runtime gate requires 24 GiB free disk' >&2; exit 1; }
+
+      - name: Prepare isolated SWCLI test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install ./Dependencies/SWCLI
+          echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
+
+      # With no run-id/token override, downloads are restricted to this run.
+      - name: Download this run's MacSW App artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MacSW-macOS-App
+          path: ${{ runner.temp }}/MacSW-build-artifacts
+
+      - name: Download this run's CI-only helpers
+        uses: actions/download-artifact@v4
+        with:
+          name: MacSW-CI-Helpers
+          path: ${{ runner.temp }}/MacSW-ci-helpers
+
+      - name: Prepare private runtime test bundle from verified build artifacts
+        env:
+          MACSW_APP_ARCHIVE: ${{ needs.build.outputs.app_archive }}
+          MACSW_APP_SHA256: ${{ needs.build.outputs.app_sha256 }}
+          MACSW_HELPERS_SHA256: ${{ needs.build.outputs.helpers_sha256 }}
+        run: |
+          brew install rclone
+          sudo softwareupdate --install-rosetta --agree-to-license
+          archive="$RUNNER_TEMP/MacSW-build-artifacts/$MACSW_APP_ARCHIVE"
+          helpers="$RUNNER_TEMP/MacSW-ci-helpers/MacSW-CI-Helpers.tar.gz"
+          test -n "$MACSW_APP_SHA256" && test -n "$MACSW_HELPERS_SHA256"
+          test "$(shasum -a 256 "$archive" | awk '{print $1}')" = "$MACSW_APP_SHA256"
+          test "$(shasum -a 256 "$helpers" | awk '{print $1}')" = "$MACSW_HELPERS_SHA256"
           mkdir -p "$RUNNER_TEMP/MacSW-runtime"
-          ditto build/app/MacSW.app "$RUNNER_TEMP/MacSW-runtime/MacSW.app"
-          cp "$binary_dir/MacSWCI" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
-          cp "$binary_dir/MacSWCIRuntime" "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
+          # Unpack the exact distribution zip; do not rebuild on the test runner.
+          ditto -x -k "$archive" "$RUNNER_TEMP/MacSW-runtime"
+          test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSW"
+          tar -xzf "$helpers" -C "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS"
+          test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
+          test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           # This is a CLI helper in a private resource bundle, not a signed App
@@ -291,15 +394,3 @@ jobs:
             ${{ runner.temp }}/MacSW-runtime/evidence/**/*.log
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Publish Release Assets (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            build/archive/MacSW-*-macOS.zip
-            dist/${{ steps.build-config.outputs.wine_source_asset }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

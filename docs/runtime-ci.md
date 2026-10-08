@@ -1,7 +1,7 @@
 # MacSW 真实安装与运行 CI
 
 `Build & Package MacSW.app` 在本仓库 `master` push 时自动执行 macOS/Wine
-真实验证，手动触发时可使用 `verify_solidworks=true`。测试、构建和打包仍先执行。
+真实验证，手动触发时可使用 `verify_solidworks=true`。
 使用 GitHub 托管的 Apple Silicon
 `macos-14` runner、仓库固定版本的 Wine/Mono/SWCLI，以及打包后的 App。
 `runtime_stage=install` 只执行真实安装和私有夹具准备，不等待共享建模入口；
@@ -9,6 +9,22 @@
 带私有资源的验证只允许本仓库 `master` push 或 master 的手动选择执行，fork、PR
 或其他 ref 不能执行。tag 发布仍只构建和打包，不调用私有安装/运行步骤。
 push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动输入也不会跳过共享门禁。
+
+## 构建与运行分离
+
+- `build`：单元测试（`make test`）和编译／校验／归档（`make archive`）为独立步骤。
+  上传发布 App 和 Wine 源码；需要运行验证时另行编译、归档 CI helper。
+  不读取 rclone 或 SOLIDWORKS 序列号 Secret，不安装 SOLIDWORKS，不注入私有夹具。
+- `runtime-test`：通过 `needs: build` 等待构建成功，在另一台 runner 下载本轮的
+  `MacSW-macOS-App` 和 `MacSW-CI-Helpers`，核对构建 job 输出的 SHA-256 后解包。
+  不重编译、不使用其他运行的 App；helper 只注入临时 App 副本，不进入发布 zip。
+  App 使用原有 zip、helper 使用 tar 传递，以保留可执行权限、符号链接及包结构。
+  随后恢复官方安装基底或执行首次安装，再运行共享门禁并清理。
+
+两个 job 分别显示状态；安装／运行失败时，构建可保持成功，但工作流整体仍失败。
+构建与运行采用独立并发组；运行组仍不取消进行中的安装，避免重复读取 Drive 介质。
+官方安装缓存的身份、权限校验、私有夹具注入顺序和证据脱敏边界均不因拆分而改变。
+tag 的 Release 上传在构建 job 完成，不等待也不触发私有运行 job。
 
 ## 职责与顺序
 

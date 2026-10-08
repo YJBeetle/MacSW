@@ -31,6 +31,73 @@ restore_cache = importlib.util.module_from_spec(restore_spec)
 restore_spec.loader.exec_module(restore_cache)
 
 
+class RuntimeWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
+        self.build, self.runtime = self.workflow.split("\n  build:\n", 1)[1].split("\n  runtime-test:\n", 1)
+
+    def test_build_and_runtime_have_independent_results_and_concurrency(self):
+        self.assertIn("run: make test", self.build)
+        self.assertIn("make archive", self.build)
+        self.assertLess(self.build.index("run: make test"), self.build.index("make archive"))
+        self.assertNotIn("make ci", self.build)
+        self.assertIn("needs: build", self.runtime)
+        self.assertIn("group: macsw-build-${{ github.ref }}", self.build)
+        self.assertIn("group: macsw-solidworks-runtime", self.runtime)
+        self.assertIn("cancel-in-progress: false", self.runtime)
+        self.assertNotIn("continue-on-error", self.workflow)
+        self.assertNotIn("swift build", self.runtime)
+        self.assertNotIn("make archive", self.runtime)
+
+    def test_private_secrets_are_only_in_master_runtime_job(self):
+        self.assertNotIn("secrets.RCLONE_CONFIG_B64", self.build)
+        self.assertNotIn("secrets.SW_SERIAL_SOLIDWORKS", self.build)
+        guard = self.runtime.split("    steps:", 1)[0]
+        self.assertIn("github.repository == 'YJBeetle/MacSW'", guard)
+        self.assertIn("github.ref == 'refs/heads/master'", guard)
+        self.assertIn("github.event_name == 'push'", guard)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.verify_solidworks", guard)
+        self.assertNotIn("pull_request", self.workflow)
+        self.assertIn("contents: read", guard)
+        self.assertNotIn("contents: write", guard)
+        self.assertIn("Publish Release Assets (on tag)", self.build)
+        self.assertNotIn("Publish Release Assets", self.runtime)
+
+    def test_runtime_downloads_and_verifies_same_run_archives_before_unpacking(self):
+        for name in ("MacSW-macOS-App", "MacSW-CI-Helpers"):
+            self.assertIn("name: " + name, self.build)
+            self.assertIn("name: " + name, self.runtime)
+        downloads = self.runtime.split("- name: Download this run's MacSW App artifact", 1)[1].split(
+            "- name: Prepare private runtime test bundle", 1)[0]
+        self.assertEqual(downloads.count("uses: actions/download-artifact@v4"), 2)
+        for override in ("run-id:", "github-token:", "repository:"):
+            self.assertNotIn(override, downloads)
+        for output in ("app_archive", "app_sha256", "helpers_sha256"):
+            self.assertIn("needs.build.outputs." + output, self.runtime)
+        self.assertIn('archive="$RUNNER_TEMP/MacSW-build-artifacts/$MACSW_APP_ARCHIVE"', self.runtime)
+        for archive in ("archive", "helpers"):
+            self.assertLess(self.runtime.index('shasum -a 256 "$' + archive + '"'),
+                            self.runtime.index('ditto -x -k "$archive"'))
+        self.assertIn('tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime', self.build)
+        self.assertIn('tar -xzf "$helpers"', self.runtime)
+        self.assertIn('test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"', self.runtime)
+
+    def test_official_cache_and_always_cleanup_stay_in_runtime_job(self):
+        snapshot = self.runtime.index("- name: Save only verified official base")
+        fixtures = self.runtime.index("- name: Prepare temporary licensing and runtime fixtures")
+        gates = self.runtime.index("- name: Shared modeling then driving dimensions on one host")
+        self.assertLess(snapshot, fixtures)
+        self.assertLess(fixtures, gates)
+        self.assertIn("TAR_OPTIONS: --same-permissions", self.runtime)
+        self.assertNotIn("macsw-installed-base-v2-", self.build)
+        for step in ("Stop isolated runtime test bottle", "Redact runtime evidence before publication",
+                     "Upload sanitized runtime and installer evidence (no license files)"):
+            section = self.runtime.split("- name: " + step, 1)[1].split("- name:", 1)[0]
+            self.assertIn("if: always()", section)
+        upload = self.runtime.split("- name: Upload sanitized runtime", 1)[1]
+        self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
+
+
 class RuntimeAdapterTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
