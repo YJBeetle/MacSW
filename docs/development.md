@@ -145,6 +145,11 @@ Wine 在应用已调用 `glFlush` / `glFinish` 后，额外调用交换双缓冲
 这不是全局切换到软件绘图，也不改变 SWCLI 的导出实现。原生探针与实际 BMP
 证据见[原生调查](native-modeling-investigation.md#修复实现bitmap-only-fbo)。
 
+[`0009-winemac-software-renderer-fallback.patch`](../patches/wine-crossover/0009-winemac-software-renderer-fallback.patch)
+是独立的软件 renderer 初始化候选：保留硬件优先，只在 legacy 加速格式不存在
+时回退，继承真实加速属性，不改 SW 内部设置。状态与验证边界见
+[软件 renderer 待办](software-renderer-compatibility.md)；托管环境的完整验收仍待完成。
+
 - [`0001-winemac-macsw-branding.patch`](../patches/wine-crossover/0001-winemac-macsw-branding.patch)
   为 loader 内嵌 MacSW bundle 元数据，由 `wine -> MacSW` 链接满足 Wine 重新执行的固定路径。
   Dock 与应用菜单显示 MacSW，EXE 图标仍走 Wine 原生路径，不替换各程序图标。

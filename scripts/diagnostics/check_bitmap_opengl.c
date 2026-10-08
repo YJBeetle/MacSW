@@ -8,8 +8,24 @@
  * No SOLIDWORKS, fixtures, user windows, or private installation is required. */
 typedef void (APIENTRY *framebuffer_names)(GLsizei, GLuint *);
 typedef void (APIENTRY *bind_framebuffer)(GLenum, GLuint);
+typedef BOOL (WINAPI *get_pixel_format_attrib)(HDC, int, int, UINT, const int *, int *);
 #define FRAMEBUFFER 0x8d40
 #define FRAMEBUFFER_BINDING 0x8ca6
+#define WGL_ACCELERATION_ARB 0x2003
+#define WGL_NO_ACCELERATION_ARB 0x2025
+#define WGL_FULL_ACCELERATION_ARB 0x2027
+
+static void print_json_string(const char *value)
+{
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)(value ? value : ""); *p; ++p)
+    {
+        if (*p == '"' || *p == '\\') putchar('\\');
+        if (*p < 32) printf("\\u%04x", *p);
+        else putchar(*p);
+    }
+    putchar('"');
+}
 
 static int check_gl_color(int width, BYTE red, BYTE green, BYTE blue)
 {
@@ -41,8 +57,12 @@ static int run_case(int bpp, int width, int top_down)
     GLint draw_buffer = 0, binding = 0, depth = 0, stencil = 0;
     GLuint application_fbo = 0;
     int application_fbo_available = 0;
+    int acceleration = 0;
+    const int acceleration_attribute = WGL_ACCELERATION_ARB;
+    const char *renderer = NULL, *version = NULL;
     framebuffer_names gen_fbos, delete_fbos;
     bind_framebuffer bind_fbo;
+    get_pixel_format_attrib get_attrib;
 
     if (!(dc = CreateCompatibleDC(NULL))) goto done;
     info.bmiHeader.biSize = sizeof(info.bmiHeader);
@@ -76,6 +96,16 @@ static int run_case(int bpp, int width, int top_down)
     if (!(context = wglCreateContext(dc))) goto done;
     stage = "make-current";
     if (!wglMakeCurrent(dc, context)) goto done;
+    renderer = (const char *)glGetString(GL_RENDERER);
+    version = (const char *)glGetString(GL_VERSION);
+    stage = "acceleration-properties";
+    if (!renderer || !version) goto done;
+    get_attrib = (get_pixel_format_attrib)(void *)wglGetProcAddress("wglGetPixelFormatAttribivARB");
+    if (!get_attrib || !get_attrib(dc, format, 0, 1, &acceleration_attribute, &acceleration)) goto done;
+    if (acceleration != ((actual.dwFlags & PFD_GENERIC_FORMAT) ?
+                        WGL_NO_ACCELERATION_ARB : WGL_FULL_ACCELERATION_ARB)) goto done;
+    if (!strcmp(renderer, "Apple Software Renderer") &&
+        (!(actual.dwFlags & PFD_GENERIC_FORMAT) || acceleration != WGL_NO_ACCELERATION_ARB)) goto done;
     stage = "initial-dib-upload";
     if (!check_gl_color(width, 0, 0, 255)) goto done;
     stage = "default-buffer-semantics";
@@ -147,9 +177,13 @@ static int run_case(int bpp, int width, int top_down)
     result = 0;
 
 done:
-    printf("{\"success\":%s,\"stage\":\"%s\",\"bpp\":%d,\"width\":%d,\"top_down\":%s,\"format\":%d,\"flags\":%lu,\"red_pixels\":%u,\"expected_pixels\":%d,\"application_fbo_available\":%s,\"depth\":%d,\"stencil\":%d,\"gl_error\":%u}\n",
+    printf("{\"success\":%s,\"stage\":\"%s\",\"bpp\":%d,\"width\":%d,\"top_down\":%s,\"format\":%d,\"flags\":%lu,\"red_pixels\":%u,\"expected_pixels\":%d,\"application_fbo_available\":%s,\"depth\":%d,\"stencil\":%d,\"gl_error\":%u,\"wgl_acceleration\":%d,\"renderer\":",
            success ? "true" : "false", stage, bpp, width, top_down ? "true" : "false", format, actual.dwFlags, red_pixels, width * 8,
-           application_fbo_available ? "true" : "false", depth, stencil, glGetError());
+           application_fbo_available ? "true" : "false", depth, stencil, glGetError(), acceleration);
+    print_json_string(renderer);
+    printf(",\"version\":");
+    print_json_string(version);
+    printf("}\n");
     if (context) { wglMakeCurrent(NULL, NULL); wglDeleteContext(context); }
     if (second_context) wglDeleteContext(second_context);
     if (previous) SelectObject(dc, previous);

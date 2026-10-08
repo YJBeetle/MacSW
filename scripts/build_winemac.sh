@@ -12,6 +12,7 @@ TOPMOST_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0005-win32u-ignore-child
 SPACE_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-solidworks-view-space.patch"
 COM_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0007-combase-wait-solidworks-registration.patch"
 BITMAP_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0008-winemac-bitmap-framebuffer.patch"
+SOFTWARE_RENDERER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0009-winemac-software-renderer-fallback.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
@@ -58,8 +59,9 @@ TOPMOST_PATCH_SHA256="$(shasum -a 256 "${TOPMOST_PATCH}" | awk '{print $1}')"
 SPACE_PATCH_SHA256="$(shasum -a 256 "${SPACE_PATCH}" | awk '{print $1}')"
 COM_PATCH_SHA256="$(shasum -a 256 "${COM_PATCH}" | awk '{print $1}')"
 BITMAP_PATCH_SHA256="$(shasum -a 256 "${BITMAP_PATCH}" | awk '{print $1}')"
+SOFTWARE_RENDERER_PATCH_SHA256="$(shasum -a 256 "${SOFTWARE_RENDERER_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
 if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
@@ -90,6 +92,8 @@ git -C "${SOURCE_DIR}" apply --check "${COM_PATCH}"
 git -C "${SOURCE_DIR}" apply "${COM_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${BITMAP_PATCH}"
 git -C "${SOURCE_DIR}" apply "${BITMAP_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${SOFTWARE_RENDERER_PATCH}"
+git -C "${SOURCE_DIR}" apply "${SOFTWARE_RENDERER_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null

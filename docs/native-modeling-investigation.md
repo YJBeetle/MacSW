@@ -324,6 +324,11 @@ MacSW Python（1 项跳过）、141 项 Swift、621 项 SWCLI（8 项平台跳�
 
 ## 本机交叉验证
 
+托管 CI 后续确认了仅软件 renderer 的环境，见
+[软件 renderer 兼容待办](software-renderer-compatibility.md)。`0009` 是独立的
+初始化回退候选，不能用它推定此文记录的 `CloseDoc / 0x800703e6` 已解决，
+也不能将 `0008` 在本机硬件上的通过扩展为软件 renderer 验收。
+
 2026-10-08 使用重新打包的 `build/app/MacSW.app` 和日常主 bottle，保留旧
 Windows backend 后，仅同步 SWCLI Python 包。测试文件集中在一个独立的
 `C:\Workspace\MacSW-trace-20261008.6A0yEq` 目录，没有修改安装样例或用户模型。

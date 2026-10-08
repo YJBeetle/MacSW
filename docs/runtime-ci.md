@@ -82,6 +82,13 @@ Wine 原有主显示器加速请求、任意加速 renderer、自动选择和指
 会保留原始 CGL 错误，不能据此跳过或通过位图、建模和尺寸门禁。两个程序同样
 只进入 CI helper，不进入发布 App。
 
+`0009-winemac-software-renderer-fallback.patch` 的独立候选保留硬件优先，只在
+legacy 加速格式不存在时尝试 Apple 软件 renderer，不将 core 请求降为 legacy，
+也不更改 SW 的“软件 OpenGL”选项。位图探针额外核对真实 renderer、GL 版本及
+WGL 加速属性；软件格式必须报告 `PFD_GENERIC_FORMAT` / `WGL_NO_ACCELERATION_ARB`。
+这不会跳过八组像素门禁，后续共享建模→尺寸仍须在同一宿主顺序通过。
+候选状态、已知风险及验收边界见[软件 renderer 待办](software-renderer-compatibility.md)。
+
 共享入口参数约定：`--output-dir`（本机输出目录）、`--host-output-dir`
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
