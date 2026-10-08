@@ -166,9 +166,14 @@ jobs:
           x86_64-w64-mingw32-gcc -std=c99 -Wall -Wextra -Werror \
             scripts/diagnostics/check_bitmap_opengl.c -lopengl32 -lgdi32 \
             -o build/ci/check_bitmap_opengl.exe
+          for architecture in arm64 x86_64; do
+            clang -arch "$architecture" -std=c99 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+              scripts/diagnostics/check_cgl_renderer.c -framework OpenGL -framework ApplicationServices \
+              -o "build/ci/check_cgl_$architecture"
+          done
           # tar preserves executable permissions across the artifact service.
           tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime \
-            -C "$GITHUB_WORKSPACE/build/ci" check_bitmap_opengl.exe
+            -C "$GITHUB_WORKSPACE/build/ci" check_bitmap_opengl.exe check_cgl_arm64 check_cgl_x86_64
 
       - name: Record build artifact checksums
         id: artifact-digests
@@ -287,6 +292,12 @@ jobs:
           test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           test -f "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/check_bitmap_opengl.exe"
+          for architecture in arm64 x86_64; do
+            probe="$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/check_cgl_$architecture"
+            test -x "$probe"
+            codesign --force --sign - "$probe"
+            codesign --verify --verbose=2 "$probe"
+          done
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"
           codesign --force --sign - "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
           # This is a CLI helper in a private resource bundle, not a signed App

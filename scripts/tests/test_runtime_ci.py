@@ -97,6 +97,10 @@ class RuntimeWorkflowTests(unittest.TestCase):
                             self.runtime.index('ditto -x -k "$archive"'))
         self.assertIn('tar -czf build/ci/MacSW-CI-Helpers.tar.gz -C "$binary_dir" MacSWCI MacSWCIRuntime', self.build)
         self.assertIn("scripts/diagnostics/check_bitmap_opengl.c -lopengl32 -lgdi32", self.build)
+        self.assertIn("scripts/diagnostics/check_cgl_renderer.c -framework OpenGL", self.build)
+        for architecture in ("arm64", "x86_64"):
+            self.assertIn("check_cgl_" + architecture, self.build)
+        self.assertIn('codesign --verify --verbose=2 "$probe"', self.runtime)
         self.assertIn('check_bitmap_opengl.exe', self.runtime)
         self.assertIn('tar -xzf "$helpers"', self.runtime)
         self.assertIn('test -x "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI"', self.runtime)
@@ -331,6 +335,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         probe.touch()
         def check(items, success):
             with patch.object(gate, "windows_path", return_value="M:\\MacSW.app\\Contents\\MacOS\\check_bitmap_opengl.exe"), \
+                    patch.object(gate, "inspect_cgl_renderers") as inspect, \
                     patch.object(gate, "command", return_value='\n'.join(map(json.dumps, items))) as command:
                 if success:
                     gate.verify_bitmap_driver()
@@ -339,6 +344,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(RuntimeError, "verification failed"):
                         gate.verify_bitmap_driver()
+                inspect.assert_called_once_with()
         check(records, True)
         check(records[:-1], False)
         check(records + [records[0]], False)
@@ -348,6 +354,21 @@ class RuntimeAdapterTests(unittest.TestCase):
             failed = [dict(row) for row in records]
             failed[0][field] = value
             check(failed, False)
+
+    def test_cgl_observations_preserve_unavailable_modes_and_both_architectures(self):
+        gate = self.gate()
+        records = [{"kind": "context", "stage": "choose-pixel-format", "cgl_error": 10002}]
+        for architecture in ("arm64", "x86_64"):
+            probe = gate.app / "Contents/MacOS" / ("check_cgl_" + architecture)
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.touch()
+        with patch.object(gate, "command", return_value=json.dumps(records[0])) as command:
+            gate.inspect_cgl_renderers()
+        self.assertEqual(gate.record["cgl_renderers"], {arch: records for arch in ("arm64", "x86_64")})
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual(command.call_args.kwargs["timeout"], 30)
+        self.assertNotIn("bitmap_driver", gate.record)
+        self.assertFalse(gate.record["completed"])
 
     def test_host_change_aborts_before_next_gate(self):
         gate = self.gate()

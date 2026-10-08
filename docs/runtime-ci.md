@@ -75,6 +75,13 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 发布 App zip。它验证 MacSW 图形驱动，不复制 SWCLI 的 CAD 操作或几何断言；
 通过原生探针也不能代替后续共享建模/尺寸门禁。
 
+位图探针前还执行 `check_cgl_arm64` / `check_cgl_x86_64`，将原生与 Rosetta
+CGL renderer 清单和四种 legacy 上下文请求写入 `runtime.json.cgl_renderers`：
+Wine 原有主显示器加速请求、任意加速 renderer、自动选择和指定软件 renderer。
+它们仅作只读观察，不启动 Wine/SW，也不切换产品的绘图后端；某种模式不可用
+会保留原始 CGL 错误，不能据此跳过或通过位图、建模和尺寸门禁。两个程序同样
+只进入 CI helper，不进入发布 App。
+
 共享入口参数约定：`--output-dir`（本机输出目录）、`--host-output-dir`
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给

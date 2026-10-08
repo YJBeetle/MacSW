@@ -371,6 +371,7 @@ class RuntimeGate:
         probe = self.app / "Contents/MacOS/check_bitmap_opengl.exe"
         if not probe.is_file():
             raise RuntimeError("CI-only native bitmap probe is missing")
+        self.inspect_cgl_renderers()
         loader = self.app / "Contents/Frameworks/wine/bin/wineloader"
         self.env["WINELOADER"] = str(loader)
         self.env["WINESERVER"] = str(self.app / "Contents/Frameworks/wine/bin/wineserver")
@@ -385,6 +386,18 @@ class RuntimeGate:
             raise RuntimeError("Native bitmap pixel/format/context verification failed")
         self.record["bitmap_driver"] = records
         self.checkpoint()
+
+    def inspect_cgl_renderers(self):
+        # Observe both native and Rosetta frameworks before Wine initialization.
+        # Unsupported CGL modes do not pass, skip or replace the bitmap gate.
+        self.record["cgl_renderers"] = {}
+        for architecture in ("arm64", "x86_64"):
+            probe = self.app / "Contents/MacOS" / ("check_cgl_" + architecture)
+            if not probe.is_file():
+                raise RuntimeError("CI-only CGL renderer probe is missing: " + architecture)
+            output = self.command([probe], timeout=30)
+            self.record["cgl_renderers"][architecture] = [json.loads(line) for line in output.splitlines()]
+            self.checkpoint()
 
 
 def main():

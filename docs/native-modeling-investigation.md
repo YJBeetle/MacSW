@@ -161,6 +161,29 @@ execute access violation，再经 COM 转为 `0x800703e6`；这不是整个进�
 这份成功对照不证明托管故障已修复；CI 适配器现补上同类 `wgl` 日志，不改变
 CAD 操作、参数或门禁，也不启用逐 GL 函数 trace。
 
+#### 新门禁先暴露宿主 OpenGL 初始化失败
+
+新增 bitmap-only FBO 后的运行
+[37761317878](https://github.com/YJBeetle/MacSW/actions/runs/37761317878) 和带 WGL
+日志的 [37763677305](https://github.com/YJBeetle/MacSW/actions/runs/37763677305)
+均通过构建及安装/缓存校验，却在 SW 启动前的 `bitmap-driver` 阶段失败，
+不是新的 `CloseDoc` 复现。八组 DIB 都选择格式 7、flags 120
+（含 `PFD_GENERIC_FORMAT`），`wglCreateContext` 失败；探针记录已打印，但 Wine
+loader 未及时结束，外层 60 秒截止。不能仅将其归为慢调用。
+
+后者明确记录 `macdrv_OpenGLInit → init_context → CGLChoosePixelFormat`
+返回 `10002 / invalid pixel format`，driver 初始化返回 `STATUS_NOT_SUPPORTED`。
+与 Wine 原源码请求相对应的是主显示器 mask + 加速 legacy CGL；因此当前证据
+证明此请求在托管环境不可用，不证明所有 renderer 不可用、FBO 像素错误或
+之前关闭异常已找到根因。现追加不依赖 Wine/SW 的双架构 CGL 观察，区分显示器
+约束、加速能力和 Rosetta 的影响，不修改 CAD 调用或将失败模式静默跳过。
+
+本机 ARM64 与 x86_64 原生观察均取得 Apple M2 Max 加速 legacy 上下文及
+Apple Software Renderer；两种 renderer 都报告 FBO、blit 和 packed depth/stencil
+扩展。软件模式只作能力观察，未用于 SW 或门禁，不能宣称软件路径已经验收。
+另外，本机与 `37746169893` 中十个被记录的 VC 运行库文件哈希全部一致；这
+排除了这些文件的版本差异，但不等于所有安装内容相同。
+
 ### 独立跟进：本机 BMP 白图
 
 隐藏序列完成后，重开它生成的模型并执行严格 STEP 导出成功；800×600 的
