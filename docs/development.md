@@ -64,6 +64,8 @@ App 内置 SWCLI、Windows Python 3.11、macOS 原生 Python、pywin32 和完整
 Wine 或安装流程。端点来自 App 的 `SWCLI_ENDPOINT` 环境配置或启动器默认值，不声称
 daemon 已运行。skill／指南直接引用随包原生 Python 中的完整资源，打包校验同时检查
 文件存在及与固定 SWCLI 源码一致，不维护第二套建模教程或 agent 安装适配器。
+复制反馈使用主运行循环 common 模式的两秒单次计时器复位，避免依赖菜单视图的异步任务；
+连续点击会取消旧计时器并重新计时，菜单打开或收起均不应留下过期的“已复制”状态。
 
 完整打包流程包括：
 

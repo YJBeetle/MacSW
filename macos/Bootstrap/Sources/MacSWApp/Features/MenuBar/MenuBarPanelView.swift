@@ -12,7 +12,7 @@ struct MenuBarPanelView: View {
     @State private var panelWindow: NSWindow?
     @State private var copySucceeded: Bool?
     @State private var copyFailureReason: String?
-    @State private var copyFeedbackID = UUID()
+    @State private var copyFeedbackTimer: Timer?
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -36,15 +36,6 @@ struct MenuBarPanelView: View {
         .frame(width: 296, alignment: .leading)
         .background(MenuBarWindowReader { panelWindow = $0 })
         .task { await refresh() }
-        .task(id: copyFeedbackID) {
-            guard copySucceeded != nil else { return }
-            do {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
-            } catch {
-                return
-            }
-            copySucceeded = nil
-        }
         .onReceive(Self.tick) { _ in
             // 面板收起即停止轮询：直接看承载窗口的可见性，
             // MenuBarExtra 的窗口关闭不保证会触发 onDisappear。
@@ -162,8 +153,18 @@ struct MenuBarPanelView: View {
             copySucceeded = false
             copyFailureReason = error.localizedDescription
         }
-        // 每次点击都重新计时；SwiftUI 会取消上一次反馈任务。
-        copyFeedbackID = UUID()
+        // 菜单打开时不依赖 SwiftUI task 的调度／生命周期；common 模式也覆盖菜单跟踪。
+        // 每次点击都取消旧计时器，避免旧回调提前清除新一轮反馈。
+        copyFeedbackTimer?.invalidate()
+        let timer = Timer(timeInterval: 2, repeats: false) { _ in
+            // 计时器只注册到主运行循环，直接在主线程复位，不再排队异步任务。
+            MainActor.assumeIsolated {
+                copySucceeded = nil
+                copyFeedbackTimer = nil
+            }
+        }
+        copyFeedbackTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private var summaryText: String {

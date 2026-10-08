@@ -16,8 +16,20 @@ class AIConnectionContractTests(unittest.TestCase):
         action = view.split("private func copyAIConnectionInfo()", 1)[1].split("private var summaryText", 1)[0]
         self.assertIn("AIConnectionClipboard.copy(paths: runtime.paths)", action)
         self.assertNotIn("dismissPanel()", action)
-        self.assertIn(".task(id: copyFeedbackID)", view)
         self.assertIn('"已复制"', view)
+
+    def test_copy_feedback_uses_one_shot_common_mode_timer_not_view_task(self):
+        view = (SOURCES / "MacSWApp/Features/MenuBar/MenuBarPanelView.swift").read_text()
+        action = view.split("private func copyAIConnectionInfo()", 1)[1].split("private var summaryText", 1)[0]
+        self.assertIn("copyFeedbackTimer?.invalidate()", action)
+        self.assertIn("Timer(timeInterval: 2, repeats: false)", action)
+        self.assertIn("MainActor.assumeIsolated", action)
+        self.assertIn("copySucceeded = nil", action)
+        self.assertIn("copyFeedbackTimer = nil", action)
+        self.assertIn("RunLoop.main.add(timer, forMode: .common)", action)
+        self.assertLess(action.index("copyFeedbackTimer?.invalidate()"), action.index("let timer = Timer("))
+        self.assertNotIn("copyFeedbackID", view)
+        self.assertNotIn("Task.sleep", view)
 
     def test_clipboard_bridge_only_reads_resources_and_copies_plain_text(self):
         bridge = (SOURCES / "MacSWApp/Support/AIConnectionClipboard.swift").read_text()
