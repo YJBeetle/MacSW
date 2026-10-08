@@ -212,7 +212,8 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_runtime_captures_wine_com_diagnostics_without_credentials(self):
         gate = self.gate()
-        self.assertEqual(gate.env["WINEDEBUG"], "-all,err+ole,warn+ole,+seh,+loaddll,+timestamp")
+        self.assertEqual(gate.env["WINEDEBUG"], "-all,err+ole,warn+ole,+seh,+loaddll,+timestamp,+wgl")
+        self.assertNotIn("+opengl", gate.env["WINEDEBUG"])
         self.assertEqual(gate.env["SWCLI_TRACE_NATIVE_CALLS"], "1")
         # One COM activation, bounded below swclid's 180-second startup budget.
         self.assertEqual(gate.env["WINE_SOLIDWORKS_STARTUP_TIMEOUT"], "150")

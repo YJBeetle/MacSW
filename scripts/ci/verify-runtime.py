@@ -193,7 +193,10 @@ class RuntimeGate:
                         # OLE trace emits millions of GUID/string events during
                         # cold startup and can distort its timing. Keep
                         # errors/warnings, exceptions and module-load evidence.
-                        WINEDEBUG="-all,err+ole,warn+ole,+seh,+loaddll,+timestamp",
+                        # Driver-level formats/bindings distinguish hosted
+                        # CloseDoc graphics failures from the passing local
+                        # host. No per-GL-call trace or behavioral workaround.
+                        WINEDEBUG="-all,err+ole,warn+ole,+seh,+loaddll,+timestamp,+wgl",
                         # Flushed SWCLI call boundaries survive an owned-worker
                         # deadline; no retry or change to shared CAD assertions.
                         SWCLI_TRACE_NATIVE_CALLS="1",
