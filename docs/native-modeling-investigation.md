@@ -91,8 +91,46 @@ MacSW 的 gitlink 与版本配置现固定 SWCLI
 该标志用于减少连续进程外 API 调用期间的中间更新。SWCLI 当前将它限定于
 daemon-owned 宿主的单个请求，结束后恢复并验证原值；共享交互实例不改变。
 恢复失败会中止 worker、清理精确的自有 SW PID 并要求显式重启，不续用未知状态。
-断言、租约、120 秒预算、可见/隐藏顺序均不变。这是待完整门禁验证的性能改进，
-尚不能宣称托管超时或独立的关闭异常已经修复。
+断言、租约、120 秒预算、可见/隐藏顺序均不变。该改进已经通过下面列出的门禁，
+但正式托管 macOS 运行尚未完成，不能宣称托管超时或独立的关闭异常已经修复。
+
+### 改进版本的门禁结果
+
+以下均使用 SWCLI `f75a56f05ae8246749514dbaf36d49a79b2cf495`。
+每个模式内部连续执行建模 → 驱动尺寸，没有更换 daemon/SW；所有结果均为
+`success=true`、`state=completed`、清理错误为零。
+
+| 宿主 | 模式 | 原生 PID | 建模事件 | 尺寸事件 |
+| --- | --- | --- | --- | --- |
+| [Windows 正式 CI 37740915090](https://github.com/YJBeetle/SWCLI/actions/runs/37740915090) | 可见 | 2424 | 97 | 242 |
+| 同一 Windows CI | 隐藏 | 1744 | 97 | 242 |
+| 本机主 bottle | 可见 | 1332 | 85 | 242 |
+| 本机主 bottle 的另一完整序列 | 隐藏 | 1972 | 85 | 242 |
+| workspaceroot 独立 Linux/Wine 容器，叠加当前源码 | 隐藏 | 620 | 97 | 242 |
+
+Windows CI 的四份共享结果及可见/隐藏 box BMP 已下载核对，两张图均显示实体。
+本机重新打包 App 并显式同步 Windows backend，旧包有可恢复副本；文件仍集中在
+原有独立测试目录。两个模式均以空文档列表正常停止 daemon。Linux 使用既有
+`localhost/swcli-a5-probe:20261008` 基底，挂载当前源码和共享脚本；仅用于集成
+回归，没有改动镜像标签或晋升镜像。正常停止 daemon 后已移除专用测试容器，
+主机与本机保留生成的结果和日志。
+
+[MacSW 正式 CI 37741088903](https://github.com/YJBeetle/MacSW/actions/runs/37741088903)
+使用本仓库 `71f23a7909e71e870b06bb083b2af634d293b681` 和相同 SWCLI 指针。
+构建、全新安装及官方基底快照已完成，本记录时仍在共享运行门禁阶段。
+具体跨宿主证明边界见 SWCLI 的
+[验证记录](https://github.com/YJBeetle/SWCLI/blob/main/docs/verification/macsw-background-rectangle-2026-10-08.md#request-scoped-implementation-validation)。
+
+### 独立跟进：本机 BMP 白图
+
+隐藏序列完成后，重开它生成的模型并执行严格 STEP 导出成功；800×600 的
+等轴测 BMP 虽通过文件与尺寸检查，实际却是纯白图，不能计为渲染成功。
+另一可见自有实例 PID 396 对同一只读模型按 `CommandInProgress=false → true →
+false` 渲染，三张图均只有一种 RGB 颜色。随后显式调用官方
+`IModelView.GraphicsRedraw` 的同类对照也均为白图。
+因此该现象不以启用批次标志为必要条件，但来源仍未知；尚未验证窗口前台/遮挡
+假设，也不能从这次对照宣称旧版本渲染正常。它与累计调用延迟、原生关闭异常
+分别跟进，不通过改动几何门禁、重试建模或中途重启来掩盖。
 
 ## 本机交叉验证
 
