@@ -6,6 +6,7 @@ import json
 import os
 import plistlib
 import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -346,6 +347,36 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertNotIn("tampered", evidence)
         self.assertNotIn(str(self.root), evidence)
         self.assertFalse(bottle.exists())
+
+    def test_cache_extraction_preserves_modes_without_relaxing_integrity(self):
+        workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
+        restore_step = workflow.split("- name: Restore official installed bottle cache", 1)[1].split("- name:", 1)[0]
+        self.assertIn("TAR_OPTIONS: --same-permissions", restore_step)
+        tar = shutil.which("gtar")
+        if tar is None:
+            self.skipTest("GNU tar required for Actions cache extraction regression")
+        bottle, _ = self.official_base()
+        (bottle / "system.reg").chmod(0o666)
+        base_cache.export_snapshot("context")
+        shutil.rmtree(bottle)
+        snapshot = self.root / "base-cache"
+        archive = self.directory / "official-base.tar"
+        subprocess.run([tar, "-cf", str(archive), "-C", str(self.root), "base-cache"], check=True)
+        extract = ["bash", "-c", 'umask 022; exec "$@"', "cache-extract", tar,
+                   "-xf", str(archive), "-C", str(self.root)]
+        environment = dict(os.environ)
+        environment.pop("TAR_OPTIONS", None)
+        shutil.rmtree(snapshot)
+        subprocess.run(extract, env=environment, check=True)
+        self.assertEqual((snapshot / "bottle/system.reg").stat().st_mode & 0o777, 0o644)
+        with self.assertRaisesRegex(RuntimeError, "integrity"):
+            restore_cache.restore("context")
+        self.assertFalse(bottle.exists())
+        shutil.rmtree(snapshot)
+        environment["TAR_OPTIONS"] = "--same-permissions"
+        subprocess.run(extract, env=environment, check=True)
+        restore_cache.restore("context")
+        self.assertEqual((bottle / "system.reg").stat().st_mode & 0o777, 0o666)
 
     def test_restore_diagnostic_reports_copy_errno_without_error_text(self):
         bottle, _ = self.official_base()

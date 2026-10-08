@@ -207,6 +207,10 @@ jobs:
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install
         id: installed-base
         uses: actions/cache/restore@v4
+        env:
+          # GNU tar otherwise masks archived 0666 files to 0644 for this runner.
+          # Preserve the snapshot metadata; do not weaken inventory validation.
+          TAR_OPTIONS: --same-permissions
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
           key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
