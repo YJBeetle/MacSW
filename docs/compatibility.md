@@ -14,7 +14,26 @@ This table records observed behavior, not a promise that every component or work
 
 ## SWCLI development snapshot (2026-10-08)
 
-MacSW now pins SWCLI `0.1.0a5.dev0` at `b1c78d3`. This is a development
+The configured baseline is now SWCLI `0.1.0a6.dev0` at `fb147c1`; this is a
+development snapshot, not a published a6 release. With the bitmap-only FBO
+Wine patch, the existing local main bottle passed the unchanged shared
+modeling → driving-dimensions sequence in both visible and hidden owned
+hosts. Each mode completed 85 modeling events and 242 dimension events with
+zero cleanup errors, without restarting between gates. The eight-case native
+DIB/WGL pixel probe also passed; real BMP content is verified separately from
+file existence and API return values.
+
+The rebuilt App passed manifest/module/signature verification. The current
+offline baseline is 66 MacSW Python tests (1 expected skip), 141 Swift tests,
+and 621 SWCLI tests (8 expected macOS skips). These are local results, not
+hosted runtime approval: the latest completed hosted run `37746169893` still
+failed at native `CloseDoc / 0x800703e6` before driving/hidden gates. See the
+[native investigation](native-modeling-investigation.md) for the bitmap proof,
+earlier failures, and the separate remaining hosted-CI issue.
+
+### Earlier same-day a5 investigation (historical)
+
+The earlier baseline pinned SWCLI `0.1.0a5.dev0` at `b1c78d3`. This was a development
 snapshot, not a published a5 release. Native macOS clients and Wine Windows
 workers both include checksum-locked JSON Schema dependencies; the `rpds-py`
 extension is packaged separately for ARM64 macOS and AMD64 Windows Python 3.11.
@@ -29,7 +48,7 @@ Verified locally:
   dependency set successfully. The foreground `daemon serve` launcher also
   has a regression test for its Windows Python path.
 
-The real modeling sequence is **not yet verified on this Mac**. Before the
+At that stage the real modeling sequence was **not yet verified on this Mac**. Before the
 complete App replacement, the long-running main bottle acquired SOLIDWORKS
 2025 SP5.0 in hidden mode, but the generic gate's first `document create` did
 not return within its 600-second outer deadline. It never reached the driving
@@ -67,7 +86,7 @@ This establishes the path fix, not the full generic -> driving sequence or the
 root cause of Linux's separate unsaved-part `InsertSketch / 0x800703E6` failure.
 
 Keep these experiments separate from the graphics/manual baseline above.
-The next verification must start from a confirmed healthy host, run generic
+The required follow-up was to start from a confirmed healthy host, run generic
 modeling followed by driving dimensions in **one unchanged COM session**, and
 retain all failures. Passing driving dimensions alone or restarting between
 the two gates does not establish that sequence's correctness.

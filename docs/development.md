@@ -51,7 +51,7 @@ PATH="${PWD}/.venv/bin:${PATH}" make test
 [`config/versions.env`](../config/versions.env)。MacSW 应用版本独立于 SOLIDWORKS 版本；
 SOLIDWORKS 的实测版本记录在[兼容性报告](compatibility.md)，不作为 Builder 版本选择依据。
 SWCLI 子模块 HEAD 必须与 `SWCLI_SOURCE_COMMIT` 的完整提交一致，打包时强制校验。
-当前配置的 `0.1.0a5.dev0` 是开发快照，不代表 a5 已正式发布。
+当前配置的 `0.1.0a6.dev0` 是开发快照，不代表 a6 已正式发布。
 
 SWCLI 的纯 Python 依赖及 macOS ARM64 / Windows AMD64 的 `rpds-py` wheel 固定在
 [`config/swcli-wheels.tsv`](../config/swcli-wheels.tsv)，逐个校验并保留许可证、包元数据。
@@ -136,6 +136,14 @@ Wine 在应用已调用 `glFlush` / `glFinish` 后，额外调用交换双缓冲
 将真正的交换限定于 SwapBuffers 路径；证据见[前缓冲说明](opengl-front-buffer.md)。
 
 ### 应用身份、捕获与 COM
+
+位图导出的离屏绘制由
+[`0008-winemac-bitmap-framebuffer.patch`](../patches/wine-crossover/0008-winemac-bitmap-framebuffer.patch)
+实现：只为新增的 bitmap-only 像素格式使用兼容 CGL 上下文和 FBO，保留原有窗口
+格式编号及窗口/pbuffer 路径；`win32u` 在这条路径将内存 DC 转换为 32 位 staging
+像素，正确处理 24 位、行补齐和上下方向。补丁进入构建缓存、打包清单和校验。
+这不是全局切换到软件绘图，也不改变 SWCLI 的导出实现。原生探针与实际 BMP
+证据见[原生调查](native-modeling-investigation.md#修复实现bitmap-only-fbo)。
 
 - [`0001-winemac-macsw-branding.patch`](../patches/wine-crossover/0001-winemac-macsw-branding.patch)
   为 loader 内嵌 MacSW bundle 元数据，由 `wine -> MacSW` 链接满足 Wine 重新执行的固定路径。

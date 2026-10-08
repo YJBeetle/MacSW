@@ -146,6 +146,7 @@ Some detailed implementation notes and reports are written in Chinese.
 - [Chinese font fallback](docs/font-fallback.md)
 - [Viewport layer clipping](docs/winemac-opengl-child-clipping.md)
 - [OpenGL front-buffer and preselection fixes](docs/opengl-front-buffer.md)
+- [Native modeling investigation and offscreen BMP rendering](docs/native-modeling-investigation.md)
 - [Chinese IME and model-view shortcuts](docs/solidworks-space-ime.md)
 - [SWCLI](Dependencies/SWCLI/README.md)
 

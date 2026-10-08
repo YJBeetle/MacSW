@@ -122,6 +122,7 @@ GitHub Actions 的 `build` job 分步执行 `make test` 和 `make archive`；独
 - [中文字体回退](docs/font-fallback.md)
 - [视口图层裁剪](docs/winemac-opengl-child-clipping.md)
 - [OpenGL 前缓冲与预选修复](docs/opengl-front-buffer.md)
+- [原生建模调查与离屏 BMP 绘制](docs/native-modeling-investigation.md)
 - [中文输入法与模型视图快捷键](docs/solidworks-space-ime.md)
 - [SWCLI](Dependencies/SWCLI/README.CN.md)
 

@@ -19,6 +19,7 @@ MacSW 负责安装、Wine、App 打包、驱动映射、宿主准备和证据收
 | [37732440131](https://github.com/YJBeetle/MacSW/actions/runs/37732440131) | 首次拉伸在重建后的特征诊断遍历期间超过 120 秒 | 全新安装、可见模式就绪、首次矩形成功；未进入尺寸或隐藏模式 |
 | [37736636613](https://github.com/YJBeetle/MacSW/actions/runs/37736636613) | 首次切除在重建后的特征诊断遍历期间超过 120 秒 | 缓存恢复、可见模式就绪、矩形、拉伸、测量、圆及草图检查成功；未进入尺寸或隐藏模式 |
 | [37741088903](https://github.com/YJBeetle/MacSW/actions/runs/37741088903) | 保存后的后台文档关闭返回 `0x800703e6`，非超时 | 全新安装、可见模式及 front/top/right 建模、检查、测量和保存成功；未进入尺寸或隐藏模式 |
+| [37746169893](https://github.com/YJBeetle/MacSW/actions/runs/37746169893) | 后台 `CloseDoc` 返回 `0x800703e6`，非超时 | 构建、安装与可见模式就绪及此前几何/保存成功；直接关闭日志已配对为 begin/error，未进入尺寸或隐藏模式 |
 
 `37727420806` 和 `37730038675` 都固定 SWCLI `86c52f27c0b2bdcfe0bf990debfc840481608d58`，
 获得就绪的自有 SOLIDWORKS PID 488、版本 `33.5.0`、简体中文、可见模式。
@@ -134,7 +135,9 @@ Windows CI 的四份共享结果及可见/隐藏 box BMP 已下载核对，两�
 `fb147c19e65a4d4b2a84e8e8c140c1589171c54e`。它只为既有 `CloseDoc` 调用增加
 可选、立即刷新的 begin/end/error 日志，沿用同一诊断开关，不记录文档标题或
 原生参数，也不改变关闭顺序、异常结果或门禁。621 项便携测试通过，8 项仅
-Windows 可执行的测试在本机跳过；新的托管运行结果尚待验证。
+Windows 可执行的测试在本机跳过。新托管运行 `37746169893` 仍失败在共享建模的
+关闭阶段；直接 `CloseDoc` 的 begin/error 间隔约 0.46 秒，清理关闭也返回同一
+错误，不能把它解释为 120 秒预算耗尽。此次位图修复与该关闭异常分别跟进。
 
 ### 独立跟进：本机 BMP 白图
 
@@ -227,7 +230,52 @@ Wine 11.16 的现有通用 FBO surface 实现在 EGL 条件分支内，使用 na
 调用；不能直接作为 winemac 的兼容上下文实现照搬。正式修复需验证默认帧缓冲
 与 FRONT/BACK 映射、上下文切换、深度/模板语义、内存 DC 像素同步及资源释放，
 再通过独立 DIB/WGL 探针、真实 SW 四视图/尺寸导出和未削弱的共享建模门禁。
-只在最小标志改动上继续尝试不能覆盖这些职责；目前仍保留原生产驱动。
+只在最小标志改动上继续尝试不能覆盖这些职责；上述候选对照阶段没有替换生产驱动。
+
+#### 修复实现：bitmap-only FBO
+
+`0008-winemac-bitmap-framebuffer.patch` 为 winemac 新增两个 bitmap-only 格式，
+追加在原格式之后，窗口格式编号、窗口绘制与原有 pbuffer 路径保持不变。它使用
+独立的 legacy CGL share group、RGBA8 颜色及 24 位深度/8 位模板附件，并将
+逻辑默认帧缓冲和 FRONT 系列缓冲映射到内部 FBO。格式不宣称双缓冲、MSAA、
+accum 或 render-to-texture 能力；资源创建/释放时恢复原 CGL 上下文。
+现有 Wine 在这类独立 legacy share group 中不公开应用级 FBO 扩展，探针如实
+记录 `application_fbo_available=false`，不把未公开扩展算作通过的能力。
+
+最初修复虽可绘制，却在真实 SW 的 24 位 BMP 中出现条纹：原有内存 DC 同步
+把像素直接当作四字节 BGRA。最终实现仅在 FBO drawable 路径使用 GDI 格式
+转换器与 32 位 staging buffer，处理 24/32 位、行补齐及上下方向，并恢复 GL
+pixel-store 状态；旧窗口和普通 pbuffer 的同步路径不变。
+
+仓库中的 `scripts/diagnostics/check_bitmap_opengl.c` 在本机主 bottle 通过八组
+真实像素测试：24/32 位 × 宽度 7/8 × top-down/bottom-up。每组均验证初始蓝色
+GDI 上传、全部红色像素、24/8 深度模板、逻辑默认帧缓冲、FRONT_AND_BACK、
+上下文切换、双色行方向和 pack 状态恢复；GL 错误均为零。最初 CGL share-format
+失败及后续 24 位条纹结果仍保留，不作为成功证明。
+
+真实 SW 对原只读五实体模型直接 `SaveBMP` 的 800×600、窗口大小 2398×1181
+及 1600×1200 三组均产生非白像素；800×600 已查看为正常实体、无条纹。
+可见 daemon-owned PID 820 随后连续通过未修改的共享建模和尺寸门禁，分别为
+85 和 242 个事件、清理错误为零，再通过 CLI 生成 isometric/front/top/right
+四张 800×600 BMP，RGB 颜色数分别为 4077/624/3330/702；已查看等轴测与前视图。
+各操作在同一 daemon/SW 中完成，最后只读文档关闭且 daemon 正常停止。
+
+另一隐藏 daemon-owned PID 1184 也在同一实例内连续完成 85 个建模和 242 个尺寸
+事件，清理错误均为零；随后同一只读模型的四视图全部成功，RGB 颜色数按上述
+视图顺序为 4026/685/3230/786。四张 BMP 均已逐张查看为正常实体，无白图或
+条纹。最终文档列表为空，daemon 正常停止，原模型 SHA-256 仍为
+`e77c6e4c461226ffd507700824e8d4a609ea318944eab2bdfc633ebeb2d5c438`。
+这证明已测隐藏模式，不等于最小化、移出屏幕、所有 macOS/硬件均已逐项验证。
+
+重新编译最终探针后，`bitmap-opengl-final.log` 的八组测试全部通过、GL 错误均为
+零。现有 `make app` 及 App 清单/模块/签名校验通过，`make test` 通过 66 项
+MacSW Python（1 项跳过）、141 项 Swift、621 项 SWCLI（8 项平台跳过）。
+
+证据继续集中在原测试目录，主要为 `bitmap-opengl-fbo-v3.log`、
+`render-native-fbo-v3.log`、`fbo-visible-modeling/`、`fbo-visible-driving/`
+以及对应的 `fbo-hidden-*`、四视图 BMP/JSON。这轮不改 SWCLI 操作、协议或几何断言。
+本机构建、实际绘制与共享序列通过不能替代托管 CI、其他 Mac 硬件或版本证明，
+也不宣称独立的托管 `CloseDoc` 异常已解决。
 
 ## 本机交叉验证
 
