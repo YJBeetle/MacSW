@@ -182,11 +182,34 @@ winemac 提供的 720 个格式均缺少 `PFD_DRAW_TO_BITMAP`，最终返回 0�
 `bitmap-opengl-probe.c`、`cgl-pbuffer-probe.c` 和两种架构的 CGL JSONL 结果。
 失败的标志试验保留为 `bitmap-format-experiment.patch`，不作为可用修复。
 
-Windows 正式 CI 的可见和隐藏 BMP 均已核对有实体；Linux 本轮只完成共享
-建模/尺寸门禁，没有做同参数的 BMP 像素内容对照。因此当前已定位的失效机制
-属于 Mac 的 winemac/CGL 图形路径，但“白图症状是否只发生在 Mac”仍需 Linux
-对照，不能仅凭建模门禁通过就下结论。后续修复必须同时验证像素内容与原有
-建模/尺寸序列，不能仅以 `ChoosePixelFormat` 非零或 `SaveBMP=true` 作为成功。
+Windows 正式 CI 的可见和隐藏 BMP 均已核对有实体；Linux 的补充对照见下节。
+后续修复必须同时验证像素内容与原有建模/尺寸序列，不能仅以
+`ChoosePixelFormat` 非零或 `SaveBMP=true` 作为成功。
+
+#### workspaceroot Linux 补充对照
+
+同日使用现有 `localhost/swcli-a5-probe:20261008` 基底及 SWCLI
+`fb147c19e65a4d4b2a84e8e8c140c1589171c54e` 源码覆盖层，启动专用 Podman 容器。
+运行环境为 Wine 11.16、SW `33.5.0`、Xvfb 和 Mesa llvmpipe。
+自有隐藏 PID 616 和另一自有可见 PID 1464 分别通过真实 CLI，只读打开
+Mac 的同一模型副本与此前 Linux 门禁模型，并导出 800×600 等轴测 BMP。
+
+| 模型来源 | 隐藏模式 RGB 颜色数 | 可见模式 RGB 颜色数 |
+| --- | --- | --- |
+| 在 Mac 上产生白图的同一个模型 | 3683 | 3700 |
+| 此前 Linux 共享建模门禁 | 3650 | 3737 |
+
+四张图均已逐张目视核对包含实体，不仅是背景渐变；四次测量均为 5 个实体，
+总体积约 `308558.406140636 mm³`。Mac 模型副本 SHA-256 与本机源文件一致：
+`e77c6e4c461226ffd507700824e8d4a609ea318944eab2bdfc633ebeb2d5c438`。
+同一个不依赖 SW 的 8×8 DIB/WGL 程序在 Linux 也通过：位图格式选择成功，
+上下文绑定成功，64 个预期红色像素全部正确。
+
+每个模式内部未重启宿主；结束时文档列表均为空，daemon 正常停止，专用容器
+随后移除。原镜像、公开标签和其他容器未改动。产物与日志保存在 workspaceroot
+`/tmp/swcli-bmp.ETxLrC/output`，本机副本为 `/private/tmp/swcli-bmp-linux.En0KlH`。
+因此这次白图在已测 Linux 环境没有复现，证据指向 Mac 的 winemac/CGL 图形
+路径；这仍不是所有 Wine 版本、Linux 图形后端或 Mac 硬件的普遍保证。
 
 ## 本机交叉验证
 
