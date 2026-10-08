@@ -146,9 +146,47 @@ false` 渲染，三张图均只有一种 RGB 颜色。随后显式调用官方
 另一个自有可见实例 PID 1880 中，用户将 SW 切到前台并确认模型区能看到实体。
 同一模型、相同参数的前台渲染仍为白图，前后 BMP 的 SHA-256 完全相同；
 只读测量返回 5 个实体，均有非零体积。因此单纯切前台未改善本次捕获结果，
-可见场景与 BMP 捕获存在差异，但具体原生 API/Wine 模块尚未定位，也不能从
+可见场景与 BMP 捕获存在差异；下面的原生日志进一步缩小捕获失败路径，但不能从
 这次对照宣称旧版本渲染正常。它与累计调用延迟、原生关闭异常
 分别跟进，不通过改动几何门禁、重试建模或中途重启来掩盖。
+
+#### 位图像素格式与离屏 drawable 对照
+
+同一本机主 bottle 的自有可见实例 PID 2020 直接调用 `SaveBMP`，绕过 CLI 的
+尺寸校验，分别请求 800×600、0×0 和 1600×1200。0×0 产生窗口大小的
+2398×1181 位图，但三张图都只有一种 RGB 颜色，不能归因于固定导出尺寸。
+
+另一个自有可见实例 PID 528 启用 Wine 内建 `wgl`、`opengl`、`bitblt` 日志。
+在实际 `SaveBMP` 调用内，GDI 先填充白色位图；`ChoosePixelFormat` 随后请求
+`PFD_DRAW_TO_BITMAP | PFD_SUPPORT_GDI | PFD_SUPPORT_OPENGL`（`0x38`）。
+winemac 提供的 720 个格式均缺少 `PFD_DRAW_TO_BITMAP`，最终返回 0。
+本次捕获没有取得位图 OpenGL 格式，尽管 `SaveBMP` 仍返回成功、文件也存在。
+这是捕获失效的直接证据，不是实体缺失或窗口未切前台的证据。
+
+一次未提交的最小试验只为支持 pbuffer 的单缓冲格式声明 bitmap/GDI 能力。
+构建和静态契约检查通过，真实实例 PID 1612 的 `ChoosePixelFormat` 改为返回
+109，但随后 `CGLCreatePBuffer` 返回 `10005 / invalid drawable`，BMP 仍为白图。
+不依赖 SOLIDWORKS 的 8×8 DIB/WGL 最小程序也停在 `wglMakeCurrent`，64 个
+预期红色像素均未产生。因此只增加能力标志不足以实现位图绘制；此试验未纳入
+生产补丁，相关构建和清单改动已撤回。
+
+进一步绕过 Wine，直接运行本机 CGL 最小程序：硬件渲染器 `Apple M2 Max` 和
+`Apple Software Renderer` 都能创建上下文，但 rectangle/2D、RGB/RGBA 四组
+`CGLCreatePBuffer(8, 8, ...)` 均返回同一错误。x86_64 和 arm64 程序结果一致。
+该结果只证明本机 macOS 15.8 的这条旧式离屏路径不可用，不单独判定 Apple
+缺陷，也不宣称所有 macOS 版本或硬件都有相同问题。
+
+证据集中保存在既有 `C:\Workspace\MacSW-trace-20261008.6A0yEq`：
+`render-native-sizes.log`、`render-native-capture-trace.log`、
+`render-native-bitmap-patched.log`、`bitmap-opengl-minimal-patched.log`，以及
+`bitmap-opengl-probe.c`、`cgl-pbuffer-probe.c` 和两种架构的 CGL JSONL 结果。
+失败的标志试验保留为 `bitmap-format-experiment.patch`，不作为可用修复。
+
+Windows 正式 CI 的可见和隐藏 BMP 均已核对有实体；Linux 本轮只完成共享
+建模/尺寸门禁，没有做同参数的 BMP 像素内容对照。因此当前已定位的失效机制
+属于 Mac 的 winemac/CGL 图形路径，但“白图症状是否只发生在 Mac”仍需 Linux
+对照，不能仅凭建模门禁通过就下结论。后续修复必须同时验证像素内容与原有
+建模/尺寸序列，不能仅以 `ChoosePixelFormat` 非零或 `SaveBMP=true` 作为成功。
 
 ## 本机交叉验证
 
