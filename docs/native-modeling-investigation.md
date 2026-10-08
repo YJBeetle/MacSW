@@ -211,6 +211,24 @@ Mac 的同一模型副本与此前 Linux 门禁模型，并导出 800×600 等�
 因此这次白图在已测 Linux 环境没有复现，证据指向 Mac 的 winemac/CGL 图形
 路径；这仍不是所有 Wine 版本、Linux 图形后端或 Mac 硬件的普遍保证。
 
+#### 修复候选：FBO 离屏路径
+
+补充的不依赖 Wine/SW 的原生 CGL 程序使用兼容上下文和
+`GL_EXT_framebuffer_object`，创建 RGBA8 颜色附件与 24 位深度/8 位模板附件。
+在本机 x86_64、arm64 两种架构上，`Apple M2 Max` 与
+`Apple Software Renderer` 四组测试均得到完整 FBO、零 GL 错误，64 个红色
+像素全部正确。源码与结果继续放在原测试目录：`cgl-fbo-probe.c`、
+`cgl-fbo-x86_64.jsonl`、`cgl-fbo-arm64.jsonl`。Apple 的
+[离屏绘图文档](https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/OpenGL-MacProgGuide/opengl_offscreen/opengl_offscreen.html)
+也将 FBO 列为优先的离屏绘制方式。
+
+这只验证替代图形能力可用，没有修改日常驱动，也不等于 `SaveBMP` 已修复。
+Wine 11.16 的现有通用 FBO surface 实现在 EGL 条件分支内，使用 named/DSA
+调用；不能直接作为 winemac 的兼容上下文实现照搬。正式修复需验证默认帧缓冲
+与 FRONT/BACK 映射、上下文切换、深度/模板语义、内存 DC 像素同步及资源释放，
+再通过独立 DIB/WGL 探针、真实 SW 四视图/尺寸导出和未削弱的共享建模门禁。
+只在最小标志改动上继续尝试不能覆盖这些职责；目前仍保留原生产驱动。
+
 ## 本机交叉验证
 
 2026-10-08 使用重新打包的 `build/app/MacSW.app` 和日常主 bottle，保留旧
