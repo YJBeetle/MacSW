@@ -71,7 +71,7 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 （同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
-SWCLI 固定提交为 `86c52f27c0b2bdcfe0bf990debfc840481608d58`，沿用 DockerSW 的共享
+SWCLI 固定提交为 `93d40e274be9d3714ccab00905fc36a6675fc195`（`0.1.0a6.dev0`），沿用 DockerSW 的共享
 门禁调用顺序。两个共享门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
 续租；尺寸门禁的协议和 CLI 写操作均覆盖。此修改针对慢调用导致租约过期的测试问题，
 不改变 daemon 默认期限、原生断言或命令超时，也不重试过期/失败操作。
@@ -83,6 +83,29 @@ SWCLI 固定提交为 `86c52f27c0b2bdcfe0bf990debfc840481608d58`，沿用 Docker
 这些测试若需要纳入跨平台运行，也应由 SWCLI 提供共享入口，再在此调用。
 本次 CI 的 `Visible` 校验来自 COM 元数据，不等于人工验证窗口焦点、字体像素、IME、
 Metal/OpenGL 图层或鼠标交互。
+
+## 原生调用分段诊断
+
+[run 37727420806](https://github.com/YJBeetle/MacSW/actions/runs/37727420806)
+在 MacSW `ac3dd87`、SWCLI `86c52f2` 上完成安装和可见模式启动（SW PID 488、
+版本 33.5.0），但共享建模的第一次实际后台 front 矩形操作超过 120 秒。
+之前的无租约及错误 stamp 请求均为预期拒绝，尚未执行实际切除；不能将本次
+失败归因于拒绝切除后的残留状态。后续清理的注册错误也不代表首次启动失败。
+原日志没有方法开始／结束记录，暂不能确定阻塞在切换前台、平面选择、进入草图、
+创建矩形、退出或几何观察的哪一步。
+
+隔离运行适配器现在向 daemon 继承 `SWCLI_TRACE_NATIVE_CALLS=1`，将 SWCLI
+原生调用边界与 Wine 诊断一起写入 `visible-daemon.log`／`hidden-daemon.log`。
+每个开始事件先落盘并刷新再调用 COM，即使 worker 被超时终止也保留已写记录。
+按 `(worker_pid, request_id, sequence)` 配对 `swcli.native-call` 的
+`begin`、`end`、`error`；最后未配对的内层 begin 指出进入过哪个已覆盖调用，
+不是死锁或供应商根因的结论。`end` 只表示返回，不代替业务成功和几何断言。
+日志记录调用名、阶段、关联标识和耗时，不记录原生参数、结果或异常原文。
+
+此开关仅在隔离 CI 中启用，日常产品默认关闭。共享建模 → 尺寸顺序、单宿主
+身份校验、120 秒操作超时、租约和几何断言均保持原样，不通过重试、增加超时
+或中途重启消除失败。此次版本与诊断接线仍需新的真实运行验证，不宣称超时已修复。
+SWCLI 的对应记录见 `Dependencies/SWCLI/docs/verification/macsw-background-rectangle-2026-10-08.md`。
 
 ## 隔离与路径
 

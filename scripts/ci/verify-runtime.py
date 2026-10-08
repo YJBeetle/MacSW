@@ -100,6 +100,9 @@ class RuntimeGate:
                         # cold startup and can distort its timing. Keep
                         # errors/warnings, exceptions and module-load evidence.
                         WINEDEBUG="-all,err+ole,warn+ole,+seh,+loaddll,+timestamp",
+                        # Flushed SWCLI call boundaries survive an owned-worker
+                        # deadline; no retry or change to shared CAD assertions.
+                        SWCLI_TRACE_NATIVE_CALLS="1",
                         WINE_SOLIDWORKS_STARTUP_TIMEOUT="150")
         for secret in ("SW_SERIAL_SOLIDWORKS", "RCLONE_CONFIG_B64"):
             self.env.pop(secret, None)

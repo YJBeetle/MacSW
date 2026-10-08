@@ -135,6 +135,7 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_runtime_captures_wine_com_diagnostics_without_credentials(self):
         gate = self.gate()
         self.assertEqual(gate.env["WINEDEBUG"], "-all,err+ole,warn+ole,+seh,+loaddll,+timestamp")
+        self.assertEqual(gate.env["SWCLI_TRACE_NATIVE_CALLS"], "1")
         # One COM activation, bounded below swclid's 180-second startup budget.
         self.assertEqual(gate.env["WINE_SOLIDWORKS_STARTUP_TIMEOUT"], "150")
         self.assertNotIn("SW_SERIAL_SOLIDWORKS", gate.env)
@@ -173,6 +174,9 @@ class RuntimeAdapterTests(unittest.TestCase):
             [gate.runtime_helper, "inspect", "visible"]])
         self.assertEqual(spawn.call_count, 1)
         self.assertNotIn("--attach-existing", spawn.call_args.args[0])
+        self.assertEqual(spawn.call_args.kwargs["env"]["SWCLI_TRACE_NATIVE_CALLS"], "1")
+        self.assertIs(spawn.call_args.kwargs["stdout"], gate.log)
+        self.assertEqual(spawn.call_args.kwargs["stderr"], ci.subprocess.STDOUT)
 
     def test_host_helper_reuses_core_and_is_not_a_public_or_cached_payload(self):
         helper = (PROJECT / "macos/Bootstrap/Sources/MacSWCIRuntime/MacSWCIRuntime.swift").read_text()
