@@ -32,7 +32,7 @@ MacSW 负责安装、Wine、App 打包、驱动映射、宿主准备和证据收
 超时后清理触发的 `WorkerStartupError` / `REGDB_E_CLASSNOTREG` 是后续错误，
 不能取代首个超时，也不能倒推首次 COM 激活失败。
 
-## 当前诊断版本
+## 诊断基线
 
 MacSW `498e3883b4a53a6c673e1e21d171a244282a9ea1` 同步 gitlink 与
 `config/versions.env`，固定 SWCLI
@@ -76,6 +76,23 @@ RSS 是宿主 `ps` 的观测值，尤其在 Rosetta 下不等同于真实物理 
 采样中位数为 0%；1 分钟负载范围约 5.0–18.2，可用磁盘始终超过 21 GB。
 这说明主要 CPU 活动在 SOLIDWORKS/Wine 宿主，而非 Python 的协议处理；
 不能单凭百分比确定是哪条线程、渲染、Rosetta 或 Wine 模块导致慢调用。
+
+## 当前改进版本：请求级原生 API 批次状态
+
+MacSW 的 gitlink 与版本配置现固定 SWCLI
+`f75a56f05ae8246749514dbaf36d49a79b2cf495`（`0.1.0a6.dev0`）。
+本机另一独占可见实例 PID 1004 对同一后台文档完成只读对照：
+`CommandInProgress=false → true → false` 时，相同 18 个特征的诊断遍历分别
+用时 4.308、0.086、4.280 秒。原值已恢复，测试实例正常退出。
+首次对照启动时本机许可服务未运行，尚未进入对照即失败；恢复后从新实例执行，
+这个启动失败不计入建模或耗时结论。
+
+按 SOLIDWORKS [官方说明](https://help.solidworks.com/2024/english/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ISldWorks~CommandInProgress.html?format=P&value=)，
+该标志用于减少连续进程外 API 调用期间的中间更新。SWCLI 当前将它限定于
+daemon-owned 宿主的单个请求，结束后恢复并验证原值；共享交互实例不改变。
+恢复失败会中止 worker、清理精确的自有 SW PID 并要求显式重启，不续用未知状态。
+断言、租约、120 秒预算、可见/隐藏顺序均不变。这是待完整门禁验证的性能改进，
+尚不能宣称托管超时或独立的关闭异常已经修复。
 
 ## 本机交叉验证
 
