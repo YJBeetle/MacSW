@@ -10,6 +10,9 @@ struct MenuBarPanelView: View {
     @State private var isRefreshing = false
     @State private var isQuitting = false
     @State private var panelWindow: NSWindow?
+    @State private var copySucceeded: Bool?
+    @State private var copyFailureReason: String?
+    @State private var copyFeedbackID = UUID()
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
@@ -33,6 +36,15 @@ struct MenuBarPanelView: View {
         .frame(width: 296, alignment: .leading)
         .background(MenuBarWindowReader { panelWindow = $0 })
         .task { await refresh() }
+        .task(id: copyFeedbackID) {
+            guard copySucceeded != nil else { return }
+            do {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            } catch {
+                return
+            }
+            copySucceeded = nil
+        }
         .onReceive(Self.tick) { _ in
             // 面板收起即停止轮询：直接看承载窗口的可见性，
             // MenuBarExtra 的窗口关闭不保证会触发 onDisappear。
@@ -81,6 +93,20 @@ struct MenuBarPanelView: View {
                 ) { runtime.launch() }
                 .disabled(!runtime.isInstalled || runtime.state == .starting)
             }
+            MenuBarActionRow(
+                title: copySucceeded == true ? "已复制" : copySucceeded == false ? "复制失败" : "复制 AI 接入信息",
+                systemImage: copySucceeded == true ? "checkmark" : "doc.on.doc"
+            ) {
+                copyAIConnectionInfo()
+            }
+            .help(copyFailureReason ?? "复制本机工具、skill、指南路径及检查命令；不会启动 Wine 或 SOLIDWORKS。")
+            if let reason = copyFailureReason {
+                Text(reason)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .help(reason)
+            }
             MenuBarActionRow(title: "查看日志", systemImage: "doc.text") {
                 LogReveal.open(runtime.paths.logs)
                 dismissPanel()
@@ -125,6 +151,20 @@ struct MenuBarPanelView: View {
     }
 
     private static let visibleProcessLimit = 8
+
+    @MainActor
+    private func copyAIConnectionInfo() {
+        do {
+            try AIConnectionClipboard.copy(paths: runtime.paths)
+            copySucceeded = true
+            copyFailureReason = nil
+        } catch {
+            copySucceeded = false
+            copyFailureReason = error.localizedDescription
+        }
+        // 每次点击都重新计时；SwiftUI 会取消上一次反馈任务。
+        copyFeedbackID = UUID()
+    }
 
     private var summaryText: String {
         let hidden = runtime.processes.count - Self.visibleProcessLimit

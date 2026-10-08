@@ -50,6 +50,11 @@ MacSW 会按当前许可配置确保所需的本地托管服务运行。
 App 内置 `sw-cli`，用于文档与零件自动化。**先启动 daemon，再执行文档操作**；
 `document` 和 `part` 命令不会隐式拉起 SOLIDWORKS。
 
+菜单栏的“复制 AI 接入信息”位于 SOLIDWORKS 操作和“查看日志”之间。将复制的文字发给
+具备本地文件读取和终端能力的 agent，即可提供当前 App、CLI、完整 skill、指南、
+容器及端点配置。skill 安装由 agent 按自身机制和用户授权完成；MacSW 不修改其配置。
+复制不会执行检查命令、启动 Wine／SOLIDWORKS 或创建容器，也不代表 daemon 已就绪。
+
 以下示例假设 App 位于 `/Applications/MacSW.app`；其他位置请修改第一行。
 
 ```bash

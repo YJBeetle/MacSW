@@ -59,6 +59,12 @@ App 内置 SWCLI、Windows Python 3.11、macOS 原生 Python、pywin32 和完整
 依赖；构建时获取、校验和展开，全新安装时一次部署到容器，使用时不联网下载运行时。
 普通协议客户端原生运行，只有 `doctor` 和 `daemon` 生命周期命令使用 Wine Windows Python。
 
+菜单栏“复制 AI 接入信息”使用 `AIConnectionInfo` 根据当前 bundle 与 `RuntimeStore.paths`
+生成接入文字；`AIConnectionClipboard` 只预检随包文件并写入纯文本剪贴板，不调用 CLI、
+Wine 或安装流程。端点来自 App 的 `SWCLI_ENDPOINT` 环境配置或启动器默认值，不声称
+daemon 已运行。skill／指南直接引用随包原生 Python 中的完整资源，打包校验同时检查
+文件存在及与固定 SWCLI 源码一致，不维护第二套建模教程或 agent 安装适配器。
+
 完整打包流程包括：
 
 1. 编译 SwiftUI 启动程序，并从 C 源码重建原生辅助程序。

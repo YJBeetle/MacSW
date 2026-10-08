@@ -61,6 +61,14 @@ See the [font documentation](docs/font-fallback.md).
 The bundled `sw-cli` provides document and part automation. **Start the daemon
 before document operations**: `document` and `part` commands do not implicitly launch SOLIDWORKS.
 
+Choose **Copy AI connection info** (复制 AI 接入信息) in the menu bar panel, between
+the SOLIDWORKS action and the logs action. Share the text with an agent that can
+read local files and run terminal commands. It contains the current App, CLI,
+complete skill, guide, bottle and endpoint paths/configuration. The agent handles
+skill installation using its own mechanism and your authorization; MacSW does
+not change agent settings. Copying runs no discovery commands, starts no Wine or
+SOLIDWORKS, creates no bottle, and does not establish daemon readiness.
+
 These examples assume `/Applications/MacSW.app`; change the first line for another location.
 
 ```bash
