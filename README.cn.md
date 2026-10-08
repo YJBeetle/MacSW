@@ -1,218 +1,129 @@
 # MacSW
 
-MacSW 是面向 Apple Silicon Mac 的独立 SwiftUI 应用，用固定、可校验的 Wine 运行和维护
-SOLIDWORKS。最终用户只需要 `MacSW.app`，不需要源码目录、Homebrew 或外部启动脚本。
+[English](README.md) | **简体中文**
 
-## 当前实现
+在 Apple Silicon Mac 上安装、运行和维护 SOLIDWORKS 的独立 macOS 应用。
+MacSW 将固定版本的 Wine、兼容性修复和 [SWCLI](https://github.com/YJBeetle/SWCLI)
+打包进 `MacSW.app`，提供引导安装、菜单栏启动器和命令行自动化入口。
+使用构建好的 App 不需要源码目录、Homebrew、单独安装 Python 或外部启动脚本。
 
-- 固定使用唯一容器 `~/Library/Application Support/MacSW/bottle`，不提供容器切换。
-- 使用 [`config/versions.env`](config/versions.env) 固定的 Gcenx Wine，并校验下载归档的 SHA-256。
-- Bootstrap 默认全程静默部署官方介质：主体 MSI 以 `/qb` 加已验证的属性树安装，无需在安装窗口内点击；
-  设置里可关掉静默，改由官方向导接管。介质可以拖入或选择：ISO 文件、`setup.exe`、或含 `setup.exe`
-  /`swwi/data/solidworks.msi` 的目录（在本级与一级子目录内定位）。开装前先校验官方 MSI、
-  VC++/Login Manager/.NET 前置件与 Toolbox 载荷是否齐备。
-- 选择介质时只做目录判断与附属扫描，不挂载 ISO、不起子进程；挂载推迟到点“开始安装”之后。
-- 安装序列号按 SOLIDWORKS/Simulation/Motion/MBD 四项填写，直接作为 MSI 公共属性传入，不再预写注册表。
-  官方安装器会据此写入容器注册表 `HKLM\Software\SolidWorks\Licenses\Serial Numbers`
-  （`SolidWorks`/`COSMOSWorks`/`COSMOSMotion`/`MBD`），为随核心特性树装上的 Simulation、Motion 授权；
-  组件范围仍只由 `ADDLOCAL` 决定。注意 MSI 详细日志会明文带上这些序列号属性，日志目录须保持私人。
-  关闭静默安装时不收集序列号，组件与序列号都由官方向导询问。
-  附属资源只在**介质所在目录及其一级子目录**内查找序列号文本，FlexNet 服务器包则按目录里
-  是否存在 `lmgrd.exe` 判定，最多向下找两级，不看目录命名；都不进入 ISO 内部。
-  序列号只做唯一自动回填，存在多个不同取值的字段留空交给用户确认。
-  `.reg` 只作为读取来源，不再导入容器。
-- 许可服务器为单选：不配置 / 使用指定地址 / 托管 FlexNet 服务器。
-  选中的那一项必须给出可用输入才允许开装；介质旁唯一命中的 FlexNet 目录会自动填入并把单选切到"托管"。
-  选目录时立刻按安装要求校验（`lmgrd.exe`、唯一 `.lic` 的 `SERVER` 端口、`VENDOR` 引用的守护进程），
-  不合格当场报错并禁止开装；压缩包只能在安装时解包后再校验。
-- 界面语言按 macOS 语言偏好在官方语言清单里自动预选（清单固定，不进入介质内部探测），可在安装界面改；
-  不追加语言资源时即介质自带的英文。语言 MSI 在主体安装完成后静默安装。
-- 正常运行时只显示菜单栏启动器；打开 App 不会自动拉起 SOLIDWORKS（设置里可勾选“启动 MacSW 时自动启动”，
-  默认关闭），未安装时打开的就是引导安装窗口；设置窗口负责 Wine 工具、
-  服务器地址以及托管 FlexNet 的安装、卸载、启动和停止。
-- 托管 FlexNet 经结构校验后原子复制到容器内固定位置 `C:\\opt\\FlexNet`，运行时不再依赖用户最初选择的外部目录。
-- 安装阶段的 32 位托管辅助程序使用 Wine-Mono 解释器；64 位 SOLIDWORKS 正常使用 JIT。
-- App 在主安装器前校验并放置固定版本 `stdole`，随后静默安装介质中的官方 Login Manager；
-  两者的安装结果都按注册表内容断言托管 COM 注册，主 MSI 完成后额外校验 `SldWorks.Application`
-  的 COM 链路，安装器退出码本身不作为成功依据。
-- App 不提供替换或修改 SOLIDWORKS 官方程序文件的功能。
-- 中文界面优先使用系统苹方补字形，不额外打包字体；安装策略与验证边界见
-  [docs/font-fallback.md](docs/font-fallback.md)。
-- App 内置固定提交的 SWCLI、Windows Python 3.11、macOS 原生 Python、pywin32 与完整的 JSON Schema 依赖。
-  它们都在构建时下载或检出、校验并展开，
-  全新安装时一次复制进容器，最终用户使用时不会联网下载依赖。
+MacSW 是独立项目，与 Dassault Systèmes 或 SOLIDWORKS 没有关联，也未获得其认可或支持。
+项目不提供 SOLIDWORKS 安装介质或许可，也不提供修改其官方程序文件的产品功能。
 
-## 图形窗口修复
+## 要求与验证范围
 
-SOLIDWORKS 的硬件加速视口由 macOS 原生图层承载。原版 `winemac.drv` 没有把 Win32
-子窗口的可见区域同步给该图层，因此视口会盖住 FeatureManager 等停靠控件。
+- Apple Silicon Mac，以及用于运行包内 x86_64 Wine 的 Rosetta 2。
+- 应用最低部署目标为 macOS 13；具体实测系统和功能范围见[兼容性报告](docs/compatibility.md)。
+- 自行准备 SOLIDWORKS 官方安装介质及适用的许可配置。
+- 为 App、安装容器和安装过程预留磁盘空间；重装前备份容器里的文件。
 
-本项目在 Builder 当前固定的 Wine 源码上应用
-[`0002-winemac-metal-layer-clipping.patch`](patches/wine-crossover/0002-winemac-metal-layer-clipping.patch)：
+当前仍是开发中的测试包，采用临时签名，未做 Developer ID 签名与公证。
+SOLIDWORKS 2025 SP5.0 的安装、主窗口和部分交互已有实机验证，但不能据此认定
+所有组件、插件或建模流程都受支持。SWCLI 随包固定到开发快照，也不代表该版本已正式发布。
+安装成功、启动成功和完整自动化测试通过是不同的验证结果；详情分别见
+[兼容性报告](docs/compatibility.md)和[真实运行 CI](docs/runtime-ci.md)。
 
-1. 从视口 HDC 读取 `SYSRGN`；
-2. 将屏幕坐标转换为视口本地坐标；
-3. 把区域矩形转换为 Core Animation 图层遮罩；
-4. Win32 窗口布局变化时才更新遮罩。
+## 安装与使用
 
-这保留了 SOLIDWORKS 自己的窗口几何和硬件加速，不再由守护程序移动或缩放 3D 视口。
+**重装前先备份：干净安装会清空 MacSW 的唯一容器，包括其中保存的模型。**
 
-同一驱动中的前缓冲刷新还有一处独立问题：Wine 会在应用已经执行 `glFlush`/`glFinish` 后，
-再次调用会交换双缓冲的 `NSOpenGLContext.flushBuffer`。SOLIDWORKS 用前缓冲绘制选择、预选和
-局部界面状态，因此空白点击或窗口失焦会把完整模型画面换走，边线橙色预选也只会闪现。
-[`0004-winemac-preserve-front-buffer-flush.patch`](patches/wine-crossover/0004-winemac-preserve-front-buffer-flush.patch)
-让真正的缓冲交换只发生在 SwapBuffers 路径；调查与回归证据见
-[`docs/opengl-front-buffer.md`](docs/opengl-front-buffer.md)。
+1. 从 [GitHub Actions](https://github.com/YJBeetle/MacSW/actions/workflows/build-app.yml)
+   的构建产物 `MacSW-macOS-App` 获取 App 压缩包，解压后将 `MacSW.app` 放到自己的应用目录。
+   也可以[从源码构建](#源码构建)。
+2. 打开 App。尚未安装 SOLIDWORKS 时会显示引导安装窗口。
+3. 拖入或选择官方介质：ISO、`setup.exe`，或包含安装程序的目录。
+4. 确认组件序列号、界面语言和许可服务器配置，然后开始安装。
+   默认以静默部署模式执行；设置中可以切换到官方安装向导。
+5. 安装完成后，从 MacSW 菜单栏图标启动 SOLIDWORKS。
 
-Wine GUI 进程使用内嵌 `MacSW` bundle 元数据的 loader，并由 `wine -> MacSW` 兼容链接满足
-Wine 后续重新执行 loader 的固定路径。相关修改见
-[`0001-winemac-macsw-branding.patch`](patches/wine-crossover/0001-winemac-macsw-branding.patch)。
-这样无需改动 `ntdll` 或 `winemac.drv`，Dock 与应用菜单都会显示 `MacSW`；图标仍完全沿用 Wine
-原生的 EXE 图标传递路径，SOLIDWORKS 等程序继续显示各自提供的图标。
+默认打开 MacSW **不会自动启动 SOLIDWORKS**；可在设置中启用自动启动。
+设置还提供 Wine 工具，以及许可服务器地址和托管 FlexNet 的安装、卸载、启动、停止。
+托管服务器安装后复制到容器内，不再依赖最初选择的外部目录；启动 SOLIDWORKS 前，
+MacSW 会按当前许可配置确保所需的本地托管服务运行。
 
-Wine 以 LGPL-2.1-or-later 许可分发。App 内包含许可证与精确源码说明；正式 Release 同时附带
-构建所用的 Wine 源码归档，MacSW 仓库保留全部补丁和构建脚本。
+中文界面使用 macOS 的苹方补缺失字形，不随 App 打包 Apple 字体。
+打开 MacSW 时会在后台检查已安装容器的 Tahoma 字体链接，缺失时补回，保留原有回退项；
+随后启动 SOLIDWORKS 会等待同一个准备任务。详见[字体说明](docs/font-fallback.md)。
 
+## SWCLI 快速开始
 
-## 构建
+App 内置 `sw-cli`，用于文档与零件自动化。**先启动 daemon，再执行文档操作**；
+`document` 和 `part` 命令不会隐式拉起 SOLIDWORKS。
 
-开发机需要 Xcode Command Line Tools，以及两个 Homebrew 构建依赖：
+以下示例假设 App 位于 `/Applications/MacSW.app`；其他位置请修改第一行。
 
 ```bash
+SWCLI="/Applications/MacSW.app/Contents/MacOS/sw-cli"
+
+# SOLIDWORKS 尚未运行：创建可见实例；省略 --visible 则隐藏
+"$SWCLI" daemon start --visible --json
+
+# 启动命令等待宿主就绪后，再操作文档
+"$SWCLI" document list --json
+```
+
+如果 SOLIDWORKS 已由 MacSW 启动，改用以下启动命令附着现有窗口，不创建第二个实例：
+
+```bash
+"$SWCLI" daemon start --attach-existing --json
+```
+
+没有 daemon 时，文档和零件命令返回 `DaemonUnavailable` 和启动提示。
+本地路径按当前容器的实际盘符映射转换，不假定存在 Z:；没有可用映射就明确失败。
+容器 `drive_c` 内的模型应通过对应的 C: 路径访问，不使用 Z: 别名。
+更多命令和协议说明见 [SWCLI 中文文档](Dependencies/SWCLI/README.CN.md)。
+
+## 数据与故障排查
+
+MacSW 固定使用一个容器，不提供容器切换：
+
+```text
+~/Library/Application Support/MacSW/bottle
+~/Library/Application Support/MacSW/logs
+```
+
+**干净安装会清空唯一容器。** 请先备份其中的模型和其他需要保留的文件。
+
+安装失败先查看 `install_msi_errors.log`、`install_msi.log`、`prerequisites.log`；
+启动问题查看 `sw_launch.log`。Login Manager、语言安装和 Wine 安装器也有独立日志。
+反馈问题时请说明 MacSW 构建、macOS/芯片、SOLIDWORKS 版本、容器是否全新，以及复现步骤。
+
+**不要直接公开完整日志或容器。** MSI 详细日志可能明文包含序列号；分享前清除
+序列号、许可文件、凭据、用户名及私人路径。日志目录应保持私人。
+
+## 源码构建
+
+开发构建需要支持 Swift 5.10 的 macOS 工具链/SDK、Xcode Command Line Tools 和 Homebrew。
+先检出源码及子模块，再执行：
+
+```bash
+git clone --recurse-submodules https://github.com/YJBeetle/MacSW.git
+cd MacSW
 brew install bison mingw-w64
 make app
 ```
 
-产物位于 `build/app/MacSW.app`。
-GitHub Actions 可通过手动触发的 `verify_solidworks` 选项运行隔离容器中的真实安装与
-SWCLI 共享建模测试；职责、私有夹具清理及验证边界见 [docs/runtime-ci.md](docs/runtime-ci.md)。
-首次构建需要联网下载固定依赖；校验通过的下载和 Wine 原生模块构建结果缓存在 `dist/`，
-相同配置再次构建时会复用。
+产物为 `build/app/MacSW.app`。首次构建联网获取并校验固定依赖，后续复用 `dist/` 缓存。
+测试、打包流程、安装实现和 Wine 修复见[开发说明](docs/development.md)。
+GitHub Actions 使用同一条 `make ci` 链路；本仓库 master 的相关 push 自动执行隔离的
+真实安装/运行验证，也支持手动触发，不在 PR 中调用私有运行资源。
 
-Builder 分为三层：
+## 文档
 
-- SwiftPM 管理 Swift 模块、原生启动程序和 XCTest；
-- 顶层 Makefile 编排依赖获取、原生构建、打包、校验与归档；
-- Shell 脚本处理固定依赖下载、Wine autotools 构建和 `.app` 目录装配。
-
-应用、Wine、Wine-Mono、stdole 和 7-Zip 版本及 SHA-256 只在
-[`config/versions.env`](config/versions.env) 定义。应用版本独立于 SOLIDWORKS 版本；被验证的
-SOLIDWORKS 版本记录在 [`docs/compatibility.md`](docs/compatibility.md)。
-SWCLI 的纯 Python 依赖和两种平台的 `rpds-py` wheel 固定在
-[`config/swcli-wheels.tsv`](config/swcli-wheels.tsv)，逐个校验 SHA-256 并保留许可证与包元数据。
-当前 SWCLI 固定为 `0.1.0a5.dev0` 开发快照，用于建模验证，不代表 a5 已正式发布。
-
-常用目标：
-
-```bash
-make test                 # SwiftPM XCTest
-make app                  # 构建、打包并校验 MacSW.app
-make verify               # 校验已有 MacSW.app
-make archive              # 生成可上传的 zip（会占用额外磁盘空间）
-make ci                   # 测试并生成归档
-```
-
-`make test` 还会运行 SWCLI 的 Python 契约测试，需要宿主 Python 的 `jsonschema`
-依赖。建议用隔离环境，避免修改系统 Python：
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install ./Dependencies/SWCLI
-PATH="${PWD}/.venv/bin:${PATH}" make test
-```
-
-完整打包流程会：
-
-- 编译 SwiftUI 启动程序；
-- 从 C 源码重建原生 UI 辅助程序；
-- 下载并校验固定版本 Gcenx Wine 运行时；
-- 从配置指定的 Wine 官方源码重建打过补丁的 `winemac.so`、`win32u.so`、x64 `combase.dll` 与 Wine loader；
-  `winemac.so` 修复原生图层裁剪和前缓冲刷新，`win32u.so` 提供由 App 为 SOLIDWORKS 单独启用
-  的鼠标捕获兼容路径，loader 内嵌 MacSW 的 macOS bundle 身份；`combase.dll`
-  延长 SOLIDWORKS 冷启动的首次 COM 类工厂注册等待，其他 CLSID 保持原有上限；
-- 覆盖经过验证的 Wine-Mono x86 修复模块、RegistrationServices mscorlib 与 x86/x64 托管 RegAsm；
-- 从微软 NuGet 包提取并校验托管 COM 注册所需的 `stdole.dll`；
-- 对最终原生模块进行临时签名和校验。
-- 同时打包固定版本的 macOS 原生 Python 与 Windows Python：普通 `sw-cli`
-  协议客户端在 macOS 原生运行，只有 `doctor` 和 `daemon` 生命周期命令进入
-  Wine Windows Python；安装后的 App 不会再下载运行时。
-
-打包后的 `sw-cli` 不会因 `document` 或 `part` 命令隐式启动 SOLIDWORKS。
-先根据 SOLIDWORKS 当前状态选择以下一条启动命令，再执行文档操作；
-启动命令会等待主机就绪：
-
-```bash
-# SOLIDWORKS 尚未运行：由 CLI 创建可见实例（省略 --visible 则隐藏）
-build/app/MacSW.app/Contents/MacOS/sw-cli daemon start --visible --json
-
-# SOLIDWORKS 已由 MacSW 启动：附着已有窗口，不创建第二个实例
-build/app/MacSW.app/Contents/MacOS/sw-cli daemon start --attach-existing --json
-
-build/app/MacSW.app/Contents/MacOS/sw-cli document list --json
-```
-
-若守护进程尚未运行，文档和零件命令会返回 `DaemonUnavailable` 与启动提示，
-不会擅自接管已有窗口或另启隐藏实例。
-
-本地文件路径由原生 helper 读取当前容器 `dosdevices` 的真实盘符映射转换，
-不会为此启动 Wine。优先采用最具体的目录映射：通常容器 `drive_c`（包括符号链接
-路径）映射到 `C:\...`，其他 Mac 路径仅在实际配置了 `Z: -> /` 时映射到 `Z:\...`。
-也支持其他已配置盘符；没有对应映射就明确失败，不假定 Z 盘必然存在。
-已有的 Windows / UNC 路径保持不变。不要把容器安装目录中的模型经 `Z:` 别名打开，
-SOLIDWORKS 可能返回内部错误并留下未完成加载的文档。
-
-每次构建只保留最终 `MacSW.app`，不会累计保存包含完整 Wine 运行时的旧 App 副本。
-
-`build_winemac.sh` 会按 Wine 版本、源码校验值、全部补丁、配置和构建脚本内容缓存产物。
-重建 `win32u.so` 需要 Homebrew 的 Bison 与 FreeType 头文件；打包后的运行时仍使用包内固定的
-x86_64 FreeType 动态库，并通过模块内的相对 RPATH 定位，不依赖用户机器上的 Homebrew。
-GitHub Actions 使用同一条 `make ci` 构建链路；包内 `BuildManifest.plist` 保存可复核的构建版本、
-来源提交和校验值。
-
-## 使用与验证
-
-```bash
-open build/app/MacSW.app
-```
-
-Apple Silicon 运行包内 x86_64 Wine 需要 Rosetta 2。首次运行会打开引导安装窗口选择介质并完成部署；安装完成后应用转入菜单栏常驻，是否自动启动 SOLIDWORKS 由设置里的开关决定。
-干净安装会直接清空唯一容器，请确认其中没有需要保留的文件。
-
-图形回归至少应覆盖：
-
-- 新建 Part 后 FeatureManager 完整可见；
-- 切换 FeatureManager/PropertyManager 时视口不遮挡左侧面板；
-- 进入和退出草图、拉伸、旋转；
-- 完整重绘后连续点击空白画布、切换到其他 macOS 窗口，模型仍保持可见；
-- 鼠标停在模型边线上时，橙色预选轮廓持续显示到鼠标移开；
-- 浮动工具条和对话框显示在视口上方；
-- 保存、退出并重新打开零件。
-
-更详细的安装链路和已验证边界见
-[`docs/app-wine11-migration.md`](docs/app-wine11-migration.md)，兼容性报告见
-[`docs/compatibility.md`](docs/compatibility.md)。
-
-## 日志
-
-日志位于 `~/Library/Application Support/MacSW/logs`，主要包括：
-
-- `install_msi.log`
-- `install_msi_errors.log`
-- `installer-wine.log`
-- `login-manager-install.log`
-- `login-manager-wine.log`
-- `language-install.log`
-- `prerequisites.log`
-- `sw_launch.log`
-
-若安装了托管 FlexNet 且服务器列表包含对应的 `端口@localhost`，MacSW 会在启动 SOLIDWORKS 前自动确保该服务运行。
+- [开发与构建](docs/development.md)
+- [兼容性与实测范围](docs/compatibility.md)
+- [真实安装与运行 CI](docs/runtime-ci.md)
+- [中文字体回退](docs/font-fallback.md)
+- [视口图层裁剪](docs/winemac-opengl-child-clipping.md)
+- [OpenGL 前缓冲与预选修复](docs/opengl-front-buffer.md)
+- [中文输入法与模型视图快捷键](docs/solidworks-space-ime.md)
+- [SWCLI](Dependencies/SWCLI/README.CN.md)
 
 ## 许可证
 
-MacSW 的原创代码使用 [Apache License 2.0](LICENSE) 许可。Wine 及
-[`patches/wine-crossover`](patches/wine-crossover) 中直接修改或派生自 Wine 的补丁继续使用
-LGPL-2.1-or-later；SWCLI、Wine-Mono、Python、pywin32、7-Zip 等第三方组件保留各自许可证。
-二进制发行包会附带相应的许可证、版权声明和 Wine 精确源码获取说明。
+MacSW 原创代码使用 [Apache License 2.0](LICENSE)。Wine 及直接修改或派生自 Wine 的
+[补丁](patches/wine-crossover)继续使用 LGPL-2.1-or-later；第三方组件保留各自许可证。
+二进制发行包附带相应许可证、版权声明与 Wine 精确源码获取说明。
 
-Apache-2.0 不授予使用 MacSW 名称、Logo 或其他项目标识来表示修改版或再发行版本属于官方发布的权利；
-具体归属与第三方说明见 [NOTICE](NOTICE)。
+项目名称、Logo 和其他标识的归属及第三方说明见 [NOTICE](NOTICE)；
+Apache-2.0 不授予将修改版或再发行版本表示为 MacSW 官方发布的品牌使用权。
