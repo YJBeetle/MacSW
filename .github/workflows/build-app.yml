@@ -76,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout MacSW Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
@@ -103,7 +103,7 @@ jobs:
           swift --version
 
       - name: Cache pinned Wine runtime and 7zz
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             dist/${{ steps.build-config.outputs.wine_runtime_asset }}
@@ -144,9 +144,10 @@ jobs:
           ls -lh build/archive/*.zip
 
       - name: Upload MacSW App Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MacSW-macOS-App
+          archive: true
           path: |
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
@@ -177,9 +178,10 @@ jobs:
 
       - name: Upload CI-only helper artifact (no runtime fixtures)
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MacSW-CI-Helpers
+          archive: true
           path: build/ci/MacSW-CI-Helpers.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -218,7 +220,7 @@ jobs:
 
     steps:
       - name: Checkout MacSW Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
@@ -249,13 +251,13 @@ jobs:
 
       # With no run-id/token override, downloads are restricted to this run.
       - name: Download this run's MacSW App artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: MacSW-macOS-App
           path: ${{ runner.temp }}/MacSW-build-artifacts
 
       - name: Download this run's CI-only helpers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: MacSW-CI-Helpers
           path: ${{ runner.temp }}/MacSW-ci-helpers
@@ -309,7 +311,7 @@ jobs:
       - name: Restore official installed bottle cache
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install
         id: installed-base
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         env:
           # GNU tar otherwise masks archived 0666 files to 0644 for this runner.
           # Preserve the snapshot metadata; do not weaken inventory validation.
@@ -347,7 +349,7 @@ jobs:
 
       - name: Save only verified official base (before private fixtures)
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
           key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
@@ -384,9 +386,10 @@ jobs:
 
       - name: Upload sanitized runtime and installer evidence (no license files)
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.redact-runtime.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MacSW-SOLIDWORKS-runtime-evidence
+          archive: true
           path: |
             ${{ runner.temp }}/MacSW-runtime/evidence/*.json
             ${{ runner.temp }}/MacSW-runtime/evidence/*.log

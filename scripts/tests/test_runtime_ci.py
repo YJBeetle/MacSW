@@ -36,6 +36,23 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
         self.build, self.runtime = self.workflow.split("\n  build:\n", 1)[1].split("\n  runtime-test:\n", 1)
 
+    def test_official_actions_use_node24_versions_and_keep_archive_layout(self):
+        actions = {
+            "actions/checkout@v7": 2,
+            "actions/cache@v6": 1,
+            "actions/cache/restore@v6": 1,
+            "actions/cache/save@v6": 1,
+            "actions/upload-artifact@v7": 3,
+            "actions/download-artifact@v8": 2,
+        }
+        for action, count in actions.items():
+            self.assertEqual(self.workflow.count("uses: " + action + "\n"), count)
+        uploads = self.workflow.split("uses: actions/upload-artifact@v7\n")[1:]
+        for upload in uploads:
+            step = upload.split("- name:", 1)[0]
+            self.assertIn("archive: true", step)
+        self.assertNotIn("ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION", self.workflow)
+
     def test_build_and_runtime_have_independent_results_and_concurrency(self):
         self.assertIn("run: make test", self.build)
         self.assertIn("make archive", self.build)
@@ -69,7 +86,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
             self.assertIn("name: " + name, self.runtime)
         downloads = self.runtime.split("- name: Download this run's MacSW App artifact", 1)[1].split(
             "- name: Prepare private runtime test bundle", 1)[0]
-        self.assertEqual(downloads.count("uses: actions/download-artifact@v4"), 2)
+        self.assertEqual(downloads.count("uses: actions/download-artifact@v8"), 2)
         for override in ("run-id:", "github-token:", "repository:"):
             self.assertNotIn(override, downloads)
         for output in ("app_archive", "app_sha256", "helpers_sha256"):

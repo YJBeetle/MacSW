@@ -25,6 +25,9 @@ push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动�
 构建与运行采用独立并发组；运行组仍不取消进行中的安装，避免重复读取 Drive 介质。
 官方安装缓存的身份、权限校验、私有夹具注入顺序和证据脱敏边界均不因拆分而改变。
 tag 的 Release 上传在构建 job 完成，不等待也不触发私有运行 job。
+官方 Actions 使用 Node.js 24 版本：checkout v7、cache（含 restore/save）v6、
+upload-artifact v7、download-artifact v8。上传明确保留 `archive: true`，不启用
+单文件直传模式；原有产物名称、相对路径、内层 App zip/helper tar 和缓存 key 均保持不变。
 
 ## 职责与顺序
 
