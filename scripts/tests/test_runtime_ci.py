@@ -132,6 +132,82 @@ class RuntimeAdapterTests(unittest.TestCase):
     def gate(self):
         return ci.RuntimeGate(self.app, self.root / "evidence")
 
+    def test_process_metrics_keep_only_numeric_fields_of_known_wine_processes(self):
+        output = "\n".join([
+            r"42 75.5 12:34.50 4096 Rs C:\Program Files\SOLIDWORKS\sldworks.exe",
+            r"43 0.0 0:00.10 1024 S C:\MacSW\Python311\python.exe",
+            "44 1.5 1:02:03 512 S " + str(self.app / "Contents/Frameworks/wine/bin/wineserver"),
+            "45 0.0 0:00 100 S /usr/bin/python3",
+            r"46 0.0 0:00 100 S C:\private\unknown.exe",
+            r"47 0.0 0:00 100 S C:\MacSW\Python311\python.exe --token private",
+        ])
+        result = ci.wine_process_metrics(output, self.app)
+        self.assertEqual([row["unix_pid"] for row in result], [42, 43, 44])
+        self.assertEqual(result[0], {"name": "sldworks.exe", "unix_pid": 42, "cpu_percent": 75.5,
+                                     "cpu_seconds": 754.5, "resident_kib": 4096, "state": "Rs"})
+        self.assertEqual(result[2]["cpu_seconds"], 3723)
+        self.assertNotIn("private", json.dumps(result))
+        self.assertNotIn("command", json.dumps(result))
+        self.assertNotIn(str(self.app), json.dumps(result))
+
+    def test_process_metrics_reject_nonfinite_or_malformed_numbers(self):
+        output = "\n".join(
+            prefix + r" C:\MacSW\Python311\python.exe" for prefix in [
+                "bad 0 0:00 100 S", "0 0 0:00 100 S", "1 nan 0:00 100 S", "1 inf 0:00 100 S",
+                "1 0 nan 100 S", "1 0 0:00 -1 S", "1 -1 0:00 100 S", "1 0 0:00 100 secret123",
+                "1 0 0:00:00:00 100 S", "1 0 1e308:00:00 100 S",
+            ])
+        self.assertEqual(ci.wine_process_metrics(output, self.app), [])
+
+    def test_host_metrics_capture_without_com_or_forwarded_secrets(self):
+        gate = self.gate()
+        gate.record["phase"] = "visible.modeling"
+        metrics = ci.HostMetrics(gate, "visible")
+        with patch.object(ci.os, "getloadavg", return_value=(1, 2, 3)), \
+                patch.object(ci.shutil, "disk_usage", return_value=SimpleNamespace(free=12345)), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(
+                    returncode=0, stdout=r"42 1 0:00 100 S C:\MacSW\Python311\python.exe", stderr="private")) as run:
+            metrics.capture()
+            metrics.capture()
+        self.assertEqual(run.call_args.args[0], ["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="])
+        self.assertEqual(run.call_args.kwargs["timeout"], 5)
+        self.assertEqual(run.call_args.kwargs["env"], {"LC_ALL": "C", "LANG": "C"})
+        text = (gate.evidence / "visible-host-metrics.log").read_text()
+        records = [json.loads(line) for line in text.splitlines()]
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["phase"], "visible.modeling")
+        self.assertEqual(records[0]["free_disk_bytes"], 12345)
+        self.assertEqual(records[0]["load_average"], [1, 2, 3])
+        self.assertNotIn("private", text)
+
+    def test_host_metrics_tool_failure_is_a_diagnostic_gap_not_a_gate_failure(self):
+        gate = self.gate()
+        metrics = ci.HostMetrics(gate, "visible")
+        with patch.object(ci.subprocess, "run", side_effect=OSError("private command line")):
+            metrics.capture()
+        record = json.loads((gate.evidence / "visible-host-metrics.log").read_text())
+        self.assertEqual(record["diagnostic_error"], "OSError")
+        self.assertNotIn("private", json.dumps(record))
+        self.assertFalse(gate.record["completed"])
+
+    def test_metrics_context_stops_sampler_and_preserves_original_gate_error(self):
+        metrics = ci.HostMetrics(self.gate(), "visible")
+        with patch.object(metrics.thread, "start") as start, patch.object(metrics.thread, "join") as join:
+            with self.assertRaisesRegex(RuntimeError, "original gate error"):
+                with metrics:
+                    raise RuntimeError("original gate error")
+        start.assert_called_once_with()
+        join.assert_called_once_with(timeout=6)
+        self.assertTrue(metrics.stopped.is_set())
+
+    def test_metrics_thread_creation_failure_does_not_block_shared_gate(self):
+        metrics = ci.HostMetrics(self.gate(), "visible")
+        with patch.object(metrics.thread, "start", side_effect=RuntimeError("no thread")), \
+                patch.object(metrics.thread, "join") as join:
+            with metrics:
+                pass
+        join.assert_not_called()
+
     def test_runtime_captures_wine_com_diagnostics_without_credentials(self):
         gate = self.gate()
         self.assertEqual(gate.env["WINEDEBUG"], "-all,err+ole,warn+ole,+seh,+loaddll,+timestamp")
@@ -224,6 +300,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             else:
                 self.assertNotIn("--after-modeling", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
+                patch.object(ci, "HostMetrics") as metrics, \
                 patch.object(gate, "start", side_effect=lambda mode: events.append("start:" + mode) or host), \
                 patch.object(gate, "same_host", side_effect=lambda expected: self.assertEqual(expected, host)), \
                 patch.object(gate, "command", side_effect=command), \
@@ -231,6 +308,8 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "collect_evidence"), \
                 patch.object(gate, "stop", side_effect=lambda: events.append("stop")):
             gate.run()
+        self.assertEqual([call.args for call in metrics.call_args_list],
+                         [(gate, "visible"), (gate, "visible"), (gate, "hidden"), (gate, "hidden")])
         self.assertEqual(events, ["start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "stop",
                                   "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "stop"])
         self.assertTrue(gate.record["completed"])

@@ -109,6 +109,13 @@ SWCLI 的对应记录见 `Dependencies/SWCLI/docs/verification/macsw-background-
 其他已完成运行的不同失败点、本机交叉验证及当前调查边界汇总在
 [原生建模 CI 调查](native-modeling-investigation.md)。
 
+共享门禁期间另有每 15 秒一次的只读宿主指标，写入
+`visible-host-metrics.log` / `hidden-host-metrics.log`：已知 Wine 进程的 macOS
+PID、CPU、累计 CPU 时间、RSS、状态，以及系统负载、空闲磁盘和时间。
+不保存命令行、参数、环境或 `ps` stderr，不访问 COM，不控制进程；诊断采集失败
+不影响共享门禁的原始结果。RSS 不是 Rosetta 进程的物理 footprint 证明。
+日志走相同的最终脱敏屏障，不进入 App 或官方安装缓存身份。
+
 ## 隔离与路径
 
 CI 入口只允许在 GitHub Actions 中运行，路径固定在 runner 的临时目录。

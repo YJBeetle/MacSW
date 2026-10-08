@@ -16,8 +16,9 @@ MacSW 负责安装、Wine、App 打包、驱动映射、宿主准备和证据收
 | [37706684327](https://github.com/YJBeetle/MacSW/actions/runs/37706684327) | front 建模和切除后，top 矩形超过 120 秒 | 缓存恢复、可见模式就绪及此前操作成功；未进入尺寸或隐藏模式 |
 | [37727420806](https://github.com/YJBeetle/MacSW/actions/runs/37727420806) | 第一次实际后台 front 矩形超过 120 秒 | 全新安装、可见模式就绪、无租约及错误 stamp 的前置拒绝成功；此前没有实际切除 |
 | [37730038675](https://github.com/YJBeetle/MacSW/actions/runs/37730038675) | 保存后的后台文档 `document.close` 返回 `0x800703e6` | 缓存恢复、front/top/right 草图、拉伸、圆、切除和保存成功；未进入尺寸或隐藏模式 |
+| [37732440131](https://github.com/YJBeetle/MacSW/actions/runs/37732440131) | 首次拉伸在重建后的特征诊断遍历期间超过 120 秒 | 全新安装、可见模式就绪、首次矩形成功；未进入尺寸或隐藏模式 |
 
-后两轮都固定 SWCLI `86c52f27c0b2bdcfe0bf990debfc840481608d58`，
+`37727420806` 和 `37730038675` 都固定 SWCLI `86c52f27c0b2bdcfe0bf990debfc840481608d58`，
 获得就绪的自有 SOLIDWORKS PID 488、版本 `33.5.0`、简体中文、可见模式。
 失败点不同，因此“始终在第一次矩形”“只发生在切除后”“只因隐藏”均不成立。
 
@@ -36,8 +37,18 @@ MacSW `498e3883b4a53a6c673e1e21d171a244282a9ea1` 同步 gitlink 与
 `config/versions.env`，固定 SWCLI
 `93d40e274be9d3714ccab00905fc36a6675fc195`（`0.1.0a6.dev0`）。
 [37732440131](https://github.com/YJBeetle/MacSW/actions/runs/37732440131)
-使用这一版本全新安装；调查记录撰写时已完成构建和安装，正在执行共享运行门禁，
-尚无完整通过结论。
+使用这一版本全新安装。构建、安装及可见模式就绪成功，但共享建模失败，
+准确失败步骤为 `SOLIDWORKS installation & runtime` /
+`Shared modeling then driving dimensions on one host`。
+
+首个矩形操作成功，用时 113.723 秒；`CreateCenterRectangle` 已返回，用时
+14.399 秒，几何校验 31.206 秒。随后首次拉伸已经返回原生特征，并进入
+`EditRebuild3` 之后的特征错误诊断。截止超时前，同一请求有 90 个已完成的
+原生边界记录，累计覆盖约 80.572 秒；其余时间包含未单独记录的方法。
+最后未配对的是 `GetNextFeature`，它在总预算只剩约 1.4 秒时开始，之前同名
+调用多次用时约 0.6–1.8 秒。不能仅凭这条未配对记录认定该方法死锁；
+本轮证据更支持大量慢调用累计用尽预算，而非单一矩形创建方法长期不返回。
+它还不能确定宿主变慢的原因，也不能解释上一轮独立的关闭异常。
 
 CI 设置 `SWCLI_TRACE_NATIVE_CALLS=1`，在普通 daemon 日志里记录立即刷新的
 调用开始、结束与耗时。它不修改原生参数、几何断言、租约或恢复策略。
@@ -45,6 +56,13 @@ CI 设置 `SWCLI_TRACE_NATIVE_CALLS=1`，在普通 daemon 日志里记录立即�
 业务成功。只对已经覆盖的调用边界作判断，不能把日志空白解释为任意原生方法阻塞。
 特别是请求前的 `RevisionNumber` 探测和直接 `CloseDoc` 当前没有独立方法边界。
 详见 [运行适配器与诊断约定](runtime-ci.md#原生调用分段诊断)。
+
+下一轮在共享门禁期间每 15 秒从 macOS `/bin/ps` 采集已知 Wine 进程的 CPU、
+累计 CPU 时间、RSS 和状态，同时记录系统负载及空闲磁盘。输出只含数字、固定
+进程名及受限状态字段，不包含原始命令行、参数、环境、模型数据或工具 stderr。
+诊断失败只记录错误类别，不代替 CAD 结果；记录进入既有 `.log` 脱敏屏障。
+RSS 是宿主 `ps` 的观测值，尤其在 Rosetta 下不等同于真实物理 footprint。
+每个门禁有独立的经过时间；不得直接比较它与 Windows worker 的 monotonic 时钟。
 
 ## 本机交叉验证
 
@@ -58,7 +76,13 @@ Windows backend 后，仅同步 SWCLI Python 包。测试文件集中在一个�
 后台操作、保存关闭重开、预期原生失败后的继续建模均在同一宿主上通过。
 第一次 `CreateCenterRectangle` 用时约 1.2 秒。MacSW 适配器没有传入可选的安装
 Part/Assembly 样例，因此 85 个事件不等同于 Windows/DockerSW 含样例导出的
-97 个事件。尺寸门禁仍在同一宿主上进行，隐藏模式尚未验证。
+97 个事件。随后 `verify-driving-dimensions.py` 也在同一 PID 376 上完成，
+`success=true`、242 个事件、清理错误为零，front/top/right 的驱动直径、
+修改后的实体指标、保存重开及引用重新发现均通过。隐藏模式尚未验证。
+
+本机 macOS 为 15.8，本轮构建 runner 为 14.8.9，均为 arm64。
+本机与 `37730038675` 的 `msvcp140`、`msvcp140_2`、`vcruntime140_1`
+文件 SHA-256 完全相同且含 Wine builtin 标记，不能仅凭这些标记解释两端差异。
 
 此结果仅证明本机现有主容器在该次可见序列中通过，不是托管 runner、全新安装、
 缓存恢复、隐藏模式或 GUI 交互的替代证明，也不是故障已经修复的结论。
@@ -67,7 +91,7 @@ Part/Assembly 样例，因此 85 个事件不等同于 Windows/DockerSW 含样�
 
 1. 取得诊断 CI 的首个失败及最后已覆盖调用；若失败发生在未覆盖边界，只增加
    相应方法的开始/结束记录，不先改变调用顺序或超时。
-2. 完成本机共享建模 → 尺寸的可见序列，再独立验证隐藏序列；每个序列内不得
+2. 已完成本机共享建模 → 尺寸的可见序列，继续独立验证隐藏序列；每个序列内不得
    更换 daemon/SOLIDWORKS。
 3. 只有具体调用和宿主证据支持时才修改 Wine/MacSW 或 SWCLI；修复后重新执行
    未削弱的共享门禁，并分别记录本机、全新安装和缓存恢复的结果。

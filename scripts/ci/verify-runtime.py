@@ -6,16 +6,110 @@ packaged helper using actual bottle drive mappings, never by assuming Z:.
 """
 
 import argparse
+from datetime import datetime, timezone
+import math
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py")
+
+
+def wine_process_metrics(output, app):
+    """Keep numeric metrics of known Wine processes, never their arguments."""
+    processes = []
+    server = str(app / "Contents/Frameworks/wine/bin/wineserver")
+    for line in output.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) != 6:
+            continue
+        command = fields[5]
+        # On this fresh, isolated CI VM these Windows paths are our Wine host.
+        # Unix Python/runner processes and arbitrary command lines are excluded.
+        name = command.rsplit("\\", 1)[-1].lower()
+        if command == server:
+            name = "wineserver"
+        elif not (len(command) > 3 and command[1:3] == ":\\"
+                  and name in ("sldworks.exe", "python.exe", "pythonw.exe")):
+            continue
+        try:
+            pid, cpu, memory = int(fields[0]), float(fields[1]), int(fields[3])
+            clock = list(map(float, fields[2].split(":")))
+            if not 1 <= len(clock) <= 3 or not all(math.isfinite(n) and n >= 0 for n in clock):
+                continue
+            cpu_seconds = sum(n * 60 ** i for i, n in enumerate(reversed(clock)))
+            if pid <= 0 or memory < 0 or not math.isfinite(cpu) or cpu < 0 or not math.isfinite(cpu_seconds):
+                continue
+        except (ValueError, OverflowError):
+            continue
+        state = fields[4]
+        if not state or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+<>=-" for c in state):
+            continue
+        processes.append({"name": name, "unix_pid": pid, "cpu_percent": cpu,
+                          "cpu_seconds": cpu_seconds, "resident_kib": memory, "state": state})
+    return processes
+
+
+class HostMetrics:
+    """Best-effort CI observations; no COM, process control or gate decisions."""
+
+    def __init__(self, gate, mode, interval_seconds=15):
+        self.gate = gate
+        self.mode = mode
+        self.interval = interval_seconds
+        self.started_at = time.monotonic()
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.observe, daemon=True)
+        self.started = False
+
+    def capture(self):
+        record = {"phase": self.gate.record["phase"],
+                  "utc_time": datetime.now(timezone.utc).isoformat(),
+                  "elapsed_seconds": time.monotonic() - self.started_at}
+        try:
+            record["load_average"] = list(os.getloadavg())
+            record["free_disk_bytes"] = shutil.disk_usage(self.gate.root).free
+            result = subprocess.run(["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="],
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace", timeout=5,
+                                    env={"LC_ALL": "C", "LANG": "C"})
+            if result.returncode != 0:
+                raise RuntimeError("ps failed")
+            record["processes"] = wine_process_metrics(result.stdout, self.gate.app)
+        except Exception as error:
+            # OS/tool failures are diagnostic gaps, not CAD failures. Exception
+            # messages, ps stderr and raw command lines must never be published.
+            record["diagnostic_error"] = type(error).__name__
+        try:
+            with (self.gate.evidence / (self.mode + "-host-metrics.log")).open("a", encoding="utf-8") as log:
+                log.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
+        except (OSError, ValueError):
+            pass
+
+    def observe(self):
+        self.capture()
+        while not self.stopped.wait(self.interval):
+            self.capture()
+
+    def __enter__(self):
+        try:
+            self.thread.start()
+            self.started = True
+        except RuntimeError:
+            pass
+        return self
+
+    def __exit__(self, *exception):
+        self.stopped.set()
+        if self.started:
+            self.thread.join(timeout=6)
+        return False
 
 
 def ci_root():
@@ -259,7 +353,8 @@ class RuntimeGate:
                                  "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"]]
                     if name == "driving":
                         arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
-                    self.command(arguments, timeout=2400)
+                    with HostMetrics(self, mode):
+                        self.command(arguments, timeout=2400)
                     self.same_host(host)
             finally:
                 self.collect_evidence(mode)
