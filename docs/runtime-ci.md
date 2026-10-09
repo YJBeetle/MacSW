@@ -222,6 +222,15 @@ CI 序列号为私有验证夹具使用的测试值；经授权可以上传官�
 `media.json` 记录安装期间最低空闲空间及 VFS 实际磁盘分配量，供后续调优。
 安装完就解除挂载，不删除或修改 Google Drive 上的 ISO。
 
+## 下载资产缓存
+
+构建 job 使用独立的 `macsw-runtime-assets-v2` 身份：Wine/Mono/stdole/7zz、
+Windows/macOS Python、pywin32、其他固定 wheels 的配置，以及抓取/构建脚本
+和公开 Wine 补丁。SWCLI 源码提交、SWCLI 版本、App 发布号不参与；构建仍每次
+将本次固定的 SWCLI 源码打包，不从此缓存恢复旧 App 或旧 SWCLI 包。
+只有安装基底身份排除全部 `SWCLI_*`；下载资产仍包含这些 Python/pywin32 依赖。
+两层都不以不完整的前缀 key 回退，不把缓存命中当作真实运行测试通过。
+
 ## 完整官方安装基底缓存
 
 每个可见/隐藏模式启动前，CI 专用运行准备器都从**本次已校验的 App**重新部署

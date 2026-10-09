@@ -83,8 +83,12 @@ jobs:
 
       - name: Load build configuration
         id: build-config
+        env:
+          MACSW_ASSETS_HASH: ${{ hashFiles('config/swcli-wheels.tsv', 'scripts/ci/cache-identity.py', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
         run: |
           source scripts/lib/config.sh
+          runtime_cache_identity="$(python3 scripts/ci/cache-identity.py assets)"
+          echo "runtime_cache_identity=$runtime_cache_identity" >> "$GITHUB_OUTPUT"
           echo "app_archive=build/archive/MacSW-${APP_VERSION}-macOS.zip" >> "$GITHUB_OUTPUT"
           echo "wine_runtime_asset=${WINE_RUNTIME_ASSET}" >> "$GITHUB_OUTPUT"
           echo "wine_source_asset=${WINE_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
@@ -118,7 +122,7 @@ jobs:
             dist/${{ steps.build-config.outputs.swcli_native_python_archive_asset }}
             dist/*.whl
             dist/7zz
-          key: macsw-runtime-${{ hashFiles('config/versions.env', 'config/swcli-wheels.tsv', 'scripts/fetch_dependencies.sh', 'scripts/lib/config.sh', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
+          key: macsw-runtime-assets-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-config.outputs.runtime_cache_identity }}
 
       - name: Prepare isolated SWCLI test dependencies
         run: |

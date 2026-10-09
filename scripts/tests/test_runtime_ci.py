@@ -83,6 +83,20 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertIn("Publish Release Assets (on tag)", self.build)
         self.assertNotIn("Publish Release Assets", self.runtime)
 
+    def test_download_assets_cache_uses_dependency_identity_not_swcli_source_pin(self):
+        load = self.build.split("- name: Load build configuration", 1)[1].split("- name:", 1)[0]
+        self.assertIn("scripts/ci/cache-identity.py assets", load)
+        source_hash = next(line for line in load.splitlines() if "MACSW_ASSETS_HASH:" in line)
+        self.assertIn("config/swcli-wheels.tsv", source_hash)
+        self.assertIn("scripts/fetch_dependencies.sh", source_hash)
+        self.assertIn("patches/wine-crossover/**", source_hash)
+        self.assertNotIn("config/versions.env", source_hash)
+        step = self.build.split("- name: Cache pinned Wine runtime and 7zz", 1)[1].split("- name:", 1)[0]
+        self.assertIn("macsw-runtime-assets-v2-", step)
+        self.assertIn("steps.build-config.outputs.runtime_cache_identity", step)
+        self.assertNotIn("config/versions.env", step)
+        self.assertNotIn("Dependencies/SWCLI", step)
+
     def test_runtime_downloads_and_verifies_same_run_archives_before_unpacking(self):
         for name in ("MacSW-macOS-App", "MacSW-CI-Helpers"):
             self.assertIn("name: " + name, self.build)
