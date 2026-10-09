@@ -127,9 +127,15 @@ SWCLI `a857b75` 只在本次新建草图中核对四角与两条对角线的真�
 macOS 本机使用现成 App 的硬件宿主，不含 CI 的 0009 软件 renderer 补丁；
 不能据此宣布托管软件 renderer 已通过。
 [新版 MacSW 运行 37894268328](https://github.com/YJBeetle/MacSW/actions/runs/37894268328)
-固定此修复，仍须独立完成真实运行验证。此前的 `37890122051` 已被新版替代并
-主动取消以释放运行组，不是成功证据。上游详细记录见
-[SWCLI 原生尺寸验证记录](https://github.com/YJBeetle/SWCLI/blob/a857b75c7298a9225b0415cf06c761e0623e672b/docs/verification/rectangle-dimensions-2026-10-08.md)。
+已在 MacSW `4e9e002` / SWCLI `a857b75` 上完整成功。独立复核终局产物确认
+可见 PID 504、隐藏 PID 464 各完成 85 个建模及 361 个尺寸事件，每个模式的
+两条门禁保持同一宿主、清理无错误。三平面中心固定、重复调用不修改、保存重开
+和真实额外原点约束拒绝均通过；八项位图探针也在 Apple Software Renderer
+上得到正确像素且 GL 错误为零。这是托管软件 renderer 的完整共享序列证明，
+不是对任意 Wine 原生故障的根因或全局修复结论，也不覆盖之后的 v3 缓存改造。
+此前的 `37890122051` 已被新版替代并主动取消以释放运行组，不是成功证据。
+上游详细记录见
+[SWCLI 原生尺寸验证记录](https://github.com/YJBeetle/SWCLI/blob/e3d1a8bca09c626543068b4be084054c56a9000a/docs/verification/rectangle-dimensions-2026-10-08.md)。
 
 ## 原生调用分段诊断
 
