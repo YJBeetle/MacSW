@@ -142,6 +142,12 @@ class RuntimeWorkflowTests(unittest.TestCase):
         upload = self.runtime.split("- name: Upload sanitized runtime", 1)[1]
         self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
 
+    def test_shared_stage_budget_covers_both_modes_and_startup(self):
+        step = self.runtime.split("- name: Shared modeling then driving dimensions on one host", 1)[1].split("- name:", 1)[0]
+        self.assertIn("timeout-minutes: 210", step)
+        self.assertLess(2 * sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
+                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 210 * 60)
+
 
 class RuntimeAdapterTests(unittest.TestCase):
     def setUp(self):
@@ -365,7 +371,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         run.assert_called_once_with(
             ["/usr/bin/sample", "42", "2", "10", "-file", str(gate.evidence / "visible-native-stall.log")],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=15, env={"LC_ALL": "C", "LANG": "C"})
+            timeout=30, env={"LC_ALL": "C", "LANG": "C"})
         self.assertFalse(gate.record["completed"])
 
     def test_native_stall_end_or_new_call_resets_observation_without_sampling(self):
@@ -426,7 +432,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result["diagnostic_error"], "TimeoutExpired")
         self.assertEqual(result["request_id"], "request-1")
         self.assertEqual(result["sequence"], 78)
-        self.assertEqual(result["tool_timeout_seconds"], 15)
+        self.assertEqual(result["tool_timeout_seconds"], 30)
         self.assertTrue(result["evidence_present"])
         self.assertNotIn("private", json.dumps(result))
         run.assert_called_once()
@@ -448,7 +454,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 with metrics:
                     raise RuntimeError("original gate error")
         start.assert_called_once_with()
-        join.assert_called_once_with(timeout=21)
+        join.assert_called_once_with(timeout=36)
         self.assertTrue(metrics.stopped.is_set())
 
     def test_metrics_thread_creation_failure_does_not_block_shared_gate(self):
@@ -464,8 +470,8 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(gate.env["WINEDEBUG"], "-all,err+ole,warn+ole,+seh,+loaddll,+timestamp,+wgl")
         self.assertNotIn("+opengl", gate.env["WINEDEBUG"])
         self.assertEqual(gate.env["SWCLI_TRACE_NATIVE_CALLS"], "1")
-        # One COM activation, bounded below swclid's 180-second startup budget.
-        self.assertEqual(gate.env["WINE_SOLIDWORKS_STARTUP_TIMEOUT"], "150")
+        # One COM activation, bounded below swclid's 300-second startup budget.
+        self.assertEqual(gate.env["WINE_SOLIDWORKS_STARTUP_TIMEOUT"], "240")
         self.assertNotIn("SW_SERIAL_SOLIDWORKS", gate.env)
         self.assertNotIn("RCLONE_CONFIG_B64", gate.env)
 
@@ -505,6 +511,8 @@ class RuntimeAdapterTests(unittest.TestCase):
         deployment.assert_called_once_with(gate.app, gate.prefix)
         self.assertEqual(gate.record["swcli_deployments"][0]["mode"], "visible")
         self.assertNotIn("--attach-existing", spawn.call_args.args[0])
+        arguments = spawn.call_args.args[0]
+        self.assertEqual(arguments[arguments.index("--startup-timeout") + 1], "300")
         self.assertEqual(spawn.call_args.kwargs["env"]["SWCLI_TRACE_NATIVE_CALLS"], "1")
         self.assertIs(spawn.call_args.kwargs["stdout"], gate.log)
         self.assertEqual(spawn.call_args.kwargs["stderr"], ci.subprocess.STDOUT)
@@ -583,13 +591,16 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIn("--cli-command", args)
             self.assertIn("--host-output-dir", args)
             self.assertIn("--endpoint", args)
+            self.assertEqual(args[args.index("--request-timeout") + 1], "300")
             output = args[args.index("--output-dir") + 1]
             self.assertTrue(output.is_relative_to(gate.prefix / "drive_c"))
             if args[1].name == "verify-driving-dimensions.py":
+                self.assertEqual(kwargs["timeout"], 3600)
                 self.assertIn("--after-modeling", args)
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
             else:
+                self.assertEqual(kwargs["timeout"], 1800)
                 self.assertNotIn("--after-modeling", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
                 patch.object(gate, "verify_bitmap_driver", side_effect=lambda: events.append("bitmap-driver")), \
@@ -606,6 +617,9 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "stop",
                                   "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "stop"])
         self.assertTrue(gate.record["completed"])
+        self.assertEqual(gate.record["budgets_seconds"], {
+            "request": 300, "startup": 300, "startup_outer": 330,
+            "shared_gates": {"modeling": 1800, "driving": 3600}, "native_sample_tool": 30})
 
     def test_native_bitmap_driver_requires_all_eight_actual_pixel_cases(self):
         records = [{"bpp": bpp, "width": width, "top_down": top_down, "success": True,

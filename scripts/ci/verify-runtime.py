@@ -21,6 +21,12 @@ import time
 
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py")
+# Hosted software rendering is slower than local hardware. These are CI-only
+# limits; the shared assertions and SWCLI product defaults remain unchanged.
+REQUEST_TIMEOUT_SECONDS = 300
+STARTUP_TIMEOUT_SECONDS = 300
+SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 1800, "driving": 3600}
+SAMPLE_TIMEOUT_SECONDS = 30
 
 
 def runtime_inventory(directory):
@@ -133,16 +139,17 @@ class HostMetrics:
             observation = {"request_id": event["request_id"], "operation": event["operation"],
                            "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
                            "unix_pid": targets[0]["unix_pid"], "evidence": output.name,
-                           "duration_seconds": 2, "interval_ms": 10, "tool_timeout_seconds": 15}
+                           "duration_seconds": 2, "interval_ms": 10,
+                           "tool_timeout_seconds": SAMPLE_TIMEOUT_SECONDS}
             # sample briefly pauses threads at each observation. A lower rate
             # limits this diagnostic's cost; report generation has its own
-            # budget, independent of the unchanged 120s CAD worker deadline.
+            # budget, independent of the CI CAD worker deadline.
             # No debugger, dump, COM call or business-operation retry is used.
             try:
                 result = subprocess.run(["/usr/bin/sample", str(targets[0]["unix_pid"]), "2", "10",
                                          "-file", str(output)], stdin=subprocess.DEVNULL,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                        timeout=15, env={"LC_ALL": "C", "LANG": "C"})
+                                        timeout=SAMPLE_TIMEOUT_SECONDS, env={"LC_ALL": "C", "LANG": "C"})
                 observation["exit_code"] = result.returncode
             except (OSError, subprocess.SubprocessError) as error:
                 # Keep the precise boundary and PID even when profiling fails;
@@ -197,7 +204,7 @@ class HostMetrics:
     def __exit__(self, *exception):
         self.stopped.set()
         if self.started:
-            self.thread.join(timeout=21)
+            self.thread.join(timeout=SAMPLE_TIMEOUT_SECONDS + 6)
         return False
 
 
@@ -289,7 +296,12 @@ class RuntimeGate:
         self.runtime_helper = app / "Contents/MacOS/MacSWCIRuntime"
         self.path_helper = app / "Contents/Resources/SWCLI/bin/swcli-path"
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
-                       "host_observations": [], "host_acquisitions": [], "swcli_deployments": []}
+                       "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
+                       "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
+                                           "startup": STARTUP_TIMEOUT_SECONDS,
+                                           "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
+                                           "shared_gates": dict(SHARED_GATE_TIMEOUT_SECONDS),
+                                           "native_sample_tool": SAMPLE_TIMEOUT_SECONDS}}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
                         # OLE trace emits millions of GUID/string events during
@@ -302,7 +314,7 @@ class RuntimeGate:
                         # Flushed SWCLI call boundaries survive an owned-worker
                         # deadline; no retry or change to shared CAD assertions.
                         SWCLI_TRACE_NATIVE_CALLS="1",
-                        WINE_SOLIDWORKS_STARTUP_TIMEOUT="150")
+                        WINE_SOLIDWORKS_STARTUP_TIMEOUT="240")
         for secret in ("SW_SERIAL_SOLIDWORKS", "RCLONE_CONFIG_B64"):
             self.env.pop(secret, None)
         self.cwd = self.prefix / "drive_c/MacSW/CI"
@@ -330,9 +342,10 @@ class RuntimeGate:
         self.checkpoint()
         print("MacSW runtime gate: " + name, flush=True)
 
-    def command(self, arguments, *, timeout=180):
+    def command(self, arguments, *, timeout=300):
         started = time.monotonic()
-        entry = {"arguments": list(map(str, arguments)), "completed": False}
+        entry = {"arguments": list(map(str, arguments)), "completed": False,
+                 "timeout_seconds": timeout}
         self.record["commands"].append(entry)
         self.checkpoint()
         # Wine background processes can inherit stdout/stderr after the command
@@ -400,9 +413,9 @@ class RuntimeGate:
         self.log = (self.evidence / (mode + "-daemon.log")).open("w")
         flags = ["--visible"] if mode == "visible" else []
         self.foreground = subprocess.Popen(
-            [str(self.cli), "daemon", "serve", "--startup-timeout", "180", *flags],
+            [str(self.cli), "daemon", "serve", "--startup-timeout", str(STARTUP_TIMEOUT_SECONDS), *flags],
             env=self.env, cwd=self.cwd, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
-        deadline = time.monotonic() + 210
+        deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS + 30
         while True:
             if self.foreground.poll() is not None:
                 raise RuntimeError("swclid exited during startup; see daemon log")
@@ -444,7 +457,7 @@ class RuntimeGate:
     def stop(self):
         self.command([self.cli, "daemon", "stop", "--json"])
         if self.foreground is not None:
-            if self.foreground.wait(timeout=45) != 0:
+            if self.foreground.wait(timeout=90) != 0:
                 raise RuntimeError("swclid shutdown failed")
             self.foreground = None
         if self.log:
@@ -478,11 +491,12 @@ class RuntimeGate:
                     self.same_host(host)
                     arguments = [sys.executable, script, "--output-dir", output,
                                  "--host-output-dir", self.windows_path(output),
-                                 "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"]]
+                                 "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"],
+                                 "--request-timeout", str(REQUEST_TIMEOUT_SECONDS)]
                     if name == "driving":
                         arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
                     with HostMetrics(self, mode):
-                        self.command(arguments, timeout=2400)
+                        self.command(arguments, timeout=SHARED_GATE_TIMEOUT_SECONDS[name])
                     self.same_host(host)
             finally:
                 self.collect_evidence(mode)
