@@ -363,9 +363,9 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result["call"], "FirstFeature")
         self.assertEqual(result["request_id"], "request-1")
         run.assert_called_once_with(
-            ["/usr/bin/sample", "42", "2", "1", "-file", str(gate.evidence / "visible-native-stall.log")],
+            ["/usr/bin/sample", "42", "2", "10", "-file", str(gate.evidence / "visible-native-stall.log")],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=4, env={"LC_ALL": "C", "LANG": "C"})
+            timeout=15, env={"LC_ALL": "C", "LANG": "C"})
         self.assertFalse(gate.record["completed"])
 
     def test_native_stall_end_or_new_call_resets_observation_without_sampling(self):
@@ -404,7 +404,31 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIsNone(metrics.sample_stalled_host(targets))
             result = metrics.sample_stalled_host(targets)
             self.assertIsNone(metrics.sample_stalled_host(targets))
-        self.assertEqual(result, {"diagnostic_error": "OSError"})
+        self.assertEqual(result["diagnostic_error"], "OSError")
+        self.assertEqual(result["request_id"], "request-1")
+        self.assertEqual(result["unix_pid"], 42)
+        self.assertEqual(result["call"], "FirstFeature")
+        self.assertFalse(result["evidence_present"])
+        self.assertNotIn("private", json.dumps(result))
+        run.assert_called_once()
+
+    def test_native_stall_timeout_retains_boundary_and_partial_report(self):
+        gate, metrics, event, path, targets = self.stall_metrics()
+        output = gate.evidence / "visible-native-stall.log"
+        def sample(*args, **kwargs):
+            output.write_text("partial sample report\n")
+            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"], stderr="private error")
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40]), \
+                patch.object(ci.subprocess, "run", side_effect=sample) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            result = metrics.sample_stalled_host(targets)
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        self.assertEqual(result["diagnostic_error"], "TimeoutExpired")
+        self.assertEqual(result["request_id"], "request-1")
+        self.assertEqual(result["sequence"], 78)
+        self.assertEqual(result["tool_timeout_seconds"], 15)
+        self.assertTrue(result["evidence_present"])
+        self.assertNotIn("private", json.dumps(result))
         run.assert_called_once()
 
     def test_native_stall_tolerates_missing_malformed_and_no_native_boundary(self):
@@ -424,7 +448,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 with metrics:
                     raise RuntimeError("original gate error")
         start.assert_called_once_with()
-        join.assert_called_once_with(timeout=6)
+        join.assert_called_once_with(timeout=21)
         self.assertTrue(metrics.stopped.is_set())
 
     def test_metrics_thread_creation_failure_does_not_block_shared_gate(self):

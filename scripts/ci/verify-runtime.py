@@ -130,16 +130,26 @@ class HostMetrics:
                 return None
             self.sampled = True
             output = self.gate.evidence / (self.mode + "-native-stall.log")
-            # sample observes only this isolated CI host. No suspend, debugger,
-            # memory dump, COM call, retry or change to the worker deadline.
-            result = subprocess.run(["/usr/bin/sample", str(targets[0]["unix_pid"]), "2", "1",
-                                     "-file", str(output)], stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    timeout=4, env={"LC_ALL": "C", "LANG": "C"})
-            return {"request_id": event["request_id"], "operation": event["operation"],
-                    "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
-                    "unix_pid": targets[0]["unix_pid"], "exit_code": result.returncode,
-                    "evidence": output.name}
+            observation = {"request_id": event["request_id"], "operation": event["operation"],
+                           "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
+                           "unix_pid": targets[0]["unix_pid"], "evidence": output.name,
+                           "duration_seconds": 2, "interval_ms": 10, "tool_timeout_seconds": 15}
+            # sample briefly pauses threads at each observation. A lower rate
+            # limits this diagnostic's cost; report generation has its own
+            # budget, independent of the unchanged 120s CAD worker deadline.
+            # No debugger, dump, COM call or business-operation retry is used.
+            try:
+                result = subprocess.run(["/usr/bin/sample", str(targets[0]["unix_pid"]), "2", "10",
+                                         "-file", str(output)], stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        timeout=15, env={"LC_ALL": "C", "LANG": "C"})
+                observation["exit_code"] = result.returncode
+            except (OSError, subprocess.SubprocessError) as error:
+                # Keep the precise boundary and PID even when profiling fails;
+                # never publish an exception message containing private text.
+                observation["diagnostic_error"] = type(error).__name__
+            observation["evidence_present"] = output.is_file()
+            return observation
         except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError) as error:
             # Missing logs/tool failures cannot turn a CAD failure into a pass.
             return {"diagnostic_error": type(error).__name__} if self.sampled else None
@@ -187,7 +197,7 @@ class HostMetrics:
     def __exit__(self, *exception):
         self.stopped.set()
         if self.started:
-            self.thread.join(timeout=6)
+            self.thread.join(timeout=21)
         return False
 
 
