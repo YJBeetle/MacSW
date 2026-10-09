@@ -107,6 +107,7 @@ class HostMetrics:
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.observe, daemon=True)
         self.started = False
+        self.last_progress_seconds = None
         self.last_native_event = None
         self.last_native_change = time.monotonic()
         self.sampled = False
@@ -187,6 +188,19 @@ class HostMetrics:
                 log.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
         except (OSError, ValueError):
             pass
+        # A long shared gate must not look silent in Actions. Publish only
+        # existing numeric observations; process presence is not COM health.
+        elapsed = record["elapsed_seconds"]
+        if self.last_progress_seconds is None or elapsed - self.last_progress_seconds >= 60:
+            hosts = [item for item in record.get("processes", []) if item["name"] == "sldworks.exe"]
+            progress = {"event": "macsw.runtime-progress", "phase": record["phase"],
+                        "elapsed_seconds": round(elapsed), "observed_sw_processes": len(hosts),
+                        "sw_cpu_percent": sum(item["cpu_percent"] for item in hosts)}
+            try:
+                print(json.dumps(progress, allow_nan=False), flush=True)
+                self.last_progress_seconds = elapsed
+            except (OSError, ValueError):
+                pass
 
     def observe(self):
         self.capture()

@@ -2,6 +2,8 @@
 
 import importlib.util
 import base64
+import contextlib
+import io
 import json
 import os
 import plistlib
@@ -345,6 +347,28 @@ class RuntimeAdapterTests(unittest.TestCase):
         record = json.loads((gate.evidence / "visible-host-metrics.log").read_text())
         self.assertEqual(record["diagnostic_error"], "OSError")
         self.assertNotIn("private", json.dumps(record))
+        self.assertFalse(gate.record["completed"])
+
+    def test_progress_is_minute_bounded_numeric_observation_not_health(self):
+        gate = self.gate()
+        gate.record["phase"] = "hidden.driving"
+        metrics = ci.HostMetrics(gate, "hidden")
+        metrics.started_at = 0
+        output = io.StringIO()
+        with patch.object(ci.time, "monotonic", side_effect=[0, 59, 60, 119, 120]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(
+                    returncode=0, stdout=r"42 75.5 0:00 100 S C:\SW\sldworks.exe", stderr="private")), \
+                patch.object(metrics, "sample_stalled_host", return_value=None), \
+                contextlib.redirect_stdout(output):
+            for _ in range(5):
+                metrics.capture()
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([row["elapsed_seconds"] for row in records], [0, 60, 120])
+        self.assertTrue(all(row == {"event": "macsw.runtime-progress", "phase": "hidden.driving",
+                                   "elapsed_seconds": row["elapsed_seconds"],
+                                   "observed_sw_processes": 1, "sw_cpu_percent": 75.5}
+                            for row in records))
+        self.assertNotIn("private", output.getvalue())
         self.assertFalse(gate.record["completed"])
 
     def stall_metrics(self):
