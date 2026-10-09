@@ -237,9 +237,15 @@ Windows Python/pywin32/SWCLI，随后逐文件比较 App 与 bottle 的路径和
   Mono/COM/VC++、语言资源与注册表。假 SOLIDWORKS SN 经授权保留，不改写文本、
   十六进制 hive 或二进制安装状态，也不因出现此假 SN 拒绝缓存。
 - 存在许可文件、rclone 配置或私有 FlexNet 时仍拒绝发布；必须在补丁夹具注入之前制作。
-- 缓存格式为 v2，key 包含 macOS/架构、介质路径、语言、版本配置、安装源码与假 SN 的指纹；恢复时逐文件核对
+- 缓存格式为 v3，key 包含 macOS/架构、介质路径、语言、Wine/Mono/stdole/7zz 版本、安装源码与假 SN 的指纹；恢复时逐文件核对
   SHA-256、文件权限、符号链接和 manifest，校验失败不启动容器，也不把坏缓存当作成功安装。
   Wine 构建脚本和公开 Wine 补丁也进入缓存 key，避免恢复由旧模块初始化的基底。
+- SWCLI 源码、版本和独立 Python/pywin32 配置、App 发布号不再参与安装 key。
+  快照只移除其副本中的 `drive_c/MacSW/Python311`，不修改安装后的活动 bottle；
+  v3 校验拒绝包含此部署的缓存，也不回退旧 v2 key。运行前从当前 App 重新部署并核验。
+  非 SWCLI 的未知新增配置仍保守参与身份；MacSWCore/安装入口源码也仍参与，
+  不能因为某次看似只改 UI 就未经依赖分析删除安装依赖。首次 v3 运行须重新安装，
+  随后的仅 SWCLI 更新可复用同一官方安装基底。
 - `cache.json` 区分 `fresh-install` 与 `installed-base-cache`。缓存命中不是本次全新安装
   证明；`force_fresh_install=true` 忽略缓存并重新挂载介质完成整个安装链。
 - 每次运行都重新下载、注入临时验证资源；不缓存补丁后的容器，不公开这些二进制。

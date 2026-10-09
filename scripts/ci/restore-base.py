@@ -25,6 +25,7 @@ CATEGORIES = {
     "Refusing to overwrite an existing test bottle": "destination-exists",
     "Refusing a snapshot root symlink": "snapshot-root-symlink",
     "License/configuration file found in official base; refusing cache": "prohibited-file",
+    "SWCLI deployment found in official base; refusing cache": "prohibited-runtime",
 }
 
 

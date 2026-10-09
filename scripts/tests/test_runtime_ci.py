@@ -115,7 +115,12 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertLess(snapshot, fixtures)
         self.assertLess(fixtures, gates)
         self.assertIn("TAR_OPTIONS: --same-permissions", self.runtime)
-        self.assertNotIn("macsw-installed-base-v2-", self.build)
+        self.assertNotIn("macsw-installed-base-v3-", self.build)
+        self.assertEqual(self.runtime.count("key: macsw-installed-base-v3-"), 2)
+        self.assertNotIn("restore-keys:", self.runtime)
+        identity = self.runtime.split("- name: Resolve installed base cache identity", 1)[1].split("- name:", 1)[0]
+        self.assertIn("scripts/ci/cache-identity.py installed-base", identity)
+        self.assertNotIn("'config/versions.env'", identity)
         for step in ("Stop isolated runtime test bottle", "Redact runtime evidence before publication",
                      "Upload sanitized runtime and installer evidence (no license files)"):
             section = self.runtime.split("- name: " + step, 1)[1].split("- name:", 1)[0]
@@ -784,6 +789,29 @@ class RuntimeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "License/configuration"):
             base_cache.export_snapshot("context")
         self.assertFalse((self.root / "base-cache").exists())
+
+    def test_base_cache_excludes_independently_deployed_swcli_without_changing_live_bottle(self):
+        bottle, _ = self.official_base()
+        runtime = bottle / "drive_c/MacSW/Python311"
+        runtime.mkdir(parents=True)
+        (runtime / "python.exe").write_bytes(b"old deployment")
+        base_cache.export_snapshot("context")
+        snapshot = self.root / "base-cache/bottle"
+        self.assertFalse((snapshot / "drive_c/MacSW/Python311").exists())
+        self.assertEqual((runtime / "python.exe").read_bytes(), b"old deployment")
+        manifest = json.loads((self.root / "base-cache/manifest.json").read_text())
+        self.assertEqual(manifest["format"], 3)
+        self.assertFalse(any("macsw/python311" in name.lower() for name in manifest["files"]))
+        # A cache cannot reintroduce a stale deployment, even if its manifest
+        # claims those bytes are intact. Both directories and symlinks fail.
+        injected = snapshot / "drive_c/MacSW/Python311"
+        injected.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "SWCLI deployment"):
+            base_cache.inventory(snapshot)
+        injected.rmdir()
+        injected.symlink_to(runtime, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, "SWCLI deployment"):
+            base_cache.inventory(snapshot)
 
     def test_base_cache_integrity_and_context_are_checked_before_restore(self):
         bottle, serial = self.official_base()

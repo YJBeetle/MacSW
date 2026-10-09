@@ -16,7 +16,7 @@ import shutil
 import stat
 import sys
 
-FORMAT = 2
+FORMAT = 3
 
 
 def root():
@@ -39,6 +39,9 @@ def inventory(directory):
     entries = {}
     for path in sorted(directory.rglob("*")):
         relative = path.relative_to(directory).as_posix()
+        if (relative.lower() == "drive_c/macsw/python311"
+                or relative.lower().startswith("drive_c/macsw/python311/")):
+            raise RuntimeError("SWCLI deployment found in official base; refusing cache")
         if path.is_symlink():
             entries[relative] = {"link": os.readlink(path)}
         elif path.is_file():
@@ -50,7 +53,8 @@ def inventory(directory):
 
 def prune_snapshot(bottle):
     # Fixed, validated snapshot paths only. No deletion follows directory links.
-    for path in [bottle / "drive_c/windows/temp", bottle / "drive_c/opt/FlexNet"]:
+    for path in [bottle / "drive_c/windows/temp", bottle / "drive_c/opt/FlexNet",
+                 bottle / "drive_c/MacSW/Python311"]:
         if not path.parent.resolve().is_relative_to(bottle.resolve()):
             raise RuntimeError("Snapshot cleanup path escaped the bottle")
         if path.name == "FlexNet" and (path.exists() or path.is_symlink()):

@@ -311,18 +311,12 @@ jobs:
           MACSW_MEDIA_PATH: ${{ inputs.media_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso' }}
           MACSW_CI_LANGUAGE: ${{ inputs.language || 'chinese-simplified' }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
-          MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'config/versions.env', 'scripts/ci/bottle-cache.py', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
+          # Installation source stays conservative; SWCLI/App release identity
+          # is filtered separately because it is redeployed from this run's App.
+          MACSW_INSTALLER_HASH: ${{ hashFiles('macos/Bootstrap/Sources/MacSWCore/**', 'macos/Bootstrap/Sources/MacSWCI/**', 'scripts/ci/cache-identity.py', 'scripts/ci/bottle-cache.py', 'scripts/build_winemac.sh', 'patches/wine-crossover/**') }}
         run: |
-          python3 - <<'PY'
-          import hashlib, json, os, platform
-          context = {name: os.environ[name] for name in
-                     ('MACSW_MEDIA_PATH', 'MACSW_CI_LANGUAGE', 'MACSW_INSTALLER_HASH')}
-          context.update(macos=platform.mac_ver()[0], architecture=platform.machine())
-          context['ci_serial_sha256'] = hashlib.sha256(os.environ['SW_SERIAL_SOLIDWORKS'].encode()).hexdigest()
-          digest = hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
-          with open(os.environ['GITHUB_ENV'], 'a') as stream:
-              stream.write('MACSW_BASE_CONTEXT=' + digest + '\n')
-          PY
+          base_context="$(python3 scripts/ci/cache-identity.py installed-base)"
+          echo "MACSW_BASE_CONTEXT=$base_context" >> "$GITHUB_ENV"
 
       - name: Restore official installed bottle cache
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install
@@ -334,7 +328,7 @@ jobs:
           TAR_OPTIONS: --same-permissions
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
-          key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+          key: macsw-installed-base-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Validate cache and copy into isolated test bottle
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit == 'true'
@@ -368,7 +362,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/MacSW-runtime/base-cache
-          key: macsw-installed-base-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
+          key: macsw-installed-base-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Prepare temporary licensing and runtime fixtures
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
