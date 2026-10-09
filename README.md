@@ -56,6 +56,9 @@ Tahoma font links, repairs missing links while preserving existing fallbacks,
 and shares that preparation task with subsequent SOLIDWORKS launches.
 See the [font documentation](docs/font-fallback.md).
 
+For theme diagnostics, `make theme-probe` builds a read-only Win32 controls and MDI
+gallery; see the [theme probe guide](docs/wine-theme-probe.md).
+
 ## SWCLI quick start
 
 The bundled `sw-cli` provides document and part automation. **Start the daemon
