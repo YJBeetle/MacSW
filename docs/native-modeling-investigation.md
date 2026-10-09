@@ -2,12 +2,33 @@
 
 ## 当前结论
 
-MacSW 的构建、真实安装与 COM 就绪已经有成功证据，但托管 macOS 上的连续建模
-尚未稳定通过。当前没有足够证据把故障归因于某个 Wine 模块、隐藏窗口或矩形算法。
+MacSW 的构建、真实安装与 COM 就绪已经有成功证据。最新 `37885314239` 首次完成
+可见模式的连续共享建模，随后尺寸门禁因 CLI 元数据校验失败；完整尺寸与隐藏
+模式仍未通过。当前没有足够证据把此前间歇故障归因于某个 Wine 模块或隐藏窗口。
 调查保持原有共享门禁和 120 秒操作超时，不重试失败操作，不中途重启后续跑。
 
 MacSW 负责安装、Wine、App 打包、驱动映射、宿主准备和证据收集；建模操作与
 断言仍只维护在 SWCLI。Windows、DockerSW 的成功不能替代本仓库 macOS 的证明。
+
+## 最新运行：2026-10-09
+
+[37885314239](https://github.com/YJBeetle/MacSW/actions/runs/37885314239) 固定 MacSW
+`601f1616e5460c0a3385cabdc44c731da619e6ed`、SWCLI
+`e06313680f5e410b29ea0ffb457b738252f20eb5`。构建、安装、软件 renderer 位图门禁和
+可见启动通过；85 个共享建模事件通过，包含首轮拉伸、切除、三面建模、保存重开、
+反向切除及拒绝切除后的继续建模。前后宿主 PID 均为 504、版本 33.5.0，清理错误 0。
+
+随后 front 尺寸门禁的矩形与 `sketch.fix-center` 实际成功：中心 (3,4)、40×30 mm、
+边界 [-17,-11,23,19]。请求 `b1fe45f7-dbd9-4cfa-ba4e-5e99c06e72dd` 的 CLI 输出
+带有展示层 `request_id`；共享脚本直接把平坦 JSON 交给仅描述业务结果的 Schema，
+于是报 `OperationResultInvalid / Additional properties ('request_id')`。准确失败步骤
+仍为 `SOLIDWORKS installation & runtime / Shared modeling then driving dimensions on one host`，
+但这轮不是 `WorkerTimeout` 或宿主断连；未进入隐藏模式。
+
+这一轮没有出现满足 30 秒不变 begin 边界的调用，因此没有原生线程采样文件。
+不能将未复现解释为旧 Wine 阻塞根因已修复，也不能继续拿旧 FirstFeature 超时解释
+本次明确的共享脚本校验错误。SWCLI 已独立修复 CLI 元数据校验，并按用户选择
+换成确实带额外原点约束的固定原生拒绝样例；本仓随后同步新源版本继续完整门禁。
 
 ## 已完成运行的证据
 
