@@ -109,14 +109,14 @@ final class RegistryServiceTests: XCTestCase {
         XCTAssertEqual(remote.first { $0.name == "Service" }?.value, "")
     }
 
-    /// SOLIDWORKS 的输入捕获、MDI 标题按钮外观和字体平滑是同一批安装期兼容设置，
+    /// SOLIDWORKS 的输入捕获、窗口截图、MDI 标题按钮外观和字体平滑是同一批安装期兼容设置，
     /// 必须一次写齐；日常启动不再负责补写或迁移。
-    func testSolidWorksCompatibilityAssignmentsCoverInputAndCaptionAppearance() {
+    func testSolidWorksCompatibilityAssignmentsCoverInputCaptureAndCaptionAppearance() {
         XCTAssertEqual(RegistryService.solidWorksCompatibilityAssignments, [
             RegistryAssignment(
                 key: "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
                 name: "sldworks.exe",
-                value: "WINE_NOCAPTURERESEND"
+                value: "WINE_NOCAPTURERESEND WINE_PRINTWINDOW_SURFACE"
             ),
             RegistryAssignment(
                 key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager",
