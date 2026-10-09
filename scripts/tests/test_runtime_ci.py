@@ -450,6 +450,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         host = {"platform": "macos-wine", "owned_by_daemon": True,
                 "shared_interactive": False, "visible": True, "process_id": 472}
         with patch.object(gate, "command") as command, patch.object(gate, "host", return_value=host), \
+                patch.object(ci, "verify_swcli_deployment", return_value={"verified": True, "files": 3, "sha256": "a" * 64}) as deployment, \
                 patch.object(ci.subprocess, "Popen") as spawn:
             spawn.return_value.poll.return_value = None
             self.assertEqual(gate.start("visible"), host)
@@ -458,6 +459,8 @@ class RuntimeAdapterTests(unittest.TestCase):
             [gate.runtime_helper, "prepare", "visible"], [gate.helper, "prepare"],
             [gate.runtime_helper, "inspect", "visible"]])
         self.assertEqual(spawn.call_count, 1)
+        deployment.assert_called_once_with(gate.app, gate.prefix)
+        self.assertEqual(gate.record["swcli_deployments"][0]["mode"], "visible")
         self.assertNotIn("--attach-existing", spawn.call_args.args[0])
         self.assertEqual(spawn.call_args.kwargs["env"]["SWCLI_TRACE_NATIVE_CALLS"], "1")
         self.assertIs(spawn.call_args.kwargs["stdout"], gate.log)
@@ -468,6 +471,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         package = (PROJECT / "scripts/package_app.sh").read_text()
         workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
         self.assertIn("SolidWorksResourceMonitorService()", helper)
+        self.assertIn("PrerequisiteService.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: paths.bottle)", helper)
         self.assertIn("monitor.setDisabled(true, paths: paths)", helper)
         self.assertIn("wine.windowsPath(for: mono, prefix: paths.bottle)", helper)
         self.assertIn('env["GITHUB_ACTIONS"] == "true"', helper)
@@ -479,6 +483,42 @@ class RuntimeAdapterTests(unittest.TestCase):
         installer_hash = next(line for line in workflow.splitlines() if "MACSW_INSTALLER_HASH:" in line)
         self.assertNotIn("Sources/MacSWCIRuntime", installer_hash)
         self.assertIn("--product MacSWCIRuntime", workflow)
+
+    def test_stale_runtime_fails_before_license_preparation_or_host_start(self):
+        gate = self.gate()
+        with patch.object(gate, "command") as command, \
+                patch.object(ci, "verify_swcli_deployment", side_effect=RuntimeError("stale runtime")), \
+                patch.object(ci.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(RuntimeError, "stale runtime"):
+                gate.start("visible")
+        command.assert_called_once_with([gate.runtime_helper, "prepare", "visible"])
+        spawn.assert_not_called()
+        self.assertEqual(gate.record["swcli_deployments"], [])
+
+    def test_runtime_inventory_requires_exact_current_app_payload(self):
+        gate = self.gate()
+        source = gate.app / "Contents/Resources/SWCLI/runtime/Python311"
+        destination = gate.prefix / "drive_c/MacSW/Python311"
+        for name in ("python.exe", "pythonw.exe", "Lib/site-packages/swcli/__main__.py"):
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode())
+        shutil.copytree(source, destination)
+        proof = ci.verify_swcli_deployment(gate.app, gate.prefix)
+        self.assertTrue(proof["verified"])
+        self.assertEqual(proof["files"], 3)
+        self.assertEqual(len(proof["sha256"]), 64)
+        installed = destination / "Lib/site-packages/swcli/__main__.py"
+        installed.write_bytes(b"older daemon")
+        with self.assertRaisesRegex(RuntimeError, "differs"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+        installed.unlink()
+        installed.symlink_to(source / "Lib/site-packages/swcli/__main__.py")
+        with self.assertRaisesRegex(RuntimeError, "symlink"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+        installed.unlink()
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
 
     def test_real_mapping_and_secrets_not_forwarded(self):
         gate = self.gate()

@@ -43,6 +43,10 @@ struct MacSWCIRuntime {
         guard monitorState != .enabled else { throw failure() }
         var monoWindowsPath = ""
         if arguments[0] == "prepare" {
+            // The official installation cache excludes this independently
+            // versioned deployment. Always use THIS run's verified App payload,
+            // including after restoring an older official installation base.
+            try PrerequisiteService.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: paths.bottle)
             let wine = WineService.shared
             let mono = wine.runtimeURL.appendingPathComponent("share/wine/mono/wine-mono-\(BuildInfo.monoVersion)")
             // The cache deliberately removes runner-root drives. Rebind this

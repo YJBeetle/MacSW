@@ -39,4 +39,30 @@ final class SWCLIRuntimeTests: XCTestCase {
             )
         )
     }
+
+    func testDeploymentReplacesOldDaemonAndRemovesStaleFiles() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("MacSW-swcli-replace-\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("MacSW.app")
+        let source = bundle.appendingPathComponent("Contents/Resources/SWCLI/runtime/Python311")
+        let prefix = root.appendingPathComponent("bottle")
+        let target = prefix.appendingPathComponent(PrerequisiteService.swcliDestination)
+        for directory in [source, target] {
+            try fileManager.createDirectory(
+                at: directory.appendingPathComponent("Lib/site-packages/swcli"), withIntermediateDirectories: true
+            )
+            try Data("python".utf8).write(to: directory.appendingPathComponent("python.exe"))
+        }
+        let entry = "Lib/site-packages/swcli/__main__.py"
+        try Data("current daemon".utf8).write(to: source.appendingPathComponent(entry))
+        try Data("older daemon".utf8).write(to: target.appendingPathComponent(entry))
+        try Data("stale".utf8).write(to: target.appendingPathComponent("old-module.py"))
+
+        try PrerequisiteService.prepareSWCLI(bundleURL: bundle, prefix: prefix)
+
+        XCTAssertEqual(try Data(contentsOf: target.appendingPathComponent(entry)), Data("current daemon".utf8))
+        XCTAssertFalse(fileManager.fileExists(atPath: target.appendingPathComponent("old-module.py").path))
+        XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent(entry)), Data("current daemon".utf8))
+    }
 }

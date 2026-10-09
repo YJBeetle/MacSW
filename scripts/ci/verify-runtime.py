@@ -7,6 +7,7 @@ packaged helper using actual bottle drive mappings, never by assuming Z:.
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import math
 import json
 import os
@@ -20,6 +21,38 @@ import time
 
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py")
+
+
+def runtime_inventory(directory):
+    """Exact public runtime bytes; do not follow symlinks or accept empty trees."""
+    if directory.is_symlink() or not directory.is_dir():
+        raise RuntimeError("SWCLI runtime directory is unavailable")
+    files = {}
+    for path in sorted(directory.rglob("*")):
+        if path.is_symlink():
+            raise RuntimeError("SWCLI runtime contains a symlink")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise RuntimeError("SWCLI runtime contains a non-file entry")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            while block := stream.read(1024 * 1024):
+                digest.update(block)
+        files[path.relative_to(directory).as_posix()] = digest.hexdigest()
+    required = ("python.exe", "pythonw.exe", "Lib/site-packages/swcli/__main__.py")
+    if any(name not in files for name in required):
+        raise RuntimeError("SWCLI runtime is incomplete")
+    return files
+
+
+def verify_swcli_deployment(app, prefix):
+    source = runtime_inventory(app / "Contents/Resources/SWCLI/runtime/Python311")
+    installed = runtime_inventory(prefix / "drive_c/MacSW/Python311")
+    if installed != source:
+        raise RuntimeError("Installed SWCLI runtime differs from this run's App")
+    digest = hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()
+    return {"verified": True, "files": len(source), "sha256": digest}
 
 
 def wine_process_metrics(output, app):
@@ -246,7 +279,7 @@ class RuntimeGate:
         self.runtime_helper = app / "Contents/MacOS/MacSWCIRuntime"
         self.path_helper = app / "Contents/Resources/SWCLI/bin/swcli-path"
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
-                       "host_observations": [], "host_acquisitions": []}
+                       "host_observations": [], "host_acquisitions": [], "swcli_deployments": []}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
                         # OLE trace emits millions of GUID/string events during
@@ -348,6 +381,9 @@ class RuntimeGate:
     def start(self, mode):
         self.phase(mode + ".prepare")
         self.command([self.runtime_helper, "prepare", mode])
+        deployment = verify_swcli_deployment(self.app, self.prefix)
+        self.record["swcli_deployments"].append(dict(deployment, mode=mode))
+        self.checkpoint()
         self.command([self.helper, "prepare"])
         self.command([self.runtime_helper, "inspect", mode])
         self.phase(mode + ".startup")
