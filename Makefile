@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 .PHONY: app archive bootstrap ci fetch fetch-mono fetch-runtime launcher \
 	fetch-seven-zip fetch-stdole fetch-swcli-runtime fetch-wine-source icon package \
-	swcli-helper test theme-probe verify winemac
+	swcli-helper test theme-probe treeview-probe verify winemac
 
 launcher:
 	./macos/Bootstrap/build_bootstrap.sh
@@ -40,6 +40,9 @@ swcli-helper:
 # Optional developer diagnostic; not shipped or launched by the App.
 theme-probe:
 	bash ./scripts/build_wine_theme_probe.sh
+
+treeview-probe:
+	bash ./scripts/build_wine_treeview_probe.sh
 
 icon:
 	mkdir -p build/resources

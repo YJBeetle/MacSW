@@ -120,6 +120,7 @@ GitHub Actions 的 `build` job 分步执行 `make test` 和 `make archive`；独
 - [兼容性与实测范围](docs/compatibility.md)
 - [真实安装与运行 CI](docs/runtime-ci.md)
 - [中文字体回退](docs/font-fallback.md)
+- [树控件图标间距与裁切修复](docs/treeview-layout.md)
 - [视口图层裁剪](docs/winemac-opengl-child-clipping.md)
 - [OpenGL 前缓冲与预选修复](docs/opengl-front-buffer.md)
 - [原生建模调查与离屏 BMP 绘制](docs/native-modeling-investigation.md)

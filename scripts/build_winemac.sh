@@ -13,11 +13,13 @@ SPACE_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0006-winemac-preserve-soli
 COM_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0007-combase-wait-solidworks-registration.patch"
 BITMAP_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0008-winemac-bitmap-framebuffer.patch"
 SOFTWARE_RENDERER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0009-winemac-software-renderer-fallback.patch"
+TREEVIEW_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0010-comctl32-treeview-image-spacing.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
 WINE_LOADER_OUTPUT="${OUTPUT_DIR}/MacSW"
 COMBASE_OUTPUT="${OUTPUT_DIR}/combase.dll"
+COMCTL32_V6_OUTPUT="${OUTPUT_DIR}/comctl32_v6.dll"
 STAMP_FILE="${OUTPUT_DIR}/build-key"
 
 if [ -x /opt/homebrew/opt/bison/bin/bison ]; then
@@ -60,9 +62,10 @@ SPACE_PATCH_SHA256="$(shasum -a 256 "${SPACE_PATCH}" | awk '{print $1}')"
 COM_PATCH_SHA256="$(shasum -a 256 "${COM_PATCH}" | awk '{print $1}')"
 BITMAP_PATCH_SHA256="$(shasum -a 256 "${BITMAP_PATCH}" | awk '{print $1}')"
 SOFTWARE_RENDERER_PATCH_SHA256="$(shasum -a 256 "${SOFTWARE_RENDERER_PATCH}" | awk '{print $1}')"
+TREEVIEW_PATCH_SHA256="$(shasum -a 256 "${TREEVIEW_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
-if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${TREEVIEW_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
+if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${COMCTL32_V6_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
     exit 0
@@ -94,6 +97,8 @@ git -C "${SOURCE_DIR}" apply --check "${BITMAP_PATCH}"
 git -C "${SOURCE_DIR}" apply "${BITMAP_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${SOFTWARE_RENDERER_PATCH}"
 git -C "${SOURCE_DIR}" apply "${SOFTWARE_RENDERER_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${TREEVIEW_PATCH}"
+git -C "${SOURCE_DIR}" apply "${TREEVIEW_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
@@ -150,6 +155,7 @@ make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
     dlls/winemac.drv/winemac.so \
     dlls/win32u/win32u.so \
     dlls/combase/x86_64-windows/combase.dll \
+    dlls/comctl32_v6/x86_64-windows/comctl32_v6.dll \
     loader/wine
 
 mkdir -p "${OUTPUT_DIR}"
@@ -157,8 +163,10 @@ cp "${BUILD_DIR}/dlls/winemac.drv/winemac.so" "${WINEMAC_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/win32u/win32u.so" "${WIN32U_OUTPUT}.new"
 cp "${BUILD_DIR}/loader/wine" "${WINE_LOADER_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/combase/x86_64-windows/combase.dll" "${COMBASE_OUTPUT}.new"
+cp "${BUILD_DIR}/dlls/comctl32_v6/x86_64-windows/comctl32_v6.dll" "${COMCTL32_V6_OUTPUT}.new"
 # This is a Wine PE module, not Mach-O: verify architecture, do not codesign it.
 file "${COMBASE_OUTPUT}.new" | grep -q 'PE32+ executable.*x86-64'
+file "${COMCTL32_V6_OUTPUT}.new" | grep -q 'PE32+ executable.*x86-64'
 install_name_tool -id winemac.so "${WINEMAC_OUTPUT}.new"
 install_name_tool -id win32u.so "${WIN32U_OUTPUT}.new"
 install_name_tool -add_rpath '@loader_path/../../' "${WIN32U_OUTPUT}.new"
@@ -172,6 +180,7 @@ mv "${WINEMAC_OUTPUT}.new" "${WINEMAC_OUTPUT}"
 mv "${WIN32U_OUTPUT}.new" "${WIN32U_OUTPUT}"
 mv "${WINE_LOADER_OUTPUT}.new" "${WINE_LOADER_OUTPUT}"
 mv "${COMBASE_OUTPUT}.new" "${COMBASE_OUTPUT}"
+mv "${COMCTL32_V6_OUTPUT}.new" "${COMCTL32_V6_OUTPUT}"
 printf '%s' "${BUILD_KEY}" > "${STAMP_FILE}"
 
-echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${WINE_LOADER_OUTPUT}, ${COMBASE_OUTPUT}"
+echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${WINE_LOADER_OUTPUT}, ${COMBASE_OUTPUT}, ${COMCTL32_V6_OUTPUT}"

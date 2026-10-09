@@ -147,6 +147,7 @@ Some detailed implementation notes and reports are written in Chinese.
 - [Compatibility and tested scope](docs/compatibility.md)
 - [Real installation and runtime CI](docs/runtime-ci.md)
 - [Chinese font fallback](docs/font-fallback.md)
+- [TreeView icon spacing and clipping fix](docs/treeview-layout.md)
 - [Viewport layer clipping](docs/winemac-opengl-child-clipping.md)
 - [OpenGL front-buffer and preselection fixes](docs/opengl-front-buffer.md)
 - [Native modeling investigation and offscreen BMP rendering](docs/native-modeling-investigation.md)
