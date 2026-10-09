@@ -367,3 +367,29 @@ Part/Assembly 样例，因此 85 个事件不等同于 Windows/DockerSW 含样�
    未削弱的共享门禁，并分别记录本机、全新安装和缓存恢复的结果。
 4. App 更新时既有 bottle 的 Windows backend 同步仍需单独核查；本次为可恢复
    的显式测试升级，不把这个部署问题与托管 CI 的原生异常混为一项。
+# 托管拉伸后的诊断阻塞（2026-10-09）
+
+[CI 37833182637](https://github.com/YJBeetle/MacSW/actions/runs/37833182637)
+使用 MacSW `fd8d65b` / SWCLI `d5fc84b`，构建、安装基底验证、八项软件
+renderer 位图探针和可见 SW 启动通过。后台 front 矩形 100×50 mm、中心
+(10,20) mm 已通过；第一次 20 mm 拉伸随后超过原有 120 秒期限。
+此次没有到达切除或尺寸测试，不能拿它确认上轮切除问题已修复。
+
+请求 `26c1d990-acbf-4098-93ef-c341c5028e6f` 的特征名称／类型读取均返回，
+`EditRebuild3` 约 1.019 秒后返回；紧接着诊断遍历的 `FirstFeature` 只有
+begin，无 end/error（sequence 78）。Python 空闲，SW 的 CPU 持续约
+216–219%。这定位到最后进入的读取边界，但尚不能区分 SW、COM 或 Wine
+内部的等待／忙循环。超时后的 `REGDB_E_CLASSNOTREG` 属于清理失败，不是
+首次启动失败。
+
+下一轮在现有 `HostMetrics` 内增加一次只读 `/usr/bin/sample`：同一原生
+边界连续观察至少 30 秒未变化，且只有一个明确属于 daemon 的隔离 CI SW
+进程时，采样 2 秒，工具期限 4 秒，每个模式最多一次。输出为
+`visible-native-stall.log` / `hidden-native-stall.log`，通过既有日志脱敏屏障
+后上传，关联请求／调用／Unix PID 写进 host metrics。缺少工具或采样失败
+只记录诊断缺口，不修改原 CAD 结果。不挂调试器、不暂停宿主、不调用 COM、
+不重试、不放宽期限／几何断言、不在建模与尺寸之间重启。
+
+SWCLI 同步到 `e063136` 的有范围矩形 `AddToDB` 修复，以保持两宿主开发门禁
+版本一致；该改动处理 Windows 的独立矩形吸附问题，不作为托管阻塞修复
+结论。公共产品版本和已发布镜像不变。

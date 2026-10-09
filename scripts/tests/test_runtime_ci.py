@@ -322,6 +322,82 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertNotIn("private", json.dumps(record))
         self.assertFalse(gate.record["completed"])
 
+    def stall_metrics(self):
+        gate = self.gate()
+        gate.record["hosts"] = [{"mode": "visible", "host": {"owned_by_daemon": True}}]
+        metrics = ci.HostMetrics(gate, "visible")
+        event = {"event": "swcli.native-call", "worker_pid": 32, "request_id": "request-1",
+                 "sequence": 78, "phase": "begin", "call": "FirstFeature", "stage": "read",
+                 "operation": "feature.extrude", "monotonic_seconds": 999999}
+        path = gate.evidence / "visible-daemon.log"
+        path.write_text("Wine diagnostics\n" + json.dumps(event) + "\n")
+        return gate, metrics, event, path, [{"name": "sldworks.exe", "unix_pid": 42}]
+
+    def test_native_stall_samples_one_owned_host_after_unchanged_boundary(self):
+        gate, metrics, event, path, targets = self.stall_metrics()
+        with patch.object(ci.time, "monotonic", side_effect=[10, 39, 40]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            result = metrics.sample_stalled_host(targets)
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        self.assertEqual(result["call"], "FirstFeature")
+        self.assertEqual(result["request_id"], "request-1")
+        run.assert_called_once_with(
+            ["/usr/bin/sample", "42", "2", "1", "-file", str(gate.evidence / "visible-native-stall.log")],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=4, env={"LC_ALL": "C", "LANG": "C"})
+        self.assertFalse(gate.record["completed"])
+
+    def test_native_stall_end_or_new_call_resets_observation_without_sampling(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        with patch.object(ci.time, "monotonic", side_effect=[10, 100, 200, 220]), \
+                patch.object(ci.subprocess, "run") as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            event["phase"] = "end"
+            path.write_text(json.dumps(event) + "\n")
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            event.update(phase="begin", sequence=79)
+            path.write_text(json.dumps(event) + "\n")
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        run.assert_not_called()
+
+    def test_native_stall_never_samples_shared_ambiguous_missing_or_stopped_hosts(self):
+        gate, metrics, event, path, targets = self.stall_metrics()
+        metrics.last_native_event = (32, "request-1", 78, "begin")
+        metrics.last_native_change = 0
+        with patch.object(ci.time, "monotonic", return_value=100), \
+                patch.object(ci.subprocess, "run") as run:
+            gate.record["hosts"][0]["host"]["owned_by_daemon"] = False
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            gate.record["hosts"][0]["host"]["owned_by_daemon"] = True
+            for processes in ([], targets * 2):
+                self.assertIsNone(metrics.sample_stalled_host(processes))
+            metrics.stopped.set()
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        run.assert_not_called()
+
+    def test_native_stall_tool_failure_is_once_only_and_keeps_private_text_out(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40]), \
+                patch.object(ci.subprocess, "run", side_effect=OSError("private native text")) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            result = metrics.sample_stalled_host(targets)
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        self.assertEqual(result, {"diagnostic_error": "OSError"})
+        run.assert_called_once()
+
+    def test_native_stall_tolerates_missing_malformed_and_no_native_boundary(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        with patch.object(ci.subprocess, "run") as run:
+            for text in ("", "Wine diagnostics only\n", '{"event": "swcli.native-call", broken\n'):
+                path.write_text(text)
+                self.assertIsNone(metrics.sample_stalled_host(targets))
+            path.unlink()
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        run.assert_not_called()
+
     def test_metrics_context_stops_sampler_and_preserves_original_gate_error(self):
         metrics = ci.HostMetrics(self.gate(), "visible")
         with patch.object(metrics.thread, "start") as start, patch.object(metrics.thread, "join") as join:

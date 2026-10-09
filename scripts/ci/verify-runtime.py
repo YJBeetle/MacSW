@@ -68,6 +68,48 @@ class HostMetrics:
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.observe, daemon=True)
         self.started = False
+        self.last_native_event = None
+        self.last_native_change = time.monotonic()
+        self.sampled = False
+
+    def sample_stalled_host(self, processes):
+        """One read-only native sample after an unchanged call boundary for 30s."""
+        if self.sampled or self.stopped.is_set():
+            return None
+        path = self.gate.evidence / (self.mode + "-daemon.log")
+        try:
+            # Do not consume/move the daemon's writer offset or copy huge logs.
+            with path.open("rb") as source:
+                source.seek(max(0, os.fstat(source.fileno()).st_size - 128 * 1024))
+                lines = source.read().decode("utf-8", errors="replace").splitlines()
+            event = next(json.loads(line) for line in reversed(lines)
+                         if line.startswith('{"event": "swcli.native-call"'))
+            key = (event["worker_pid"], event["request_id"], event["sequence"], event["phase"])
+            now = time.monotonic()
+            if key != self.last_native_event:
+                self.last_native_event, self.last_native_change = key, now
+                return None
+            if event["phase"] != "begin" or now - self.last_native_change < 30:
+                return None
+            hosts = [item["host"] for item in self.gate.record["hosts"] if item["mode"] == self.mode]
+            targets = [item for item in processes if item["name"] == "sldworks.exe"]
+            if len(hosts) != 1 or not hosts[0]["owned_by_daemon"] or len(targets) != 1:
+                return None
+            self.sampled = True
+            output = self.gate.evidence / (self.mode + "-native-stall.log")
+            # sample observes only this isolated CI host. No suspend, debugger,
+            # memory dump, COM call, retry or change to the worker deadline.
+            result = subprocess.run(["/usr/bin/sample", str(targets[0]["unix_pid"]), "2", "1",
+                                     "-file", str(output)], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    timeout=4, env={"LC_ALL": "C", "LANG": "C"})
+            return {"request_id": event["request_id"], "operation": event["operation"],
+                    "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
+                    "unix_pid": targets[0]["unix_pid"], "exit_code": result.returncode,
+                    "evidence": output.name}
+        except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError) as error:
+            # Missing logs/tool failures cannot turn a CAD failure into a pass.
+            return {"diagnostic_error": type(error).__name__} if self.sampled else None
 
     def capture(self):
         record = {"phase": self.gate.record["phase"],
@@ -83,6 +125,9 @@ class HostMetrics:
             if result.returncode != 0:
                 raise RuntimeError("ps failed")
             record["processes"] = wine_process_metrics(result.stdout, self.gate.app)
+            sample = self.sample_stalled_host(record["processes"])
+            if sample is not None:
+                record["native_stall_sample"] = sample
         except Exception as error:
             # OS/tool failures are diagnostic gaps, not CAD failures. Exception
             # messages, ps stderr and raw command lines must never be published.
