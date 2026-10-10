@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct BootstrapView: View {
     @ObservedObject var store: BootstrapStore
+    let onFinish: () -> Void
     @State private var showCleanInstallConfirmation = false
     @State private var additionalOptionsExpanded = false
     @State private var showCleanupConfirmation = false
@@ -12,12 +13,26 @@ struct BootstrapView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
-            Divider()
-            if store.state.isActive || isTerminalState {
-                progressContent
+            if store.state == .completed {
+                InstallationCompletionView(
+                    autoLaunch: AppPreferences.autoLaunchSolidWorks(),
+                    warnings: InstallationStep.allCases.compactMap { step in
+                        guard store.stepStatuses[step] == .warning else { return nil }
+                        return "\(step.title)：\(store.stepDetails[step] ?? "请查看日志了解详情。")"
+                    },
+                    onRevealLogs: { LogReveal.open(store.paths.logs) },
+                    onFinish: onFinish
+                )
+                .reportIdealScrollHeight()
+                .reportViewportHeight()
             } else {
-                configurationContent
+                header
+                Divider()
+                if store.state.isActive || isTerminalState {
+                    progressContent
+                } else {
+                    configurationContent
+                }
             }
         }
         .padding(24)

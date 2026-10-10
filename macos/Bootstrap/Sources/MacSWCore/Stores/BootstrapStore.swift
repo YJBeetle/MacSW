@@ -545,7 +545,7 @@ public final class BootstrapStore: ObservableObject {
             try writeInstallationReceipt()
             report(.validation, .completed, "主程序、SldWorks.Application COM 注册与主题库校验通过")
             state = .completed
-            statusMessage = "安装完成，MacSW 将切换到菜单栏并启动 SOLIDWORKS。"
+            statusMessage = "安装成功，请点击“完成”关闭安装窗口。"
             if suspendedFontPreparation {
                 runtime?.resumeFontPreparationAfterBottleDeletion()
                 suspendedFontPreparation = false
