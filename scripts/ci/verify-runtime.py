@@ -53,12 +53,42 @@ def runtime_inventory(directory):
 
 
 def verify_swcli_deployment(app, prefix):
-    source = runtime_inventory(app / "Contents/Resources/SWCLI/runtime/Python311")
-    installed = runtime_inventory(prefix / "drive_c/MacSW/Python311")
+    resources = app / "Contents/Resources/SWCLI"
+    source = runtime_inventory(resources / "runtime/Python311")
+    manifest = runtime_record(resources / "runtime-manifest.json", "App SWCLI runtime manifest")
+    if (not isinstance(manifest, dict)
+            or set(manifest) != {"format", "version", "source_commit", "files"}
+            or type(manifest["format"]) is not int or manifest["format"] != 1
+            or any(not isinstance(manifest[key], str) or not manifest[key].strip()
+                   for key in ("version", "source_commit"))
+            or manifest["files"] != source):
+        raise RuntimeError("App SWCLI runtime manifest differs from its payload")
+    target = prefix / "drive_c/MacSW/Python311"
+    installed = runtime_inventory(target)
+    marker = ".macsw-runtime.json"
+    receipt = runtime_record(target / marker, "Installed SWCLI deployment receipt")
+    if (not isinstance(receipt, dict) or set(receipt) != set(manifest)
+            or type(receipt["format"]) is not int or receipt["format"] != 1
+            or receipt != manifest):
+        raise RuntimeError("Installed SWCLI deployment receipt differs from this run's App")
+    # Only this independently verified metadata is not an App payload file.
+    # All other files, including unknown entries and bytecode caches, remain
+    # subject to exact comparison; a missing/invalid receipt never passes.
+    installed.pop(marker)
     if installed != source:
         raise RuntimeError("Installed SWCLI runtime differs from this run's App")
     digest = hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()
-    return {"verified": True, "files": len(source), "sha256": digest}
+    return {"verified": True, "receipt_verified": True, "files": len(source), "sha256": digest,
+            "version": manifest["version"], "source_commit": manifest["source_commit"]}
+
+
+def runtime_record(path, label):
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(label + " is missing or not a regular file")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        raise RuntimeError(label + " is invalid") from error
 
 
 def wine_process_metrics(output, app):

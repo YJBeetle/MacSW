@@ -34,6 +34,9 @@ cache_spec.loader.exec_module(base_cache)
 restore_spec = importlib.util.spec_from_file_location("macsw_cache_diagnostic", PROJECT / "scripts/ci/restore-base.py")
 restore_cache = importlib.util.module_from_spec(restore_spec)
 restore_spec.loader.exec_module(restore_cache)
+sync_spec = importlib.util.spec_from_file_location("macsw_runtime_sync", PROJECT / "scripts/swcli/swcli_runtime.py")
+runtime_sync = importlib.util.module_from_spec(sync_spec)
+sync_spec.loader.exec_module(runtime_sync)
 
 
 class RuntimeWorkflowTests(unittest.TestCase):
@@ -570,15 +573,35 @@ class RuntimeAdapterTests(unittest.TestCase):
         spawn.assert_not_called()
         self.assertEqual(gate.record["swcli_deployments"], [])
 
-    def test_runtime_inventory_requires_exact_current_app_payload(self):
+    def deploy_public_runtime(self):
         gate = self.gate()
-        source = gate.app / "Contents/Resources/SWCLI/runtime/Python311"
+        resources = gate.app / "Contents/Resources/SWCLI"
+        source = resources / "runtime/Python311"
         destination = gate.prefix / "drive_c/MacSW/Python311"
         for name in ("python.exe", "pythonw.exe", "Lib/site-packages/swcli/__main__.py"):
             path = source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(name.encode())
-        shutil.copytree(source, destination)
+        manifest = runtime_sync.build_manifest(source, "0.1.0a8.dev0", "a" * 40)
+        (resources / "runtime-manifest.json").write_text(json.dumps(manifest))
+        self.assertTrue(runtime_sync.synchronize(gate.app / "Contents", gate.prefix, in_use=lambda: False))
+        return gate, source, destination, manifest
+
+    def test_real_runtime_synchronization_receipt_passes_ci_verification(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        self.assertEqual(json.loads((destination / runtime_sync.MARKER).read_text()), manifest)
+        self.assertTrue(runtime_sync.current(destination, manifest))
+        self.assertFalse(runtime_sync.synchronize(gate.app / "Contents", gate.prefix,
+                                                 in_use=lambda: self.fail("current deployment must not probe Wine")))
+        proof = ci.verify_swcli_deployment(gate.app, gate.prefix)
+        self.assertTrue(proof["receipt_verified"])
+        self.assertEqual(proof["version"], manifest["version"])
+        self.assertEqual(proof["source_commit"], manifest["source_commit"])
+        self.assertEqual(ci.runtime_inventory(destination).keys() - ci.runtime_inventory(source).keys(),
+                         {runtime_sync.MARKER})
+
+    def test_runtime_inventory_requires_exact_current_app_payload(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
         proof = ci.verify_swcli_deployment(gate.app, gate.prefix)
         self.assertTrue(proof["verified"])
         self.assertEqual(proof["files"], 3)
@@ -594,6 +617,73 @@ class RuntimeAdapterTests(unittest.TestCase):
         installed.unlink()
         with self.assertRaisesRegex(RuntimeError, "incomplete"):
             ci.verify_swcli_deployment(gate.app, gate.prefix)
+
+    def test_runtime_receipt_missing_malformed_or_changed_is_rejected(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        receipt = destination / runtime_sync.MARKER
+        for value in ("{", "[]", json.dumps(dict(manifest, version="another-version")),
+                      json.dumps(dict(manifest, format=True)),
+                      json.dumps(dict(manifest, format=1.0)),
+                      json.dumps(dict(manifest, source_commit="b" * 40)),
+                      json.dumps(dict(manifest, files={})),
+                      json.dumps(dict(manifest, unknown=True))):
+            with self.subTest(value=value):
+                receipt.write_text(value)
+                with self.assertRaisesRegex(RuntimeError, "receipt"):
+                    ci.verify_swcli_deployment(gate.app, gate.prefix)
+        receipt.unlink()
+        with self.assertRaisesRegex(RuntimeError, "receipt"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+        receipt.symlink_to(gate.app / "Contents/Resources/SWCLI/runtime-manifest.json")
+        with self.assertRaisesRegex(RuntimeError, "symlink"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+
+    def test_runtime_receipt_does_not_hide_unknown_files_or_bytecode(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        for name in ("obsolete.py", ".unexpected-runtime.json",
+                     "Lib/site-packages/swcli/__pycache__/__main__.cpython-311.pyc"):
+            with self.subTest(name=name):
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"unexpected")
+                with self.assertRaisesRegex(RuntimeError, "differs"):
+                    ci.verify_swcli_deployment(gate.app, gate.prefix)
+                path.unlink()
+
+    def test_runtime_app_manifest_binds_payload_before_receipt_check(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        (source / "python.exe").write_bytes(b"unexpected source")
+        (destination / "python.exe").write_bytes(b"unexpected source")
+        with self.assertRaisesRegex(RuntimeError, "manifest"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+
+    def test_runtime_app_manifest_missing_malformed_or_invalid_contract_is_rejected(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        record = gate.app / "Contents/Resources/SWCLI/runtime-manifest.json"
+        for value in ("{", "[]", json.dumps(dict(manifest, format=True)),
+                      json.dumps(dict(manifest, format=1.0)),
+                      json.dumps(dict(manifest, version=False)),
+                      json.dumps(dict(manifest, source_commit="")),
+                      json.dumps(dict(manifest, files=[])),
+                      json.dumps(dict(manifest, unknown=True))):
+            with self.subTest(value=value):
+                record.write_text(value)
+                (destination / runtime_sync.MARKER).write_text(value)
+                with self.assertRaisesRegex(RuntimeError, "manifest"):
+                    ci.verify_swcli_deployment(gate.app, gate.prefix)
+        record.unlink()
+        with self.assertRaisesRegex(RuntimeError, "manifest"):
+            ci.verify_swcli_deployment(gate.app, gate.prefix)
+
+    def test_runtime_receipt_failure_prevents_license_preparation_or_host_start(self):
+        gate, source, destination, manifest = self.deploy_public_runtime()
+        (destination / runtime_sync.MARKER).unlink()
+        with patch.object(gate, "command") as command, patch.object(ci.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(RuntimeError, "receipt"):
+                gate.start("visible")
+        command.assert_called_once_with([gate.runtime_helper, "prepare", "visible"])
+        spawn.assert_not_called()
+        self.assertEqual(gate.record["swcli_deployments"], [])
 
     def test_real_mapping_and_secrets_not_forwarded(self):
         gate = self.gate()

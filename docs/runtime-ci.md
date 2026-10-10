@@ -121,6 +121,19 @@ MacSW 不另写 CAD 断言，也不以 inventory-only 代替真实同宿主验�
 回归不等于这项门禁已经在真实 CI 通过。部署原理与既有验证边界见
 [Toolbox 标准件部署](toolbox-deployment.md)。
 
+运行前部署校验将程序 payload 与 `.macsw-runtime.json` 部署回执分开验证：
+当前 App 的 `runtime-manifest.json` 必须逐文件匹配实际源文件，回执必须是普通
+JSON 文件且完整等于该清单，然后才比较所有目标 payload 的路径与 SHA-256。
+仅分离这一项已验证回执；未知文件、字节码缓存、缺失或修改的程序文件仍失败。
+缺失、畸形、不同版本或篡改的回执也失败，不走旧部署宽容分支，不启动 COM。
+`runtime.json.swcli_deployments` 记录 payload 摘要、回执验证及实际版本和源提交。
+
+[运行 38045757942](https://github.com/YJBeetle/MacSW/actions/runs/38045757942)
+的安装和宿主 prepare 均成功，但旧 CI 将同步器生成的正常回执当成额外 payload，
+在 `visible.prepare` 拒绝部署，尚未创建 COM 主机或进入建模／Toolbox 门禁。
+离线回归用真实同步器与 CI 校验器复现并覆盖此接口漂移；修复本身不代表真实
+Toolbox 运行已通过，也不通过更新 SWCLI 指针绕过文件一致性检查。
+
 ### 托管机器的时间预算
 
 共享测试接受 `--request-timeout`（秒），默认仍为 120；MacSW CI 明确传入
