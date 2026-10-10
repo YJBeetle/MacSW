@@ -23,7 +23,7 @@
   - [x] 修复硬件加速视口的前缓冲刷新：`winemac.drv` 不再把前缓冲 `glFlush`/`glFinish` 当作双缓冲交换。补丁版已验证空白画布连续点击和窗口失焦不再使模型消失，边线橙色预选可持续显示。见 [调查记录](opengl-front-buffer.md)。
   - [x] 修复中文输入状态下模型视图空格快捷键失效：`winemac.drv` 仅在 SOLIDWORKS 图形视图空闲且无组合文字时保留原始 `VK_SPACE`，文字框选词仍走输入法。见 [调查记录](solidworks-space-ime.md)。
   - [ ] 继续覆盖 PropertyManager、草图、拉伸、旋转、保存和重开；创建/编辑拉伸的左上角确认按钮及模型保存已经通过本轮回归。
-  - [ ] 修复鼠标手势轮盘的透明背景。`swGestureTarget` 是独立 Afx 顶层窗口；轮盘可响应，但本应透明的圆环外侧和中心当前显示为黑色。已采样到窗口扩展样式为 `0x88`（未含 `WS_EX_LAYERED`），后续单独核查 `SetWindowRgn`、`UpdateLayeredWindow` 与 Windows DWM 到 `winemac.drv` 的合成路径，不与右键菜单捕获问题混为一项。
+  - [x] 修复鼠标手势轮盘的黑色背景。SW 实际通过屏幕 `BitBlt` 保存背景，而不是分层透明窗口；补齐 Mac 驱动的桌面取图后，隔离实例的圆环外侧与中心已正常。见 [调查与验证](mouse-gesture-background.md)。
   - [x] 统一 Part 文档窗口的五个标题按钮风格：安装时关闭 Wine ThemeManager 的活动主题，避免 Codejock 绘制的两个按钮与 Wine `DefWindowProc` 绘制的三个按钮混用不同皮肤。见 [调查记录](caption-button-theme.md)。
   - [ ] 字体和 Toolbox 数据库。
 - [ ] 处理 macOS 显示器热插拔后的 Wine 显示拓扑刷新。

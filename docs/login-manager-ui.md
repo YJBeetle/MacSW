@@ -74,4 +74,5 @@ sldappu.dll
 - UI 守护程序不再隐藏 Login Manager 致命对话框，避免把阻塞状态伪装成成功启动。
 - Builder 从固定 Wine 源码同时重建 `winemac.so` 和 `win32u.so`；包内清单记录两份补丁与
   两个模块的校验值，App 安装时写入 SOLIDWORKS 应用兼容开关。
-- 鼠标手势轮盘的黑色背景是独立的合成/透明度问题，继续按 TODO 跟踪。
+- 鼠标手势轮盘的黑色背景是独立的屏幕背景读取问题，原因与修复见
+  [调查记录](mouse-gesture-background.md)。

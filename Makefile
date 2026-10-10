@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 .PHONY: app archive bootstrap ci fetch fetch-mono fetch-runtime fontlink-probe launcher \
 	fetch-seven-zip fetch-stdole fetch-swcli-runtime fetch-wine-source icon package \
-	printwindow-probe swcli-helper test theme-probe treeview-probe verify winemac
+	printwindow-probe screen-readback-probe swcli-helper test theme-probe treeview-probe verify winemac
 
 launcher:
 	./macos/Bootstrap/build_bootstrap.sh
@@ -49,6 +49,9 @@ printwindow-probe:
 
 fontlink-probe:
 	bash ./scripts/build_wine_fontlink_probe.sh
+
+screen-readback-probe:
+	bash ./scripts/build_wine_screen_readback_probe.sh
 
 icon:
 	mkdir -p build/resources
