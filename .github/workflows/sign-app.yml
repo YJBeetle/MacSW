@@ -1,0 +1,97 @@
+name: Developer ID Direct Distribution (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Successful full Build & Package run for this exact master commit'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sign-and-notarize:
+    if: >-
+      github.repository == 'YJBeetle/MacSW' &&
+      github.ref == 'refs/heads/master' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    environment: macsw-release
+    timeout-minutes: 60
+    concurrency:
+      group: macsw-developer-id
+      cancel-in-progress: false
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+
+    steps:
+      - name: Checkout the exact signing commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify trusted full build and download its exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACSW_BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          python3 scripts/ci/signing-input.py --run-id "$MACSW_BUILD_RUN_ID" \
+            --sha "$GITHUB_SHA" --destination "$RUNNER_TEMP/macsw-signing-input"
+          mkdir "$RUNNER_TEMP/macsw-signing-app"
+          ditto -x -k "$RUNNER_TEMP/macsw-signing-input/app.zip" "$RUNNER_TEMP/macsw-signing-app"
+          python3 scripts/sign_app.py inventory --app "$RUNNER_TEMP/macsw-signing-app/MacSW.app"
+
+      - name: Install primitive probe prerequisites
+        run: |
+          brew install mingw-w64
+          sudo softwareupdate --install-rosetta --agree-to-license
+
+      - name: Sign, validate, notarize and staple the staging App
+        env:
+          SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.SIGNING_CERTIFICATE_P12_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+          NOTARY_API_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID || vars.NOTARY_APPLE_ID }}
+          NOTARY_APP_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+          SIGNING_TEAM_ID: ${{ vars.SIGNING_TEAM_ID }}
+          SIGNING_IDENTITY: ${{ vars.SIGNING_IDENTITY }}
+          NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ vars.NOTARY_ISSUER_ID }}
+        run: |
+          python3 -B scripts/ci/notarize-app.py \
+            --app "$RUNNER_TEMP/macsw-signing-app/MacSW.app" \
+            --output "$RUNNER_TEMP/macsw-distribution"
+          cp "$RUNNER_TEMP/macsw-signing-input/provenance.json" "$RUNNER_TEMP/macsw-distribution/"
+
+      - name: Always remove temporary signing credentials
+        if: always()
+        run: python3 scripts/ci/notarize-app.py --cleanup
+
+      - name: Upload accepted Direct Distribution candidate (not a Release)
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-Developer-ID-candidate
+          archive: true
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/macsw-distribution/MacSW-*-macOS-signed.zip
+            ${{ runner.temp }}/macsw-distribution/*.sha256
+            ${{ runner.temp }}/macsw-distribution/provenance.json
+            ${{ runner.temp }}/macsw-distribution/signing-inventory.json
+            ${{ runner.temp }}/macsw-distribution/notary-*.json
+          retention-days: 14
+
+      - name: Upload public signing diagnostics only
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-Developer-ID-diagnostics
+          archive: true
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/macsw-distribution/signing-inventory.json
+            ${{ runner.temp }}/macsw-distribution/notary-*.json
+          retention-days: 14
