@@ -46,6 +46,12 @@ export SWCLI_HOST_PLATFORM="macos-wine"
 export PYTHONDONTWRITEBYTECODE=1
 
 require_windows_runtime() {
+    # Stop/status must remain usable with the old backend when an upgrade is
+    # blocked by a live daemon. All other Windows entrypoints synchronize first.
+    if [ "${1:-}" != "existing" ]; then
+        "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/swcli_runtime.py" \
+            --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" || exit $?
+    fi
     if [ ! -f "${PYTHON_UNIX}" ] || [ ! -f "${PYTHONW_UNIX}" ]; then
         echo "SWCLI Windows runtime is not installed in this MacSW bottle; reinstall SOLIDWORKS with MacSW." >&2
         exit 1
@@ -54,7 +60,11 @@ require_windows_runtime() {
 }
 
 run_windows_windowless_cli() {
-    require_windows_runtime
+    if [ "${1:-}" = "daemon" ] && { [ "${2:-}" = "stop" ] || [ "${2:-}" = "status" ]; }; then
+        require_windows_runtime existing
+    else
+        require_windows_runtime
+    fi
     local output_file output_windows status
     output_file="$(mktemp "${TMPDIR:-/tmp}/macsw-swcli.XXXXXX")"
     output_windows="$(to_windows_path "${output_file}")"

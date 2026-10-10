@@ -64,6 +64,14 @@ gallery; see the [theme probe guide](docs/wine-theme-probe.md).
 The bundled `sw-cli` provides document and part automation. **Start the daemon
 before document operations**: `document` and `part` commands do not implicitly launch SOLIDWORKS.
 
+After an App upgrade, MacSW checks the managed Windows backend in the existing
+bottle at App startup and before Windows-side CLI commands. Its source commit
+and payload are verified; a matching runtime is not rewritten. An outdated or
+damaged runtime is staged and verified before replacement, with the previous
+copy retained. If a Python backend is running, stop it with `sw-cli daemon stop`
+and retry; `daemon stop/status` remain available without upgrading first.
+This updates only `C:\\MacSW\\Python311`, not SOLIDWORKS or the Wine bottle schema.
+
 Choose **Copy AI connection info** (复制 AI 接入信息) in the menu bar panel, between
 the SOLIDWORKS action and the logs action. Share the text with an agent that can
 read local files and run terminal commands. It contains the current App, CLI,

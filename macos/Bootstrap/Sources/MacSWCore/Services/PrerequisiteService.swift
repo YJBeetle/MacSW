@@ -83,22 +83,35 @@ public final class PrerequisiteService: @unchecked Sendable {
     }
 
     public static func prepareSWCLI(bundleURL: URL, prefix: URL) throws {
-        let fileManager = FileManager.default
-        let source = bundleURL.appendingPathComponent("Contents/Resources/SWCLI/runtime/Python311")
-        guard fileManager.fileExists(atPath: source.appendingPathComponent("python.exe").path),
-              fileManager.fileExists(atPath: source.appendingPathComponent("Lib/site-packages/swcli/__main__.py").path) else {
-            throw failure("MacSW 内置的 SWCLI 自动化组件不完整，无法继续安装。请重新下载完整的 MacSW.app 后重试。")
+        let contents = bundleURL.appendingPathComponent("Contents")
+        let resources = contents.appendingPathComponent("Resources/SWCLI")
+        let helper = resources.appendingPathComponent("bin/swcli_runtime.py")
+        let python = resources.appendingPathComponent("runtime/PythonNative/bin/python3")
+        guard FileManager.default.fileExists(atPath: helper.path),
+              FileManager.default.isExecutableFile(atPath: python.path) else {
+            throw failure("MacSW 内置的 SWCLI 同步组件不完整，请重新下载完整的 MacSW.app。")
         }
-        let target = prefix.appendingPathComponent(swcliDestination)
-        let staging = target.deletingLastPathComponent()
-            .appendingPathComponent(".Python311.install-\(UUID().uuidString)")
-        try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: staging) }
-        try fileManager.copyItem(at: source, to: staging)
-        if fileManager.fileExists(atPath: target.path) {
-            try fileManager.removeItem(at: target)
+        // A file captures output without waiting on inherited Wine pipe handles.
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-swcli-sync-\(UUID().uuidString).log")
+        guard FileManager.default.createFile(atPath: output.path, contents: nil) else {
+            throw failure("无法创建 SWCLI 同步日志。")
         }
-        try fileManager.moveItem(at: staging, to: target)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let handle = try FileHandle(forWritingTo: output)
+        defer { try? handle.close() }
+        let process = Process()
+        process.executableURL = python
+        process.arguments = ["-I", helper.path, "--contents", contents.path, "--prefix", prefix.path]
+        process.environment = WineService.shared.environment(winePrefix: prefix, solidWorks: true)
+        process.standardOutput = handle
+        process.standardError = handle
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let message = String(decoding: try Data(contentsOf: output), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw failure(message.isEmpty ? "SWCLI backend 同步失败，原版本未被覆盖。" : message)
+        }
     }
 
     public static func prepareManagedCOMDependencies(

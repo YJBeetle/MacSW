@@ -45,6 +45,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${INFO_PLIST
 test -x "${CONTENTS_DIR}/MacOS/MacSW"
 test -x "${CONTENTS_DIR}/MacOS/7zz"
 test -x "${SWCLI_LAUNCHER}"
+cmp "${WORKSPACE_ROOT}/scripts/swcli/sw-cli" "${SWCLI_LAUNCHER}"
 test -L "${CONTENTS_DIR}/MacOS/7z"
 test -f "${CONTENTS_DIR}/Resources/AppIcon.icns"
 test -f "${BUILD_MANIFEST}"
@@ -89,6 +90,12 @@ test -z "$(find "${SWCLI_RUNTIME}" -type f -name '*.pyc' -print -quit)"
 test -f "${SWCLI_PATH_HELPER}"
 test -x "${SWCLI_NATIVE_PATH_HELPER}"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py" "${SWCLI_DIR}/bin/swcli_path.py"
+cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_runtime.py" "${SWCLI_DIR}/bin/swcli_runtime.py"
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I "${SWCLI_DIR}/bin/swcli_runtime.py" \
+    --contents "${CONTENTS_DIR}" --verify
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -c \
+    'import json, sys; m=json.load(open(sys.argv[1])); assert m["version"] == sys.argv[2] and m["source_commit"] == sys.argv[3]' \
+    "${SWCLI_DIR}/runtime-manifest.json" "${SWCLI_VERSION}" "${SWCLI_SOURCE_COMMIT}"
 (
     mapping_test="$(mktemp -d)"
     trap 'rm -rf -- "${mapping_test}"' EXIT

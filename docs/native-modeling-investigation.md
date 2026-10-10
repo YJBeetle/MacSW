@@ -501,8 +501,8 @@ Part/Assembly 样例，因此 85 个事件不等同于 Windows/DockerSW 含样�
    每个正式门禁序列内仍不得更换 daemon/SOLIDWORKS。
 3. 只有具体调用和宿主证据支持时才修改 Wine/MacSW 或 SWCLI；修复后重新执行
    未削弱的共享门禁，并分别记录本机、全新安装和缓存恢复的结果。
-4. App 更新时既有 bottle 的 Windows backend 同步仍需单独核查；本次为可恢复
-   的显式测试升级，不把这个部署问题与托管 CI 的原生异常混为一项。
+4. 当时的 Windows backend 升级仅是可恢复的显式测试操作；正式 App 的自动同步
+   已在后续独立修复，见下方升级记录，不把部署问题与托管 CI 的原生异常混为一项。
 # 托管拉伸后的诊断阻塞（2026-10-09）
 
 [CI 37833182637](https://github.com/YJBeetle/MacSW/actions/runs/37833182637)
@@ -529,3 +529,49 @@ begin，无 end/error（sequence 78）。Python 空闲，SW 的 CPU 持续约
 SWCLI 同步到 `e063136` 的有范围矩形 `AddToDB` 修复，以保持两宿主开发门禁
 版本一致；该改动处理 Windows 的独立矩形吸附问题，不作为托管阻塞修复
 结论。公共产品版本和已发布镜像不变。
+
+## 既有容器的 SWCLI backend 升级（2026-10-10）
+
+之前仅官方安装和 CI prepare 会复制 Windows Python/backend；换 App 后通常只更新
+macOS client，日常主容器的 `C:\\MacSW\\Python311` 可能继续使用旧代码。
+
+现在安装器、App 启动/手动启动以及需要 Windows backend 的 CLI 入口共用
+`swcli_runtime.py`。打包生成含公开版本、源码 commit 和全部文件 SHA-256 的清单，
+验证阶段核对清单身份及文件内容。部署先校验 App 源 payload，再对目标逐文件检查，
+包括缺失、损坏及多余的旧模块；正常 Python 缓存不触发替换。
+
+一致时不启动 Wine 进程、不改 backend 文件。需要升级时，以非阻塞文件锁排除同时
+部署，并使用当前 `WINEPREFIX` 的 tasklist 检查 Python/pythonw 进程；不能确认占用
+状态时也拒绝覆盖。进程查询用临时文件捕获 tasklist，避免 Wine 常驻后代持有
+管道句柄导致已完成查询仍等待 EOF。不同容器里同名 Python 不计入当前容器占用。
+
+新目录完整暂存、校验，并在发布前再次检查占用；现有目录移动到同级
+`.Python311.previous` 后发布新目录，发布失败则恢复旧目录，下次执行也能恢复
+中断后的旧目录。最近一次旧版本保留在这个固定备份位置，更早的备份会在下一次
+成功准备替换时清理。部署文件操作只管理 Python311，不修改 SOLIDWORKS 和文档，
+也不直接写入注册表；进程探测仍会启动 Wine，不能将它称为完全无副作用的离线检查。
+
+`daemon stop/status` 使用现有 backend，不受待升级状态阻挡；其他 Windows 入口在
+同步失败时停止，不继续启动旧代码。Native typed client 不自动启动或接管 SW。
+App 准备任务在后台执行，失败可见且可重试，删除/重装容器前会等待部署结束。
+
+隔离 Wine 容器实测：旧 backend 和旧模块被完整替换；Windows Python 实际导入
+`0.1.0a6`，模块路径在 `C:\\MacSW\\Python311`；运行中的 Python 阻止升级，旧清单
+字节未改；停止后同步成功，重复同步保持 python.exe inode/mtime 不变。
+
+正式 App 已打包、校验并替换，旧 App 保留为
+`build/app/MacSW.before-backend-sync-20261010.app`。启动新主 App 后，既有主容器
+自动生成部署清单，源码 commit 为 `7896adf47ff75dd8e4dfa043519b30a563931a53`，
+全部 payload 与 App 一致，重复同步不写盘，前一份 Python runtime 保留。
+主 SOLIDWORKS 已正常退出并重启；专用端口 18505 上的测试 daemon 显式 attach
+主实例（Windows PID 1868、revision 33.5.0、owned=false），能力及文档列表查询
+通过。测试 daemon 已停止，不关闭共享主 SOLIDWORKS。
+
+CLI 路由回归、149 项离线测试（跳过 1）、146 项 Swift 测试均通过。本机默认测试
+Python 缺少 jsonschema，完整脚本中的 SWCLI 阶段因此失败；使用 App 已打包且
+经过验证的原生 Python 重跑当前固定源码，847 项 SWCLI 测试通过，跳过 8 项。
+没有为此修改宿主 Python、SWCLI gitlink 或公开版本。以上不是托管 CI 门禁结果。
+
+这不等同于 Wine 容器升级支持。后者仍需单独记录 Wine/补丁身份，停止所有容器
+进程并备份完整前缀，显式执行 wineboot 迁移，再覆盖字体、许可、COM、建模与保存
+重开回归。只有成功后才能更新迁移记录；失败应恢复旧运行时和对应的前缀备份。

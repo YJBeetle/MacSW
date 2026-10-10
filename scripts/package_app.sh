@@ -31,6 +31,7 @@ SWCLI_LICENSE="${SWCLI_ROOT}/LICENSE"
 SWCLI_LAUNCHER="${WORKSPACE_ROOT}/scripts/swcli/sw-cli"
 SWCLI_NATIVE_PATH_HELPER="${WORKSPACE_ROOT}/scripts/swcli/swcli-path"
 SWCLI_NATIVE_PATH_SCRIPT="${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py"
+SWCLI_RUNTIME_SYNC="${WORKSPACE_ROOT}/scripts/swcli/swcli_runtime.py"
 SWCLI_PATH_HELPER="${BUILD_ROOT}/native/swcli_path.exe"
 SWCLI_PYTHON_ARCHIVE="${WORKSPACE_ROOT}/dist/${SWCLI_PYTHON_ARCHIVE_ASSET}"
 SWCLI_PYWIN32_WHEEL="${WORKSPACE_ROOT}/dist/${SWCLI_PYWIN32_WHEEL_ASSET}"
@@ -124,7 +125,11 @@ cp -p "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/LICENSE.txt" \
 cp -p "${SWCLI_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.exe"
 cp -p "${SWCLI_NATIVE_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
 cp -p "${SWCLI_NATIVE_PATH_SCRIPT}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.py"
+cp -p "${SWCLI_RUNTIME_SYNC}" "${RESOURCES_DIR}/SWCLI/bin/swcli_runtime.py"
 chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I "${SWCLI_RUNTIME_SYNC}" \
+    --contents "${CONTENTS_DIR}" --build-manifest \
+    --version "${SWCLI_VERSION}" --source-commit "${SWCLI_SOURCE_COMMIT}"
 
 MACSW_LICENSES_DIR="${RESOURCES_DIR}/licenses/MacSW"
 mkdir -p "${MACSW_LICENSES_DIR}"

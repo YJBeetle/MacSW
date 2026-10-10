@@ -48,6 +48,10 @@ cat > "${CONTENTS_DIR}/Resources/SWCLI/runtime/PythonNative/bin/python3" <<'EOF'
 if [[ "${1:-}" == */swcli_path.py ]]; then
     exec "${SWCLI_TEST_PYTHON}" "$@"
 fi
+if [[ "${1:-}" == "-I" && "${2:-}" == */swcli_runtime.py ]]; then
+    printf 'sync prefix=%s\n' "${WINEPREFIX}" >> "${SWCLI_TEST_LOG}"
+    exit "${SWCLI_TEST_SYNC_STATUS:-0}"
+fi
 printf 'native translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> "${SWCLI_TEST_LOG}"
 EOF
 chmod +x \
@@ -67,6 +71,13 @@ grep -Fq 'native translator=' "${LOG_FILE}"
 ! grep -Fq 'windows ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
+if SWCLI_TEST_SYNC_STATUS=1 "${LAUNCHER}" doctor --json; then
+    echo 'doctor ignored runtime synchronization failure inside conditional routing' >&2
+    exit 1
+fi
+! grep -Fq 'windows ' "${LOG_FILE}"
+
+: > "${LOG_FILE}"
 STATUS_OUTPUT="$("${LAUNCHER}" daemon status --json)"
 test "${STATUS_OUTPUT}" = '{"mock":true}'
 grep -Fq 'windows translator=Z:' "${LOG_FILE}"
@@ -79,9 +90,23 @@ grep -Fq "loader=${CONTENTS_DIR}/Frameworks/wine/bin/wineloader server=${CONTENT
 
 : > "${LOG_FILE}"
 "${LAUNCHER}" daemon serve --port 18496
+grep -Fq "sync prefix=${PREFIX}" "${LOG_FILE}"
 grep -Fq 'C:\MacSW\Python311\python.exe -m swcli daemon serve --port 18496' "${LOG_FILE}"
 ! grep -Fq 'pythonw.exe' "${LOG_FILE}"
 ! grep -Fq 'native ' "${LOG_FILE}"
+
+# Lifecycle inspection/stop must work even while a stale backend is busy.
+: > "${LOG_FILE}"
+SWCLI_TEST_SYNC_STATUS=1 "${LAUNCHER}" daemon stop --json
+! grep -Fq 'sync prefix=' "${LOG_FILE}"
+grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
+
+: > "${LOG_FILE}"
+if SWCLI_TEST_SYNC_STATUS=1 "${LAUNCHER}" daemon serve --port 18496; then
+    echo 'daemon serve ignored runtime synchronization failure' >&2
+    exit 1
+fi
+! grep -Fq 'windows ' "${LOG_FILE}"
 
 : > "${LOG_FILE}"
 "${LAUNCHER}" document list --json

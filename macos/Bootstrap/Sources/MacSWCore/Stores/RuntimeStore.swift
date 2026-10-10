@@ -14,6 +14,9 @@ public final class RuntimeStore: ObservableObject {
     private let wine: WineService
     private let licenseServer: LicenseServerStore
     private let fontLinkRepair: @Sendable (URL) async throws -> Void
+    private let swcliPreparation: @Sendable (URL) async throws -> Void
+    private var swcliTask: Task<Void, Error>?
+    private var swcliTaskID: UUID?
     private var fontPreparation: Task<Void, Error>?
     private var fontPreparationID: UUID?
     private var fontPreparationSuspended = false
@@ -23,13 +26,19 @@ public final class RuntimeStore: ObservableObject {
         paths: AppPaths,
         licenseServer: LicenseServerStore,
         wine: WineService = .shared,
-        fontLinkRepair: (@Sendable (URL) async throws -> Void)? = nil
+        fontLinkRepair: (@Sendable (URL) async throws -> Void)? = nil,
+        swcliPreparation: (@Sendable (URL) async throws -> Void)? = nil
     ) {
         self.paths = paths
         self.licenseServer = licenseServer
         self.wine = wine
         self.fontLinkRepair = fontLinkRepair ?? { prefix in
             _ = try await RegistryService(wine: wine).repairTahomaFontLinkIfNeeded(prefix: prefix)
+        }
+        self.swcliPreparation = swcliPreparation ?? { prefix in
+            try await Task.detached {
+                try PrerequisiteService.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+            }.value
         }
         self.state = paths.solidWorksInstalled ? .unknown : .unavailable
     }
@@ -68,6 +77,13 @@ public final class RuntimeStore: ObservableObject {
     /// 删除容器前先阻止新的字体检查，并等正在读写注册表的 Wine 进程退出。
     public func suspendFontPreparationForBottleDeletion() async {
         fontPreparationSuspended = true
+        // The filesystem deployment must finish before the installer removes
+        // the bottle; cancellation alone cannot stop a synchronous copy safely.
+        if let task = swcliTask {
+            _ = try? await task.value
+            swcliTask = nil
+            swcliTaskID = nil
+        }
         guard let task = fontPreparation else { return }
         task.cancel()
         _ = try? await task.value
@@ -87,6 +103,12 @@ public final class RuntimeStore: ObservableObject {
             try await ensureFontLinkPrepared()
         } catch {
             statusMessage = "检查苹方字体链接失败：\(error.localizedDescription)"
+            return
+        }
+        do {
+            try await ensureSWCLIPrepared()
+        } catch {
+            statusMessage = error.localizedDescription
             return
         }
         guard autoLaunch else { return }
@@ -116,6 +138,7 @@ public final class RuntimeStore: ObservableObject {
         Task {
             do {
                 try await ensureFontLinkPrepared()
+                try await ensureSWCLIPrepared()
                 if needsRunningProbe { await refreshState() }
                 if isRunning {
                     statusMessage = "SOLIDWORKS 已在运行。"
@@ -156,6 +179,29 @@ public final class RuntimeStore: ObservableObject {
                 state = .failed(error.localizedDescription)
                 statusMessage = error.localizedDescription
             }
+        }
+    }
+
+    func ensureSWCLIPrepared() async throws {
+        guard !fontPreparationSuspended else {
+            throw runtimeError("容器正在清理或重新安装，稍后再同步 SWCLI。")
+        }
+        guard paths.bottleExists, paths.solidWorksInstalled else { return }
+        if swcliTask == nil {
+            let prepare = swcliPreparation
+            let bottle = paths.bottle
+            swcliTaskID = UUID()
+            swcliTask = Task { try await prepare(bottle) }
+        }
+        guard let task = swcliTask, let id = swcliTaskID else { return }
+        do {
+            try await task.value
+        } catch {
+            if swcliTaskID == id {
+                swcliTask = nil
+                swcliTaskID = nil
+            }
+            throw error
         }
     }
 
