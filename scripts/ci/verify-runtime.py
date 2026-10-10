@@ -21,6 +21,23 @@ import time
 
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py")
+
+
+def modeling_samples(prefix):
+    """Locate installed host fixtures; CAD assertions remain in SWCLI."""
+    patterns = (
+        "drive_c/users/Public/Documents/SOLIDWORKS/SOLIDWORKS */samples/learn/Paper Airplane.SLDPRT",
+        "drive_c/Program Files/*/sldBenchmarking/Macro/Mold/bezel moldbase.sldasm",
+    )
+    samples = []
+    for pattern in patterns:
+        matches = [path for path in prefix.glob(pattern) if path.is_file() and not path.is_symlink()
+                   and path.resolve().is_relative_to(prefix.resolve()) and path.stat().st_size > 0]
+        if len(matches) != 1:
+            raise RuntimeError("Installed modeling sample is missing or ambiguous: " + pattern)
+        samples.append(matches[0])
+    return tuple(samples)
+
 # Hosted software rendering is slower than local hardware. These are CI-only
 # limits; the shared assertions and SWCLI product defaults remain unchanged.
 REQUEST_TIMEOUT_SECONDS = 300
@@ -522,6 +539,7 @@ class RuntimeGate:
 
     def run(self):
         scripts = shared_gates()
+        sample_part, sample_assembly = modeling_samples(self.prefix)
         self.verify_bitmap_driver()
         for mode in ("visible", "hidden"):
             host = self.start(mode)
@@ -545,6 +563,9 @@ class RuntimeGate:
                         arguments += ["--host-output-dir", self.windows_path(output)]
                     if name == "driving":
                         arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
+                    elif name == "modeling":
+                        arguments += ["--sample-part", self.windows_path(sample_part),
+                                      "--sample-assembly", self.windows_path(sample_assembly)]
                     with HostMetrics(self, mode):
                         self.command(arguments, timeout=SHARED_GATE_TIMEOUT_SECONDS[name])
                     self.same_host(host)

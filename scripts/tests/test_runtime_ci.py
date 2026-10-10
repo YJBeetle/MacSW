@@ -695,8 +695,52 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertEqual(gate.windows_path(self.root / "models"), "Q:\\real\\models")
             command.assert_called_once_with([gate.path_helper, self.root / "models"])
 
+    def install_modeling_samples(self, prefix, year="2027"):
+        paths = (prefix / "drive_c/users/Public/Documents/SOLIDWORKS" /
+                 ("SOLIDWORKS " + year) / "samples/learn/Paper Airplane.SLDPRT",
+                 prefix / "drive_c/Program Files/SOLIDWORKS/sldBenchmarking/Macro/Mold/bezel moldbase.sldasm")
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"installed native sample")
+        return paths
+
+    def test_modeling_samples_are_unique_nonempty_installed_files_without_year_pin(self):
+        gate = self.gate()
+        paths = self.install_modeling_samples(gate.prefix)
+        self.assertEqual(ci.modeling_samples(gate.prefix), paths)
+        paths[1].write_bytes(b"")
+        with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+            ci.modeling_samples(gate.prefix)
+
+    def test_modeling_samples_reject_multiple_installed_versions(self):
+        gate = self.gate()
+        self.install_modeling_samples(gate.prefix)
+        self.install_modeling_samples(gate.prefix, "2028")
+        with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+            ci.modeling_samples(gate.prefix)
+
+    def test_modeling_samples_reject_symlink_outside_bottle(self):
+        gate = self.gate()
+        paths = self.install_modeling_samples(gate.prefix)
+        outside = self.directory / "outside.SLDASM"
+        outside.write_bytes(b"outside native sample")
+        paths[1].unlink()
+        paths[1].symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+            ci.modeling_samples(gate.prefix)
+
+    def test_missing_modeling_samples_prevent_host_start(self):
+        gate = self.gate()
+        with patch.object(ci, "shared_gates"), patch.object(gate, "start") as start, \
+                patch.object(gate, "verify_bitmap_driver") as bitmap:
+            with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+                gate.run()
+        start.assert_not_called()
+        bitmap.assert_not_called()
+
     def test_shared_modeling_driving_then_toolbox_without_intermediate_restart(self):
         gate = self.gate()
+        self.install_modeling_samples(gate.prefix)
         scripts = [Path(name) for name in ci.SHARED_GATES]
         events = []
         host = {"process_id": 42}
@@ -728,6 +772,11 @@ class RuntimeAdapterTests(unittest.TestCase):
             elif args[1].name == "verify-modeling.py":
                 self.assertEqual(kwargs["timeout"], 1800)
                 self.assertNotIn("--after-modeling", args)
+                for option in ("--sample-part", "--sample-assembly"):
+                    self.assertEqual(args[args.index(option) + 1], "Q:\\models")
+            else:
+                self.assertNotIn("--sample-part", args)
+                self.assertNotIn("--sample-assembly", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
                 patch.object(gate, "verify_bitmap_driver", side_effect=lambda: events.append("bitmap-driver")), \
                 patch.object(ci, "HostMetrics") as metrics, \
@@ -743,7 +792,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop",
                                   "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop"])
         self.assertEqual(same_host.call_count, 12)
-        self.assertEqual(windows_path.call_count, 4)
+        self.assertEqual(windows_path.call_count, 8)
         self.assertEqual([call.args for call in collect_evidence.call_args_list], [("visible",), ("hidden",)])
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["budgets_seconds"], {
@@ -752,6 +801,7 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_toolbox_failure_keeps_original_error_and_evidence_without_next_mode(self):
         gate = self.gate()
+        self.install_modeling_samples(gate.prefix)
         scripts = [Path(name) for name in ci.SHARED_GATES]
         failure = RuntimeError("original Toolbox failure")
         def command(args, **kwargs):
