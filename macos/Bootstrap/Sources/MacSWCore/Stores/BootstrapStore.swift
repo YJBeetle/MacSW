@@ -536,6 +536,11 @@ public final class BootstrapStore: ObservableObject {
             )
             report(.wpfThemes, .completed, "五个 WPF 主题库已补齐")
 
+            state = .installing(.toolbox)
+            report(.toolbox, .running, "正在用官方工具部署 Toolbox 标准件并检查索引…")
+            let toolboxParts = try await ToolboxService(wine: wine).install(media: media, paths: paths)
+            report(.toolbox, .completed, "官方索引与所选标准件已校验（\(toolboxParts) 个零件模型）")
+
             state = .installing(.licensing)
             switch request.license {
             case .skip:
