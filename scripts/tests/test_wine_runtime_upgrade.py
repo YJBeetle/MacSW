@@ -101,6 +101,43 @@ class WineUpgradeTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'MSXML'):
                     RUNTIME.verify_app(self.new, partial)
 
+    def toolbox_modules(self, contents):
+        values = self.msxml_modules(contents)
+        for key, relative in RUNTIME.TOOLBOX_MODULES.items():
+            module = contents / 'Frameworks/wine' / relative.format(**values)
+            module.parent.mkdir(parents=True, exist_ok=True)
+            module.write_bytes(b'new-toolbox-module')
+            values[key] = hashlib.sha256(module.read_bytes()).hexdigest()
+        with (contents / 'Resources/BuildManifest.plist').open('wb') as stream:
+            plistlib.dump(values, stream)
+        return values
+
+    def test_complete_toolbox_extension_verified_and_requires_upgrade(self):
+        self.baseline()
+        values = self.toolbox_modules(self.new)
+        RUNTIME.verify_app(self.new, values)
+        self.assertEqual(RUNTIME.status(self.new, self.prefix), 'upgrade')
+
+    def test_corrupt_toolbox_module_rejected_before_upgrade(self):
+        values = self.toolbox_modules(self.new)
+        for key, relative in RUNTIME.TOOLBOX_MODULES.items():
+            module = self.new / 'Frameworks/wine' / relative.format(**values)
+            original = module.read_bytes()
+            module.write_bytes(b'corrupt')
+            with self.assertRaisesRegex(RuntimeError, key):
+                RUNTIME.verify_app(self.new, values)
+            module.write_bytes(original)
+
+    def test_partial_toolbox_extension_is_not_a_legacy_manifest(self):
+        values = RUNTIME.identity(self.new)
+        values['MonoCCWModuleSHA256'] = '1'*64
+        with (self.new / 'Resources/BuildManifest.plist').open('wb') as stream:
+            plistlib.dump(values, stream)
+        with self.assertRaisesRegex(RuntimeError, 'Toolbox'):
+            RUNTIME.identity(self.new)
+        with self.assertRaisesRegex(RuntimeError, 'Toolbox'):
+            RUNTIME.verify_app(self.new, values)
+
     def test_changed_identity_cannot_bypass_by_baseline(self):
         self.baseline()
         with self.assertRaisesRegex(RuntimeError, "绕过"):

@@ -39,6 +39,9 @@ on:
       - 'config/**'
       - 'Makefile'
       - 'patches/wine-crossover/**'
+      - 'native/mono_ccw_release_probe.cs'
+      - 'native/mono_btls_probe.cs'
+      - 'native/msxml_schema_namespace_probe.c'
       - 'resources/**'
       - '.gitmodules'
       - 'Dependencies/SWCLI'
@@ -94,6 +97,7 @@ jobs:
           echo "wine_source_asset=${WINE_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "winemac_output_name=${WINEMAC_OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
           echo "mono_patch_release=${MONO_PATCH_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "mono_source_asset=${MONO_SOURCE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "stdole_package_asset=${STDOLE_PACKAGE_ASSET}" >> "$GITHUB_OUTPUT"
           echo "stdole_output_directory=${STDOLE_OUTPUT_DIRECTORY}" >> "$GITHUB_OUTPUT"
           echo "seven_z_archive_asset=${SEVEN_Z_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
@@ -114,6 +118,7 @@ jobs:
             dist/${{ steps.build-config.outputs.wine_source_asset }}
             dist/${{ steps.build-config.outputs.winemac_output_name }}
             dist/${{ steps.build-config.outputs.mono_patch_release }}
+            dist/${{ steps.build-config.outputs.mono_source_asset }}
             dist/${{ steps.build-config.outputs.stdole_package_asset }}
             dist/${{ steps.build-config.outputs.stdole_output_directory }}
             dist/${{ steps.build-config.outputs.seven_z_archive_asset }}
@@ -147,6 +152,13 @@ jobs:
           make archive
           ls -lh build/archive/*.zip
 
+      - name: Verify packaged Toolbox runtime primitives
+        # A fresh prefix; separate from shared real SW/CAD gates below.
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license
+          python3 scripts/ci/verify-toolbox-native.py \
+            --app build/app/MacSW.app --evidence build/toolbox-native-evidence
+
       - name: Upload MacSW App Artifact
         uses: actions/upload-artifact@v7
         with:
@@ -155,6 +167,7 @@ jobs:
           path: |
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
+            dist/${{ steps.build-config.outputs.mono_source_asset }}
           retention-days: 14
 
       - name: Build and archive CI-only helpers
@@ -206,6 +219,7 @@ jobs:
           files: |
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
+            dist/${{ steps.build-config.outputs.mono_source_asset }}
           draft: false
           prerelease: false
         env:

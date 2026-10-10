@@ -56,6 +56,20 @@ final class WineRuntimeTests: XCTestCase {
         XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .recovery)
     }
 
+    func testToolboxManifestRequiresAllNewModuleHashes() throws {
+        let (_, bundle, values) = try fixture()
+        let manifestURL = bundle.appendingPathComponent("Contents/Resources/BuildManifest.plist")
+        var manifest = values
+        manifest["MonoCCWModuleSHA256"] = String(repeating: "1", count: 64)
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: manifestURL)
+        XCTAssertThrowsError(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")))
+        manifest["MonoBTLSModuleSHA256"] = String(repeating: "2", count: 64)
+        manifest["WineMSXML3ModuleSHA256"] = String(repeating: "3", count: 64)
+        manifest["WineMSXMLSchemaPatchSHA256"] = String(repeating: "4", count: 64)
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: manifestURL)
+        XCTAssertEqual(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")), manifest)
+    }
+
     func testMSXMLManifestDoesNotRequireMonoOverlay() throws {
         let (prefix, bundle, values) = try fixture()
         try record(prefix: prefix, identity: values)
