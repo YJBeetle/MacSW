@@ -92,6 +92,119 @@ final class ProcessInventoryTests: XCTestCase {
         XCTAssertTrue(ProcessInventory.parse("garbage header", bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime).isEmpty)
     }
 
+    func testActualPrefixSeparatesIdenticalSolidWorksCommands() {
+        let output = """
+          10 1000 00:00:01 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe
+          11 1000 00:00:01 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe
+          12 1000 00:00:01 C:\\Program Files\\SOLIDWORKS\\sldworks_fs.exe
+        """
+        let result = ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime,
+            processPrefixes: [10: Self.bottle, 11: "/private/tmp/isolated/bottle", 12: "/private/tmp/isolated/bottle"])
+        XCTAssertEqual(result.map(\.pid), [10])
+    }
+
+    func testForeignPrefixOverridesSharedRuntimeAndArgumentPathHints() {
+        let output = """
+          10 1000 00:00:01 \(Self.wineRuntime)/bin/wineserver
+          11 1000 00:00:01 C:\\opt\\FlexNet\\lmgrd.exe -c \(Self.bottle)/drive_c/shared.lic
+        """
+        XCTAssertTrue(ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime,
+            processPrefixes: [10: "/tmp/other", 11: "/tmp/other"]).isEmpty)
+    }
+
+    func testUnreadableEnvironmentKeepsConservativeDeletionGuard() {
+        let output = "  10 1000 00:00:01 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe"
+        XCTAssertEqual(ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime,
+            processPrefixes: [:]).map(\.pid), [10])
+    }
+
+    func testPrefixPathAliasesAndTrailingSlashMatch() {
+        let output = "  10 1000 00:00:01 C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe"
+        XCTAssertEqual(ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime,
+            processPrefixes: [10: Self.bottle + "/./"]).map(\.pid), [10])
+    }
+
+    private func procArguments(argv: [String], environment: [String], argumentPadding: Int = 0) -> Data {
+        var argc = Int32(argv.count)
+        var data = withUnsafeBytes(of: &argc) { Data($0) }
+        data.append(contentsOf: Array("/some runtime/wine".utf8) + [0, 0, 0])
+        for entry in argv { data.append(contentsOf: Array(entry.utf8) + [0]) }
+        data.append(contentsOf: [UInt8](repeating: 0, count: argumentPadding))
+        for entry in environment { data.append(contentsOf: Array(entry.utf8) + [0]) }
+        data.append(0)
+        return data
+    }
+
+    func testProcArgumentsSkipsExecutablePaddingAndExactArgumentCount() {
+        let data = procArguments(argv: ["SLDWORKS.exe", "", "WINEPREFIX=/argument-not-environment"],
+            environment: ["OTHER=WINEPREFIX=/not-a-key", "WINEPREFIX=" + Self.bottle, "SECRET=not-exposed"])
+        XCTAssertEqual(ProcessInventory.winePrefix(from: data), Self.bottle)
+    }
+
+    func testProcArgumentsRejectsMissingRelativeAndTruncatedPrefixes() {
+        XCTAssertNil(ProcessInventory.winePrefix(from: Data([1, 2, 3])))
+        for environment in [[], ["OTHER=WINEPREFIX=/not-a-key"], ["WINEPREFIX=relative"], ["WINEPREFIX="]] {
+            XCTAssertNil(ProcessInventory.winePrefix(from: procArguments(argv: ["wine"], environment: environment)))
+        }
+        let truncated = procArguments(argv: ["wine"], environment: ["WINEPREFIX=/tmp/test"]).dropLast(2)
+        XCTAssertNil(ProcessInventory.winePrefix(from: Data(truncated)))
+        XCTAssertNil(ProcessInventory.winePrefix(pid: -1))
+    }
+
+    func testProcArgumentsHandlesWineRewrittenArgumentPadding() {
+        let data = procArguments(argv: ["SLDWORKS.exe", ""],
+            environment: ["OTHER=ignored", "WINEPREFIX=" + Self.bottle], argumentPadding: 256)
+        XCTAssertEqual(ProcessInventory.winePrefix(from: data), Self.bottle)
+    }
+
+    func testLiveSnapshotSeparatesSameNamedProcessesWithoutCreatingWineContainers() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-process-probe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("SLDWORKS.exe")
+        // Apple 系统程序可能隐藏环境或需要 platform 签名；使用真正的普通客户进程。
+        let source = directory.appendingPathComponent("probe.c")
+        try "#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n"
+            .write(to: source, atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        compiler.arguments = ["clang", source.path, "-o", executable.path]
+        compiler.standardOutput = FileHandle.nullDevice
+        try compiler.run()
+        compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        guard compiler.terminationStatus == 0 else { return }
+        let own = "/private/tmp/MacSW-process-owner-\(UUID().uuidString)/bottle with spaces"
+        let foreign = "/private/tmp/MacSW-process-foreign-\(UUID().uuidString)/bottle"
+        func start(_ prefix: String) throws -> Process {
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = []
+            var environment = ProcessInfo.processInfo.environment
+            environment["WINEPREFIX"] = prefix
+            process.environment = environment
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            return process
+        }
+        let primary = try start(own)
+        defer { if primary.isRunning { primary.terminate() }; primary.waitUntilExit() }
+        let other = try start(foreign)
+        defer { if other.isRunning { other.terminate() }; other.waitUntilExit() }
+        // Process.run 返回时子进程可能尚未就绪，等待真实环境可读。
+        for _ in 0..<50 {
+            if ProcessInventory.winePrefix(pid: primary.processIdentifier) == own,
+               ProcessInventory.winePrefix(pid: other.processIdentifier) == foreign { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(ProcessInventory.winePrefix(pid: primary.processIdentifier), own)
+        XCTAssertEqual(ProcessInventory.winePrefix(pid: other.processIdentifier), foreign)
+        let result = await ProcessInventory.snapshot(bottlePath: own, wineRuntimePath: Self.wineRuntime)
+        XCTAssertTrue(result.contains { $0.pid == primary.processIdentifier })
+        XCTAssertFalse(result.contains { $0.pid == other.processIdentifier })
+    }
+
     func testElapsedSecondsForTableSorting() {
         func seconds(_ elapsed: String) -> Int {
             WineProcess(name: "x", pid: 1, residentKB: 1, elapsed: elapsed).elapsedSeconds

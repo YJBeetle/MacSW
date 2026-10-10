@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public struct WineProcess: Identifiable, Equatable, Sendable {
     public let name: String
@@ -40,16 +41,17 @@ public struct WineProcess: Identifiable, Equatable, Sendable {
 /// 用 macOS 侧 ps 读取容器进程，不经过 Wine，因此打开面板也能即时刷新。
 public enum ProcessInventory {
     public static let primaryProcess = "SLDWORKS.exe"
-    /// SOLIDWORKS 自身的进程；命令行里只有 Windows 路径，只能按名字认。
+    /// SOLIDWORKS 自身的进程；Windows 命令行不携带可区分容器的宿主路径。
     public static let solidWorksProcesses = ["SLDWORKS.exe", "sldworks_fs.exe"]
 
-    /// 属于本容器的进程：命令行里带容器路径（我们启动托管进程时传的就是宿主路径），
-    /// 或带本 App 的 Wine 运行时路径，或是 SOLIDWORKS 自己的进程。
+    /// 优先根据进程实际继承的 WINEPREFIX 区分容器，不能把共享运行时或同名 SW
+    /// 当成归属证明。环境不可读时保留原有保守检查，避免漏掉待删除容器的进程。
     /// Wine 会把客户进程重新挂到 launchd 下，所以不能靠父子进程关系判断。
     public static func parse(
         _ psOutput: String,
         bottlePath: String,
-        wineRuntimePath: String
+        wineRuntimePath: String,
+        processPrefixes: [Int32: String] = [:]
     ) -> [WineProcess] {
         var found: [WineProcess] = []
         for line in psOutput.split(separator: "\n") {
@@ -59,7 +61,8 @@ public enum ProcessInventory {
                   let resident = Int64(columns[1]) else { continue }
             let command = columns[3...].joined(separator: " ")
             guard belongsToContainer(
-                command: command, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath
+                command: command, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath,
+                processPrefix: processPrefixes[pid]
             ) else { continue }
             found.append(WineProcess(
                 name: displayName(of: command),
@@ -71,13 +74,66 @@ public enum ProcessInventory {
         return found.sorted { $0.residentKB > $1.residentKB }
     }
 
-    private static func belongsToContainer(command: String, bottlePath: String, wineRuntimePath: String) -> Bool {
+    private static func belongsToContainer(command: String, bottlePath: String, wineRuntimePath: String,
+                                          processPrefix: String?) -> Bool {
         // 我们自己起的 wine 命令行（reg import、taskkill 等）是宿主侧的临时工具，
         // 不是容器里的程序；wineserver 例外，它代表容器还活着。
         if isWineLauncher(command: command, wineRuntimePath: wineRuntimePath) { return false }
+        if let processPrefix {
+            guard !bottlePath.isEmpty else { return false }
+            return canonicalPath(processPrefix) == canonicalPath(bottlePath)
+        }
         if !bottlePath.isEmpty, command.localizedCaseInsensitiveContains(bottlePath) { return true }
         if !wineRuntimePath.isEmpty, command.localizedCaseInsensitiveContains(wineRuntimePath) { return true }
         return solidWorksProcesses.contains { command.contains($0) }
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    /// KERN_PROCARGS2: argc、可执行路径、填充 NUL、argc 个 argv、填充 NUL、环境变量。
+    /// 只提取 WINEPREFIX，不缓存或输出其他环境（其中可能包含许可/凭据）。
+    static func winePrefix(from arguments: Data) -> String? {
+        let bytes = [UInt8](arguments)
+        guard bytes.count >= MemoryLayout<Int32>.size else { return nil }
+        let argc = arguments.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        guard argc > 0, argc <= 4096 else { return nil }
+        var cursor = MemoryLayout<Int32>.size
+        func nextString() -> ArraySlice<UInt8>? {
+            guard cursor < bytes.count, let end = bytes[cursor...].firstIndex(of: 0) else { return nil }
+            let value = bytes[cursor..<end]
+            cursor = end + 1
+            return value
+        }
+        guard nextString() != nil else { return nil }
+        while cursor < bytes.count, bytes[cursor] == 0 { cursor += 1 }
+        for _ in 0..<Int(argc) {
+            guard nextString() != nil else { return nil }
+        }
+        // 参数区与环境区间也可能有填充；Wine 改写 argv 后尤其会留下大量 NUL。
+        while cursor < bytes.count, bytes[cursor] == 0 { cursor += 1 }
+        let key = Array("WINEPREFIX=".utf8)
+        while let entry = nextString(), !entry.isEmpty {
+            guard entry.starts(with: key) else { continue }
+            guard let prefix = String(bytes: entry.dropFirst(key.count), encoding: .utf8),
+                  prefix.hasPrefix("/") else { return nil }
+            return prefix
+        }
+        return nil
+    }
+
+    static func winePrefix(pid: Int32) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, UInt32(mib.count), nil, &size, nil, 0) == 0,
+              size >= MemoryLayout<Int32>.size, size <= 4 * 1024 * 1024 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        let status = buffer.withUnsafeMutableBytes { pointer in
+            sysctl(&mib, UInt32(mib.count), pointer.baseAddress, &size, nil, 0)
+        }
+        guard status == 0 else { return nil }
+        return winePrefix(from: Data(buffer.prefix(size)))
     }
 
     /// 宿主侧起的 wine 工具（reg import、taskkill 这些临时命令行）不是容器里的程序，
@@ -121,7 +177,14 @@ public enum ProcessInventory {
         do { try process.run() } catch { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return parse(String(decoding: data, as: UTF8.self), bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+        let output = String(decoding: data, as: UTF8.self)
+        // 只对原有启发式识别到的候选读取环境，不扫描其他应用的环境。
+        let candidates = parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+        var prefixes: [Int32: String] = [:]
+        for candidate in candidates {
+            if let prefix = winePrefix(pid: candidate.pid) { prefixes[candidate.pid] = prefix }
+        }
+        return parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath, processPrefixes: prefixes)
     }
 
     public static func isSolidWorksRunning(_ snapshot: [WineProcess]) -> Bool {

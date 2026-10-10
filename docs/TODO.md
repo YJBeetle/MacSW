@@ -18,6 +18,7 @@
 - [x] 移除旧安装向导中“选择路径但未明确执行”的组件/许可维护入口。App 不再提供替换 SOLIDWORKS 官方文件的能力；托管 FlexNet 改为设置页显式安装，并复制到固定的 `C:\\opt\\FlexNet` 后运行。
 - [x] 处理官方安装末尾的 32 位托管注册路径。修复 Wine-Mono x86 native thunk，并在安装阶段使用解释器模式后，官方安装向导已正常完成。见 [验证记录](regasm-validation.md)。
 - [x] 核查正式单容器的许可证服务。`lmgrd`、`SW_D` 日志及 25734 监听均已确认，SOLIDWORKS 主界面可启动。
+- [x] 进程清单按实际 `WINEPREFIX` 区分主容器与隔离实例，不再仅凭同名 SOLIDWORKS 或共享 Wine 路径认定归属。兼容参数区的 NUL 填充及路径别名；环境不可读时仍保守阻止删除。双进程实测不创建 Wine 容器。
 - [ ] 完成剩余 GUI 验证。
   - [x] 新建 Part 后 FeatureManager 避让：已由 `winemac.drv` 原生图层裁剪修复。
   - [x] 清除 Login Manager 隐藏模态循环：安装 Login Manager 并完成托管 COM 注册后，缺失提示不再创建，一级/二级菜单和轮盘不再被 `TaskDialogIndirect` 消息循环整体阻塞。
