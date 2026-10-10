@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := app
 
-.PHONY: app archive bootstrap ci fetch fetch-mono fetch-runtime launcher \
+.PHONY: app archive bootstrap ci fetch fetch-mono fetch-runtime fontlink-probe launcher \
 	fetch-seven-zip fetch-stdole fetch-swcli-runtime fetch-wine-source icon package \
 	printwindow-probe swcli-helper test theme-probe treeview-probe verify winemac
 
@@ -46,6 +46,9 @@ treeview-probe:
 
 printwindow-probe:
 	bash ./scripts/build_wine_printwindow_probe.sh
+
+fontlink-probe:
+	bash ./scripts/build_wine_fontlink_probe.sh
 
 icon:
 	mkdir -p build/resources
