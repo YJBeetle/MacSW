@@ -64,6 +64,43 @@ class WineUpgradeTests(unittest.TestCase):
     def test_identity_ignores_swcli_commit(self):
         self.assertNotIn("SWCLISourceCommit", RUNTIME.identity(self.contents))
 
+    def msxml_modules(self, contents):
+        values = RUNTIME.identity(contents)
+        for key, relative in RUNTIME.MSXML_MODULES.items():
+            module = contents / 'Frameworks/wine' / relative
+            module.parent.mkdir(parents=True, exist_ok=True)
+            module.write_bytes(b'msxml-schema-namespace-module')
+            values[key] = hashlib.sha256(module.read_bytes()).hexdigest()
+        values['WineMSXMLSchemaPatchSHA256'] = '1' * 64
+        with (contents / 'Resources/BuildManifest.plist').open('wb') as stream:
+            plistlib.dump(values, stream)
+        return values
+
+    def test_msxml_identity_without_mono_overlay_requires_upgrade(self):
+        self.baseline()
+        values = self.msxml_modules(self.new)
+        RUNTIME.verify_app(self.new, values)
+        self.assertEqual(RUNTIME.status(self.new, self.prefix), 'upgrade')
+
+    def test_corrupt_msxml_rejected_before_upgrade(self):
+        values = self.msxml_modules(self.new)
+        module = self.new / 'Frameworks/wine/lib/wine/x86_64-windows/msxml3.dll'
+        module.write_bytes(b'corrupt')
+        with self.assertRaisesRegex(RuntimeError, 'WineMSXML3ModuleSHA256'):
+            RUNTIME.verify_app(self.new, values)
+
+    def test_partial_msxml_manifest_rejected(self):
+        baseline = RUNTIME.identity(self.new)
+        for key in RUNTIME.MSXML_IDENTITY_KEYS:
+            with self.subTest(key=key):
+                partial = {**baseline, key: '1' * 64}
+                with (self.new / 'Resources/BuildManifest.plist').open('wb') as stream:
+                    plistlib.dump(partial, stream)
+                with self.assertRaisesRegex(RuntimeError, 'MSXML'):
+                    RUNTIME.identity(self.new)
+                with self.assertRaisesRegex(RuntimeError, 'MSXML'):
+                    RUNTIME.verify_app(self.new, partial)
+
     def test_changed_identity_cannot_bypass_by_baseline(self):
         self.baseline()
         with self.assertRaisesRegex(RuntimeError, "绕过"):

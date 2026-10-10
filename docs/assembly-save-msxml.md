@@ -1,8 +1,8 @@
 # ASM 保存失败：MSXML SchemaCache 命名空间兼容
 
 本修复独立于 Toolbox 的 Mono CCW Release 补丁。DockerSW 可移植
-`patches/wine-crossover/0014-msxml-schema-cache-namespace.patch`，无需同步
-Mono 引擎或 macOS 驱动改动。
+`patches/wine-crossover/0014-msxml-schema-cache-namespace.patch` 和
+`native/msxml_schema_namespace_probe.c`，无需同步 Mono 引擎或 macOS 驱动改动。
 
 ## 根因与行为
 
@@ -19,12 +19,27 @@ Wine 没有把该 XSD 绑定到缓存命名空间，保存 XML 因此验证失�
 显式前缀、局部 form、XPath 与调用者 DOM，跳过 annotation，失败时清理私有副本。
 没有关闭 XML 验证、篡改官方 XSD 或把保存错误强行改成成功。
 
-## 部署与实测
+## 移植与回归
 
 Wine 中 MSXML6 的工厂转发到 `dlls/msxml3/schema.c`，实际需构建并部署匹配运行时
 及架构的 `msxml3.dll`，不能只替换 `msxml6.dll`。Linux/Wine 可将补丁应用到自己的
 Wine 源码并重新构建该模块；MacSW 的完整提交另含本项目的构建、打包与身份校验
 接线，不必直接移植这些 macOS 专用脚本。部署时先正常退出 SW，避免继续使用旧模块。
+
+编译跨平台 Windows 探针，然后在目标 Wine 运行：
+
+```sh
+x86_64-w64-mingw32-gcc -O2 -Wall native/msxml_schema_namespace_probe.c \
+  -o msxml-schema.exe -lole32 -loleaut32
+wine ./msxml-schema.exe
+```
+
+必须同时检查退出码 0、七项完成以及独立行 `XML_NAMESPACE_PROBE_PASS`；
+非法整数仍应返回验证失败，调用者的 XSD DOM 必须保持不变。
+
+七项覆盖合法绑定、非法数据、空缓存命名空间、命名类型和 ref、显式目标命名空间、
+默认 XSD 命名空间、局部空命名空间。Windows 原生 MSXML6、源码候选和最终打包产物
+均通过。另以真实 SW 捕获的保存 XML 与未修改的官方 XSD 验证成功。
 
 MacSW 正式主实例已验证：三个组件保存／重开成功；用户手动配置和确认新规格后，
 五组件 ASM 保存错误码 0、文件 174,664 字节，重开错误码 0，配置、实体数及包围盒
@@ -33,4 +48,4 @@ MacSW 正式主实例已验证：三个组件保存／重开成功；用户手�
 仅 MSXML 候选的新空白 ASM 保存／重开也已通过，文件 35,664 字节、错误和警告均为 0。
 
 保存不是 Pack and Go，重开仍依赖可访问的组件文件；测试应使用副本并保持 Toolbox
-副本路径，避免 SW 自动重映射到原库生成配置。DockerSW 需在自己的实际宿主复测。
+副本路径，避免 SW 自动重映射到原库生成配置。

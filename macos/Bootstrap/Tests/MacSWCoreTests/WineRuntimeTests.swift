@@ -56,6 +56,20 @@ final class WineRuntimeTests: XCTestCase {
         XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .recovery)
     }
 
+    func testMSXMLManifestDoesNotRequireMonoOverlay() throws {
+        let (prefix, bundle, values) = try fixture()
+        try record(prefix: prefix, identity: values)
+        let url = bundle.appendingPathComponent("Contents/Resources/BuildManifest.plist")
+        var manifest = values
+        manifest["WineMSXML3ModuleSHA256"] = String(repeating: "1", count: 64)
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: url)
+        XCTAssertThrowsError(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")))
+        manifest["WineMSXMLSchemaPatchSHA256"] = String(repeating: "2", count: 64)
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: url)
+        XCTAssertEqual(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")), manifest)
+        XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .upgrade)
+    }
+
     func testMalformedReceiptFailsClosed() throws {
         let (prefix, bundle, _) = try fixture()
         try Data("invalid".utf8).write(to: WineRuntimeService.root(prefix: prefix).appendingPathComponent("receipt.json"))
