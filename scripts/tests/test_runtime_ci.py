@@ -127,7 +127,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
     def test_official_cache_and_always_cleanup_stay_in_runtime_job(self):
         snapshot = self.runtime.index("- name: Save only verified official base")
         fixtures = self.runtime.index("- name: Prepare temporary licensing and runtime fixtures")
-        gates = self.runtime.index("- name: Shared modeling then driving dimensions on one host")
+        gates = self.runtime.index("- name: Shared modeling, driving dimensions and Toolbox on one host")
         self.assertLess(snapshot, fixtures)
         self.assertLess(fixtures, gates)
         self.assertIn("TAR_OPTIONS: --same-permissions", self.runtime)
@@ -145,10 +145,10 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
 
     def test_shared_stage_budget_covers_both_modes_and_startup(self):
-        step = self.runtime.split("- name: Shared modeling then driving dimensions on one host", 1)[1].split("- name:", 1)[0]
-        self.assertIn("timeout-minutes: 210", step)
+        step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
+        self.assertIn("timeout-minutes: 225", step)
         self.assertLess(2 * sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
-                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 210 * 60)
+                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 225 * 60)
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -605,45 +605,100 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertEqual(gate.windows_path(self.root / "models"), "Q:\\real\\models")
             command.assert_called_once_with([gate.path_helper, self.root / "models"])
 
-    def test_shared_modeling_then_driving_without_intermediate_restart(self):
+    def test_shared_modeling_driving_then_toolbox_without_intermediate_restart(self):
         gate = self.gate()
-        scripts = [Path("verify-modeling.py"), Path("verify-driving-dimensions.py")]
+        scripts = [Path(name) for name in ci.SHARED_GATES]
         events = []
         host = {"process_id": 42}
         def command(args, **kwargs):
             events.append(args[1].name)
             self.assertIn("--cli-command", args)
-            self.assertIn("--host-output-dir", args)
             self.assertIn("--endpoint", args)
+            self.assertEqual(args[args.index("--cli-command") + 1], gate.cli)
+            self.assertEqual(args[args.index("--endpoint") + 1], gate.env["SWCLI_ENDPOINT"])
             self.assertEqual(args[args.index("--request-timeout") + 1], "300")
             output = args[args.index("--output-dir") + 1]
             self.assertTrue(output.is_relative_to(gate.prefix / "drive_c"))
+            if args[1].name == "verify-toolbox.py":
+                self.assertEqual(kwargs["timeout"], 600)
+                self.assertEqual(args[args.index("--wine-prefix") + 1], gate.prefix)
+                self.assertIn("--require-toolbox", args)
+                for option in ("--host-output-dir", "--data-dir", "--host-data-dir", "--inventory-only", "--after-modeling"):
+                    self.assertNotIn(option, args)
+            else:
+                self.assertIn("--host-output-dir", args)
+                self.assertEqual(args[args.index("--host-output-dir") + 1], "Q:\\models")
+                self.assertNotIn("--wine-prefix", args)
+                self.assertNotIn("--require-toolbox", args)
             if args[1].name == "verify-driving-dimensions.py":
                 self.assertEqual(kwargs["timeout"], 3600)
                 self.assertIn("--after-modeling", args)
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
-            else:
+            elif args[1].name == "verify-modeling.py":
                 self.assertEqual(kwargs["timeout"], 1800)
                 self.assertNotIn("--after-modeling", args)
         with patch.object(ci, "shared_gates", return_value=scripts), \
                 patch.object(gate, "verify_bitmap_driver", side_effect=lambda: events.append("bitmap-driver")), \
                 patch.object(ci, "HostMetrics") as metrics, \
                 patch.object(gate, "start", side_effect=lambda mode: events.append("start:" + mode) or host), \
-                patch.object(gate, "same_host", side_effect=lambda expected: self.assertEqual(expected, host)), \
+                patch.object(gate, "same_host", side_effect=lambda expected: self.assertEqual(expected, host)) as same_host, \
                 patch.object(gate, "command", side_effect=command), \
-                patch.object(gate, "windows_path", return_value="Q:\\models"), \
-                patch.object(gate, "collect_evidence"), \
+                patch.object(gate, "windows_path", return_value="Q:\\models") as windows_path, \
+                patch.object(gate, "collect_evidence") as collect_evidence, \
                 patch.object(gate, "stop", side_effect=lambda: events.append("stop")):
             gate.run()
         self.assertEqual([call.args for call in metrics.call_args_list],
-                         [(gate, "visible"), (gate, "visible"), (gate, "hidden"), (gate, "hidden")])
-        self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "stop",
-                                  "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "stop"])
+                         [(gate, mode) for mode in ("visible", "hidden") for _ in range(3)])
+        self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop",
+                                  "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop"])
+        self.assertEqual(same_host.call_count, 12)
+        self.assertEqual(windows_path.call_count, 4)
+        self.assertEqual([call.args for call in collect_evidence.call_args_list], [("visible",), ("hidden",)])
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["budgets_seconds"], {
             "request": 300, "startup": 300, "startup_outer": 330,
-            "shared_gates": {"modeling": 1800, "driving": 3600}, "native_sample_tool": 30})
+            "shared_gates": {"modeling": 1800, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30})
+
+    def test_toolbox_failure_keeps_original_error_and_evidence_without_next_mode(self):
+        gate = self.gate()
+        scripts = [Path(name) for name in ci.SHARED_GATES]
+        failure = RuntimeError("original Toolbox failure")
+        def command(args, **kwargs):
+            if args[1].name == "verify-toolbox.py":
+                raise failure
+        with patch.object(ci, "shared_gates", return_value=scripts), \
+                patch.object(gate, "verify_bitmap_driver"), \
+                patch.object(ci, "HostMetrics"), \
+                patch.object(gate, "start", return_value={"process_id": 42}) as start, \
+                patch.object(gate, "same_host"), \
+                patch.object(gate, "command", side_effect=command) as call, \
+                patch.object(gate, "windows_path", return_value="Q:\\models"), \
+                patch.object(gate, "collect_evidence") as collect_evidence, \
+                patch.object(gate, "stop") as stop:
+            with self.assertRaises(RuntimeError) as caught:
+                gate.run()
+        self.assertIs(caught.exception, failure)
+        start.assert_called_once_with("visible")
+        collect_evidence.assert_called_once_with("visible")
+        stop.assert_not_called()
+        self.assertEqual([item.args[0][1].name for item in call.call_args_list], list(ci.SHARED_GATES))
+        self.assertFalse(gate.record["completed"])
+        self.assertEqual(gate.record["phase"], "visible.toolbox")
+
+    def test_shared_evidence_includes_toolbox_json_but_not_cad_files(self):
+        gate = self.gate()
+        for name, filename in (("modeling", "modeling.json"), ("driving", "driving-dimensions.json"),
+                               ("toolbox", "toolbox.json")):
+            directory = gate.cwd / "visible" / name
+            directory.mkdir(parents=True)
+            (directory / filename).write_text('{"success": true}')
+            (directory / "model.SLDPRT").write_bytes(b"private CAD")
+        gate.collect_evidence("visible")
+        actual = {item.relative_to(gate.evidence).as_posix()
+                  for item in (gate.evidence / "visible").rglob("*") if item.is_file()}
+        self.assertEqual(actual, {"visible/modeling/modeling.json", "visible/driving/driving-dimensions.json",
+                                  "visible/toolbox/toolbox.json"})
 
     def test_native_bitmap_driver_requires_all_eight_actual_pixel_cases(self):
         records = [{"bpp": bpp, "width": width, "top_down": top_down, "success": True,
@@ -703,6 +758,18 @@ class RuntimeAdapterTests(unittest.TestCase):
         with patch.object(ci, "PROJECT", self.directory):
             with self.assertRaisesRegex(RuntimeError, "verify-modeling.py"):
                 ci.shared_gates()
+
+    def test_missing_toolbox_gate_is_not_silently_skipped(self):
+        directory = self.directory / "Dependencies/SWCLI/scripts/ci"
+        directory.mkdir(parents=True)
+        for name in ("verify-modeling.py", "verify-driving-dimensions.py"):
+            (directory / name).touch()
+        with patch.object(ci, "PROJECT", self.directory):
+            with self.assertRaisesRegex(RuntimeError, "verify-toolbox.py"):
+                ci.shared_gates()
+        (directory / "verify-toolbox.py").touch()
+        with patch.object(ci, "PROJECT", self.directory):
+            self.assertEqual(ci.shared_gates(), [directory / name for name in ci.SHARED_GATES])
 
     def test_remote_mount_is_limited_to_iso_parent(self):
         self.assertEqual(media.media_location("Share/Software/SW/media.iso"),

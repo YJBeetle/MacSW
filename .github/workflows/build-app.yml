@@ -375,9 +375,9 @@ jobs:
           export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
-      - name: Shared modeling then driving dimensions on one host
+      - name: Shared modeling, driving dimensions and Toolbox on one host
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
-        timeout-minutes: 210
+        timeout-minutes: 225
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \

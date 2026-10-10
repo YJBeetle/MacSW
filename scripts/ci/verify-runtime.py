@@ -20,12 +20,12 @@ import threading
 import time
 
 PROJECT = Path(__file__).resolve().parents[2]
-SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py")
+SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py")
 # Hosted software rendering is slower than local hardware. These are CI-only
 # limits; the shared assertions and SWCLI product defaults remain unchanged.
 REQUEST_TIMEOUT_SECONDS = 300
 STARTUP_TIMEOUT_SECONDS = 300
-SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 1800, "driving": 3600}
+SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 1800, "driving": 3600, "toolbox": 600}
 SAMPLE_TIMEOUT_SECONDS = 30
 
 
@@ -477,7 +477,7 @@ class RuntimeGate:
         if self.log:
             self.log.close()
             self.log = None
-        # Only between completed mode runs, never between the two shared gates.
+        # Only between completed mode runs, never between the shared gates.
         self.command([self.helper, "cleanup"])
 
     def collect_evidence(self, mode):
@@ -496,17 +496,23 @@ class RuntimeGate:
         for mode in ("visible", "hidden"):
             host = self.start(mode)
             try:
-                for script, name in zip(scripts, ("modeling", "driving")):
+                for script, name in zip(scripts, ("modeling", "driving", "toolbox")):
                     self.phase(mode + "." + name)
                     output = self.cwd / mode / name
                     output.mkdir(parents=True, exist_ok=True)
-                    # Both namespaces must refer to the SAME physical directory:
-                    # the shared modeling gate checks the locally saved artifact.
                     self.same_host(host)
                     arguments = [sys.executable, script, "--output-dir", output,
-                                 "--host-output-dir", self.windows_path(output),
                                  "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"],
                                  "--request-timeout", str(REQUEST_TIMEOUT_SECONDS)]
+                    if name == "toolbox":
+                        # Toolbox reads official models; its only output is local
+                        # JSON evidence. The shared gate resolves the registry and
+                        # actual dosdevices mappings in this isolated bottle.
+                        arguments += ["--wine-prefix", self.prefix, "--require-toolbox"]
+                    else:
+                        # Modeling writes CAD files: both namespaces must refer
+                        # to the SAME physical directory for artifact checks.
+                        arguments += ["--host-output-dir", self.windows_path(output)]
                     if name == "driving":
                         arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
                     with HostMetrics(self, mode):

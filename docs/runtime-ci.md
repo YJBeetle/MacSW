@@ -58,10 +58,11 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    `sldProcMon.exe`（可逆重命名，与 DockerSW 相同），记录 VC++ 模块大小、哈希和
    Wine builtin/placeholder 标记，并将 Mono 的宿主路径按实际映射重新绑定，再
    启动打包 `sw-cli daemon serve`，等待健康检查确认 COM 主机就绪。
-6. 可见模式中顺序运行 `verify-modeling.py` 和 `verify-driving-dimensions.py`，
+6. 可见模式中顺序运行 `verify-modeling.py`、`verify-driving-dimensions.py` 和
+   `verify-toolbox.py`，
    每个入口前后核对同一个 daemon/SOLIDWORKS COM 主机的 PID、模式和元数据。
-   中途不能重启 daemon 或 SOLIDWORKS；通用建模失败就保留失败，不继续尺寸测试。
-7. 完成这两个入口后才停止第一套进程，再在隐藏模式重复上述顺序。
+   中途不能重启 daemon 或 SOLIDWORKS；任一门禁失败就保留失败，不继续后续门禁。
+7. 完成这三个入口后才停止第一套进程，再在隐藏模式重复上述顺序。
 8. 无论成功或失败，都停止隔离 Wine server、弹出本次 ISO、卸载 rclone NFS，
    删除本地 VFS 稀疏缓存、验证资源、临时 App
    和整个测试容器。只上传通过最终脱敏检查的测试 JSON、daemon 日志及白名单安装日志。
@@ -96,25 +97,36 @@ WGL 加速属性；软件格式必须报告 `PFD_GENERIC_FORMAT` / `WGL_NO_ACCEL
 这不会跳过八组像素门禁，后续共享建模→尺寸仍须在同一宿主顺序通过。
 候选状态、已知风险及验收边界见[软件 renderer 待办](software-renderer-compatibility.md)。
 
-共享入口参数约定：`--output-dir`（本机输出目录）、`--host-output-dir`
-（同一物理目录的 Wine 可见路径）、`--cli-command`（打包后的 CLI）、`--endpoint`。
+共享入口参数约定：`--output-dir`（本机输出目录）、`--cli-command`（打包后的 CLI）、
+`--endpoint`。建模和尺寸入口另传 `--host-output-dir`
+（同一物理目录的 Wine 可见路径）。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
 SWCLI 固定提交为 `063cd31d1b3a3590293df97727ebe73502e4b877`（`0.1.0a6.dev0`；以
 `config/versions.env` 与子模块的成对固定为准），沿用 DockerSW 的共享
-门禁调用顺序。两个共享门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
+门禁调用顺序。建模和尺寸门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
 续租；尺寸门禁的协议和 CLI 写操作均覆盖。此修改针对慢调用导致租约过期的测试问题，
 不改变 daemon 默认期限、原生断言或命令超时，也不重试过期/失败操作。
 尺寸入口额外传入 `--after-modeling` 指向同一模式的成功 `modeling.json`，
 由 SWCLI 核对前序成功、拒绝切除后的续用证明及原生宿主 PID。外层宿主检查仍保留。
 共享入口缺失时，runtime 预检明确失败，**不静默跳过**。
 
+Toolbox 入口传入 `--wine-prefix` 指向本轮隔离容器，且必须 `--require-toolbox`。
+共享脚本通过真实注册表中的 Toolbox Data Location 与 `dosdevices` 映射读取完整
+标准配置、官方索引、标准件模型和数据库，再通过公共 CLI 对代表件执行只读
+`open → diagnose → measure → close`。它不重建、不保存或回写安装数据，不传
+`--host-output-dir`，仅将本机 JSON 证据写入每模式的 `toolbox/` 目录。
+MacSW 不另写 CAD 断言，也不以 inventory-only 代替真实同宿主验证；本接线的离线
+回归不等于这项门禁已经在真实 CI 通过。部署原理与既有验证边界见
+[Toolbox 标准件部署](toolbox-deployment.md)。
+
 ### 托管机器的时间预算
 
 共享测试接受 `--request-timeout`（秒），默认仍为 120；MacSW CI 明确传入
 300，让托管软件渲染和慢 COM 调用有更多余量。CLI 和直接协议请求使用同一
 预算，CLI 子进程额外留 15 秒用于接收终局结果及退出，不更改 SWCLI 产品默认值。
-每模式建模门禁最多 30 分钟、尺寸门禁最多 60 分钟；双模式步骤最多 210 分钟，
+每模式建模门禁最多 30 分钟、尺寸门禁最多 60 分钟、Toolbox 门禁最多 10 分钟；
+双模式步骤最多 225 分钟，
 仍受运行 job 的 360 分钟上限约束。启动的同一次 Wine 激活最多 240 秒，daemon
 启动 300 秒、外层就绪等待 330 秒，正常停止等待 90 秒。
 
