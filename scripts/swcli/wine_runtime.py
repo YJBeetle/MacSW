@@ -31,6 +31,11 @@ MODULES = {
     "MonoRegAsmX64SHA256": "lib/wine/x86_64-windows/regasm.exe",
 }
 
+MSXML_MODULES = {
+    "WineMSXML3ModuleSHA256": "lib/wine/x86_64-windows/msxml3.dll",
+}
+MSXML_IDENTITY_KEYS = ("WineMSXMLSchemaPatchSHA256", *MSXML_MODULES)
+
 
 def state_root(prefix):
     if prefix.is_symlink() or prefix.name in ("", ".", "..") or len(prefix.parts) < 3:
@@ -45,6 +50,8 @@ def identity(contents):
               if key.startswith(("Wine", "Mono")) and isinstance(value, str)}
     if not all(values.get(key) for key in ("WineVersion", "MonoVersion", *MODULES)):
         raise RuntimeError("App 的 Wine/Mono 构建身份不完整，请重新下载完整 App。")
+    if any(key in values for key in MSXML_IDENTITY_KEYS) and not all(values.get(key) for key in MSXML_IDENTITY_KEYS):
+        raise RuntimeError("App 的 MSXML 运行时身份不完整。")
     return values
 
 
@@ -53,7 +60,12 @@ def fingerprint(values):
 
 
 def verify_app(contents, values):
-    for key, relative in MODULES.items():
+    modules = dict(MODULES)
+    if any(key in values for key in MSXML_IDENTITY_KEYS):
+        if not all(values.get(key) for key in MSXML_IDENTITY_KEYS):
+            raise RuntimeError("App 的 MSXML 运行时身份不完整。")
+        modules.update(MSXML_MODULES)
+    for key, relative in modules.items():
         path = contents / "Frameworks/wine" / relative.format(**values)
         with path.open("rb") as stream:
             hasher = hashlib.sha256()

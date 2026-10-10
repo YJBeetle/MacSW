@@ -41,6 +41,11 @@ public enum WineRuntimeService {
                "MonoRegAsmX64SHA256"].allSatisfy({ !(values[$0] ?? "").isEmpty }) else {
             throw failure("Wine / Mono 构建身份不完整。")
         }
+        let msxmlKeys = ["WineMSXMLSchemaPatchSHA256", "WineMSXML3ModuleSHA256"]
+        if msxmlKeys.contains(where: { values[$0] != nil }),
+           !msxmlKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
+            throw failure("MSXML 运行时构建身份不完整。")
+        }
         return values
     }
 
