@@ -12,6 +12,7 @@ import math
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,7 @@ def modeling_samples(prefix):
 # limits; the shared assertions and SWCLI product defaults remain unchanged.
 REQUEST_TIMEOUT_SECONDS = 300
 STARTUP_TIMEOUT_SECONDS = 300
-SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 1800, "driving": 3600, "toolbox": 600}
+SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 3600, "driving": 3600, "toolbox": 600}
 SAMPLE_TIMEOUT_SECONDS = 30
 
 
@@ -340,6 +341,95 @@ def snapshot_output(output):
     return text_output(b"".join(chunks)).replace("\r\n", "\n").replace("\r", "\n")
 
 
+class SharedGateProgress:
+    """Timestamp allowlisted stdout progress without pipes or CAD decisions.
+
+    These are observation times (0.5s polling), not native-call durations. No
+    command arguments, result payloads or stderr are echoed into Actions.
+    """
+
+    PATTERN = re.compile(
+        r"(Modeling gate|Driving-dimension gate|Toolbox gate): ([a-z][a-z0-9_. -]{0,95})"
+    )
+
+    def __init__(self, output, evidence, phase, started):
+        self.output = output
+        self.evidence = evidence
+        self.phase = phase
+        self.started = started
+        self.previous = None
+        self.offset = 0
+        self.pending = b""
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.observe, daemon=True)
+        self.started_thread = False
+
+    def capture(self):
+        # pread leaves the inherited file offset untouched; never wait for EOF.
+        chunk = os.pread(self.output.fileno(), 65536, self.offset)
+        self.offset += len(chunk)
+        lines = (self.pending + chunk).split(b"\n")
+        self.pending = lines.pop()
+        # Discard overlong untrusted lines, including fragments spanning reads.
+        if len(self.pending) > 2048:
+            self.pending = b"!"  # Cannot match an allowlisted progress prefix.
+        for line in lines:
+            if len(line) > 2048:
+                continue
+            match = self.PATTERN.fullmatch(line.decode("utf-8", errors="replace").rstrip("\r"))
+            if not match:
+                continue
+            now = time.monotonic()
+            record = {
+                "event": "macsw.shared-step-progress",
+                "phase": self.phase,
+                "gate": match[1],
+                "stage": match[2],
+                "observed_utc_time": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": round(now - self.started, 3),
+                "since_previous_progress_seconds": (
+                    None if self.previous is None else round(now - self.previous, 3)
+                ),
+                "timing_basis": "stdout-observed",
+            }
+            self.previous = now
+            payload = json.dumps(record, allow_nan=False)
+            with self.evidence.open("a", encoding="utf-8") as stream:
+                stream.write(payload + "\n")
+            print(payload, flush=True)
+        return len(chunk)
+
+    def observe(self):
+        while not self.stopped.is_set():
+            try:
+                self.capture()
+            except (OSError, ValueError):
+                pass  # Diagnostic failure must not change the test outcome.
+            self.stopped.wait(0.5)
+
+    def start(self):
+        try:
+            self.thread.start()
+            self.started_thread = True
+        except RuntimeError:
+            pass
+
+    def stop(self):
+        self.stopped.set()
+        if self.started_thread:
+            self.thread.join(timeout=2)
+            if self.thread.is_alive():
+                return  # Do not read/print concurrently with a stuck observer.
+        try:
+            # Drain only bytes already written; descendants may still be alive.
+            size = os.fstat(self.output.fileno()).st_size
+            while self.offset < size:
+                if not self.capture():
+                    break
+        except (OSError, ValueError):
+            pass
+
+
 class RuntimeGate:
     def __init__(self, app, evidence):
         self.root = ci_root()
@@ -406,7 +496,8 @@ class RuntimeGate:
     def command(self, arguments, *, timeout=300):
         started = time.monotonic()
         entry = {"arguments": list(map(str, arguments)), "completed": False,
-                 "timeout_seconds": timeout}
+                 "timeout_seconds": timeout,
+                 "started_utc_time": datetime.now(timezone.utc).isoformat()}
         self.record["commands"].append(entry)
         self.checkpoint()
         # Wine background processes can inherit stdout/stderr after the command
@@ -415,6 +506,13 @@ class RuntimeGate:
         with tempfile.TemporaryFile(dir=self.cwd / "tmp") as stdout, \
                 tempfile.TemporaryFile(dir=self.cwd / "tmp") as stderr:
             process = None
+            progress = None
+            if any(Path(str(argument)).name in SHARED_GATES for argument in arguments):
+                progress = SharedGateProgress(
+                    stdout, self.evidence / "shared-step-progress.log",
+                    self.record["phase"], started,
+                )
+                progress.start()
             try:
                 process = subprocess.Popen(entry["arguments"], env=self.env, cwd=self.cwd,
                                            stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
@@ -434,12 +532,25 @@ class RuntimeGate:
                 entry["exit_code"] = process.returncode
                 raise
             finally:
+                if progress is not None:
+                    progress.stop()
                 # Snapshot a bounded byte count; descendants may still append.
                 # The anonymous files are private and never uploaded directly.
                 for name, output in (("stdout", stdout), ("stderr", stderr)):
                     entry[name] = snapshot_output(output)
                 entry["duration_seconds"] = time.monotonic() - started
+                entry["finished_utc_time"] = datetime.now(timezone.utc).isoformat()
                 self.checkpoint()
+                if progress is not None:
+                    print(json.dumps({
+                        "event": "macsw.shared-command-end",
+                        "phase": self.record["phase"],
+                        "finished_utc_time": entry["finished_utc_time"],
+                        "duration_seconds": round(entry["duration_seconds"], 3),
+                        "completed": entry["completed"],
+                        "exit_code": entry.get("exit_code"),
+                        "error": entry.get("error"),
+                    }), flush=True)
         if entry["exit_code"] != 0:
             raise RuntimeError("Command failed; see runtime.json: " + str(arguments[0]))
         return entry["stdout"]

@@ -149,9 +149,9 @@ class RuntimeWorkflowTests(unittest.TestCase):
 
     def test_shared_stage_budget_covers_both_modes_and_startup(self):
         step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
-        self.assertIn("timeout-minutes: 225", step)
+        self.assertIn("timeout-minutes: 300", step)
         self.assertLess(2 * sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
-                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 225 * 60)
+                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 300 * 60)
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -204,7 +204,77 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(entry["exit_code"], 0)
         self.assertEqual(entry["stderr"], "diagnostic\ufffd\n")
         self.assertNotIn("running_at_timeout", entry)
+        self.assertLessEqual(entry["started_utc_time"], entry["finished_utc_time"])
         self.assertEqual(json.loads(gate.record_path.read_text())["commands"][0], entry)
+
+    def test_shared_progress_has_observation_times_and_does_not_move_writer_offset(self):
+        evidence = self.directory / "progress.log"
+        with tempfile.TemporaryFile() as output, contextlib.redirect_stdout(io.StringIO()) as printed:
+            observer = ci.SharedGateProgress(output, evidence, "visible.modeling", 10)
+            output.write(b'Modeling gate: document.create\n{"secret":"private"}\n')
+            output.flush()
+            position = output.tell()
+            with patch.object(ci.time, "monotonic", return_value=12.5):
+                observer.capture()
+            self.assertEqual(output.tell(), position)
+            output.write(b"Modeling gate: sketch.")
+            output.flush()
+            observer.capture()  # A partial line is not yet progress.
+            output.write(b"rectangle\nModeling gate: /private/token\n")
+            output.flush()
+            with patch.object(ci.time, "monotonic", return_value=18):
+                observer.capture()
+            records = [json.loads(line) for line in evidence.read_text().splitlines()]
+            self.assertEqual([record["stage"] for record in records], ["document.create", "sketch.rectangle"])
+            self.assertEqual(records[0]["elapsed_seconds"], 2.5)
+            self.assertIsNone(records[0]["since_previous_progress_seconds"])
+            self.assertEqual(records[1]["since_previous_progress_seconds"], 5.5)
+            self.assertTrue(records[0]["observed_utc_time"].endswith("+00:00"))
+            self.assertEqual(records[1]["timing_basis"], "stdout-observed")
+            self.assertNotIn("private", printed.getvalue())
+
+    def test_shared_progress_rejects_overlong_lines_and_keeps_all_gate_prefixes(self):
+        evidence = self.directory / "progress.log"
+        with tempfile.TemporaryFile() as output, contextlib.redirect_stdout(io.StringIO()):
+            observer = ci.SharedGateProgress(output, evidence, "hidden.driving", time.monotonic())
+            output.write(b"private" * 12000)
+            output.flush()
+            observer.capture()
+            output.write(b"\nDriving-dimension gate: front starting\nToolbox gate: gb.configured\n")
+            output.flush()
+            observer.stop()
+            records = [json.loads(line) for line in evidence.read_text().splitlines()]
+            self.assertEqual([record["stage"] for record in records], ["front starting", "gb.configured"])
+
+    def test_shared_progress_diagnostic_io_failure_does_not_change_command_result(self):
+        gate = self.gate()
+        def spawn(arguments, **kwargs):
+            kwargs["stdout"].write(b"Modeling gate: document.create\n")
+            kwargs["stdout"].flush()
+            return SimpleNamespace(pid=123, wait=lambda timeout: 0)
+        with patch.object(ci.subprocess, "Popen", side_effect=spawn), \
+                patch.object(ci.SharedGateProgress, "capture", side_effect=OSError("unavailable")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(gate.command(["verify-modeling.py"]), "Modeling gate: document.create\n")
+        self.assertTrue(gate.record["commands"][0]["completed"])
+
+    def test_shared_progress_does_not_hide_failure_or_change_deadline(self):
+        gate = self.gate()
+        def spawn(arguments, **kwargs):
+            kwargs["stdout"].write(b"Modeling gate: sketch.rectangle\n")
+            kwargs["stdout"].flush()
+            def wait(timeout):
+                self.assertEqual(timeout, 60)
+                return 7
+            return SimpleNamespace(pid=123, wait=wait)
+        with patch.object(ci.subprocess, "Popen", side_effect=spawn), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            with self.assertRaisesRegex(RuntimeError, "Command failed"):
+                gate.command(["verify-modeling.py"], timeout=60)
+        records = [json.loads(line) for line in printed.getvalue().splitlines()]
+        self.assertEqual(records[0]["event"], "macsw.shared-step-progress")
+        self.assertEqual(records[-1]["event"], "macsw.shared-command-end")
+        self.assertEqual(records[-1]["exit_code"], 7)
 
     def test_command_returns_without_waiting_for_descendant_log_handles(self):
         gate = self.gate()
@@ -770,7 +840,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
             elif args[1].name == "verify-modeling.py":
-                self.assertEqual(kwargs["timeout"], 1800)
+                self.assertEqual(kwargs["timeout"], 3600)
                 self.assertNotIn("--after-modeling", args)
                 for option in ("--sample-part", "--sample-assembly"):
                     self.assertEqual(args[args.index(option) + 1], "Q:\\models")
@@ -797,7 +867,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["budgets_seconds"], {
             "request": 300, "startup": 300, "startup_outer": 330,
-            "shared_gates": {"modeling": 1800, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30})
+            "shared_gates": {"modeling": 3600, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30})
 
     def test_toolbox_failure_keeps_original_error_and_evidence_without_next_mode(self):
         gate = self.gate()

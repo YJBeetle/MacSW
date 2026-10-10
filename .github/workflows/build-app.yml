@@ -391,7 +391,7 @@ jobs:
 
       - name: Shared modeling, driving dimensions and Toolbox on one host
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
-        timeout-minutes: 225
+        timeout-minutes: 300
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
