@@ -355,6 +355,17 @@ public final class BootstrapStore: ObservableObject {
         request: InstallRequest,
         generation: UUID
     ) async {
+        let runtimeState = WineRuntimeService.status(prefix: paths.bottle)
+        guard runtime?.isMigratingWine != true,
+              runtimeState != .recovery, runtimeState != .invalid,
+              runtimeState != .upgrade || cleanInstall else {
+            statusMessage = "请先在设置 → 维护中完成 Wine 升级或恢复，再安装。"
+            installationTask = nil
+            installationGeneration = nil
+            return
+        }
+        wine.setInstalling(true, prefix: paths.bottle)
+        defer { wine.setInstalling(false, prefix: paths.bottle) }
         stepStatuses = [:]
         stepDetails = [:]
         report(.media, .running, "正在校验官方安装介质…")
@@ -542,6 +553,7 @@ public final class BootstrapStore: ObservableObject {
             state = .installing(.validation)
             report(.validation, .running, "正在验证主程序、COM 注册与主题库…")
             try await validateInstalledRuntime()
+            _ = try await WineRuntimeService.perform("baseline", prefix: paths.bottle)
             try writeInstallationReceipt()
             report(.validation, .completed, "主程序、SldWorks.Application COM 注册与主题库校验通过")
             state = .completed

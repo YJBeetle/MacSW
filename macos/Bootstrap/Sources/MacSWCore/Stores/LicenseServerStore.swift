@@ -20,6 +20,7 @@ public final class LicenseServerStore: ObservableObject {
     private let service: FlexNetService
     private let wine: WineService
     private var didSyncFromContainer = false
+    var runtimeMaintenanceSuspended = false
 
     public init(paths: AppPaths, wine: WineService = .shared) {
         self.paths = paths
@@ -306,7 +307,7 @@ public final class LicenseServerStore: ObservableObject {
         process.standardOutput = handle ?? FileHandle.nullDevice
         process.standardError = handle ?? FileHandle.nullDevice
         process.terminationHandler = { _ in try? handle?.close() }
-        do { try process.run() }
+        do { try wine.start(process) }
         catch {
             // 没跑起来的进程不会有 terminationHandler，句柄得自己关掉。
             try? handle?.close()
@@ -357,6 +358,15 @@ public final class LicenseServerStore: ObservableObject {
     }
 
     func startOperationIfIdle() -> Bool {
+        guard !runtimeMaintenanceSuspended else {
+            statusMessage = "Wine 容器迁移正在执行，请稍后再维护许可。"
+            return false
+        }
+        let runtimeState = WineRuntimeService.status(prefix: paths.bottle)
+        guard runtimeState.allowsLaunch else {
+            statusMessage = runtimeState.message + " 请打开设置 → 维护。"
+            return false
+        }
         guard !isOperating else { return false }
         isOperating = true
         return true

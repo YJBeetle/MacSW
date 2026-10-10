@@ -9,6 +9,45 @@ public final class RuntimeStore: ObservableObject {
 
     /// 正在拉起但还没出现在容器进程里的 Wine 工具名；UI 用它把按钮变灰并转菊花。
     @Published public private(set) var pendingWineTool: String?
+    @Published public private(set) var wineRuntimeState: WineRuntimeService.State = .unmanaged
+    @Published public private(set) var isMigratingWine = false
+    @Published public private(set) var canRollbackWine = false
+    private var wineMigrationTask: Task<Void, Never>?
+
+    public func refreshWineRuntime() {
+        wineRuntimeState = WineRuntimeService.status(prefix: paths.bottle)
+        canRollbackWine = WineRuntimeService.canRollback(prefix: paths.bottle)
+    }
+
+    /// Called only after a UI confirmation that explicitly permits stopping SW.
+    public func maintainWineRuntime(_ command: String) {
+        guard !isMigratingWine, !licenseServer.isOperating,
+              state != .starting, state != .stopping, !wine.isInstalling(prefix: paths.bottle),
+              pendingWineTool == nil, ["baseline", "upgrade", "recover", "rollback"].contains(command) else { return }
+        isMigratingWine = true
+        licenseServer.runtimeMaintenanceSuspended = true
+        fontPreparationSuspended = true
+        statusMessage = "正在保留旧 App、备份或恢复容器，请勿退出 MacSW…"
+        wineMigrationTask = Task {
+            defer {
+                isMigratingWine = false
+                licenseServer.runtimeMaintenanceSuspended = false
+                fontPreparationSuspended = false
+                wineMigrationTask = nil
+                refreshWineRuntime()
+            }
+            if let task = fontPreparation { _ = try? await task.value }
+            if let task = swcliTask { _ = try? await task.value }
+            fontPreparation = nil
+            fontPreparationID = nil
+            swcliTask = nil
+            swcliTaskID = nil
+            do { statusMessage = try await WineRuntimeService.perform(command, prefix: paths.bottle) }
+            catch { statusMessage = error.localizedDescription }
+            AppPaths.invalidateInstallationState()
+            await refreshState()
+        }
+    }
 
     public let paths: AppPaths
     private let wine: WineService
@@ -48,6 +87,11 @@ public final class RuntimeStore: ObservableObject {
 
     /// App 启动时建立唯一的字体准备任务，自动和手动启动都等待它完成。
     public func prepareFontLinkAtAppLaunch() {
+        refreshWineRuntime()
+        guard wineRuntimeState.allowsLaunch else {
+            statusMessage = wineRuntimeState.message + " 请打开设置 → 维护。"
+            return
+        }
         guard !fontPreparationSuspended, fontPreparation == nil,
               paths.bottleExists, paths.solidWorksInstalled else { return }
         let repair = fontLinkRepair
@@ -57,6 +101,8 @@ public final class RuntimeStore: ObservableObject {
     }
 
     func ensureFontLinkPrepared() async throws {
+        refreshWineRuntime()
+        guard wineRuntimeState.allowsLaunch else { throw runtimeError(wineRuntimeState.message) }
         guard !fontPreparationSuspended else {
             throw runtimeError("容器正在清理或重新安装，稍后再启动 SOLIDWORKS。")
         }
@@ -76,6 +122,7 @@ public final class RuntimeStore: ObservableObject {
 
     /// 删除容器前先阻止新的字体检查，并等正在读写注册表的 Wine 进程退出。
     public func suspendFontPreparationForBottleDeletion() async {
+        if let task = wineMigrationTask { await task.value }
         fontPreparationSuspended = true
         // The filesystem deployment must finish before the installer removes
         // the bottle; cancellation alone cannot stop a synchronous copy safely.
@@ -99,6 +146,11 @@ public final class RuntimeStore: ObservableObject {
     public func startup(autoLaunch: Bool) async {
         guard !didRunStartup else { return }
         didRunStartup = true
+        refreshWineRuntime()
+        guard wineRuntimeState.allowsLaunch else {
+            statusMessage = wineRuntimeState.message + " 请打开设置 → 维护。"
+            return
+        }
         do {
             try await ensureFontLinkPrepared()
         } catch {
@@ -220,7 +272,17 @@ public final class RuntimeStore: ObservableObject {
     }
 
     public func forceStop() {
+        guard !isMigratingWine else { return }
         Task {
+            refreshWineRuntime()
+            if !wineRuntimeState.allowsLaunch {
+                do {
+                    _ = try await WineRuntimeService.perform("stop", prefix: paths.bottle)
+                    statusMessage = "已使用归档运行时停止容器，没有启动新版 Wine。"
+                    await refreshState()
+                } catch { statusMessage = error.localizedDescription }
+                return
+            }
             let code = (try? await wine.forceStopSolidWorks(prefix: paths.bottle)) ?? -1
             // wineserver 不是 Windows 进程，taskkill 打不掉它，需要单独收尾。
             if await wine.waitWineserver(prefix: paths.bottle, seconds: 10) {
@@ -238,6 +300,12 @@ public final class RuntimeStore: ObservableObject {
     /// 托盘退出时只收尾当前容器；先停托管许可证进程，再结束 wineserver 和其余 Wine 客户进程。
     /// 未能确认进程全部退出时由调用方留在 App 中显示错误，避免假装已经清理完毕。
     public func stopContainerForAppQuit() async throws {
+        guard !isMigratingWine else { throw runtimeError("Wine 迁移正在执行，请完成后再退出。") }
+        refreshWineRuntime()
+        if !wineRuntimeState.allowsLaunch {
+            _ = try await WineRuntimeService.perform("stop", prefix: paths.bottle)
+            return
+        }
         let snapshot = await ProcessInventory.snapshot(
             bottlePath: paths.bottle.path,
             wineRuntimePath: wine.runtimeURL.path
@@ -261,6 +329,12 @@ public final class RuntimeStore: ObservableObject {
 
     /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。
     public func restartContainer() {
+        guard !isMigratingWine else { return }
+        refreshWineRuntime()
+        guard wineRuntimeState.allowsLaunch else {
+            statusMessage = wineRuntimeState.message + " 请打开设置 → 维护。"
+            return
+        }
         let wasRunning = isRunning
         if wasRunning { state = .stopping }
         Task {
@@ -282,7 +356,7 @@ public final class RuntimeStore: ObservableObject {
     /// Wine 的窗口不是瞬间弹出的：点下去立刻变灰转菊花，撑过这段空窗就收回，
     /// 不去猜进程有没有起来（猜错会一直转）。真实证据是下面 1 秒刷新的容器进程表。
     public func openWineTool(_ name: String) {
-        guard pendingWineTool == nil else { return }
+        guard !isMigratingWine, pendingWineTool == nil else { return }
         pendingWineTool = name
         if name == "cmd" {
             statusMessage = "正在打开 macOS 终端并启动 CMD…"

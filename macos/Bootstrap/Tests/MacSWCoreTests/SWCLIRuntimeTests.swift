@@ -18,6 +18,8 @@ final class SWCLIRuntimeTests: XCTestCase {
             .appendingPathComponent("../../../../").standardizedFileURL
         let helper = bin.appendingPathComponent("swcli_runtime.py")
         try files.copyItem(at: project.appendingPathComponent("scripts/swcli/swcli_runtime.py"), to: helper)
+        try files.copyItem(at: project.appendingPathComponent("scripts/swcli/wine_runtime.py"),
+                           to: bin.appendingPathComponent("wine_runtime.py"))
         let loader = wine.appendingPathComponent("wineloader")
         try Data("#!/bin/sh\nprintf '\"tasklist.exe\",\"42\",\"Console\",\"1\",\"0 K\"\\n'\n".utf8).write(to: loader)
         try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: loader.path)

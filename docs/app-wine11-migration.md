@@ -22,6 +22,38 @@
 - 安装失败仍会报告非零退出码并可显式清理不完整容器。Toolbox 数据库和剩余字体问题仍需单独验证。
 - 删除 CAB 直接部署服务、介质组件扫描服务、相关测试、旧 run_sw.sh 和未使用的重复 LicenseService；历史可从 Git 恢复。开发诊断脚本仅留在源码，不随 App 运行。
 
+## 既有容器的运行时升级与恢复（2026-10-10）
+
+设置 → 维护提供 Wine 版本管理。SWCLI backend 同步只替换 Windows Python
+目录；本功能独立处理 Wine、Mono、补丁及 App 位置变化，不能互相代替。
+
+- 文件预检覆盖 `BuildManifest.plist` 的 Wine / Mono 字段（包括补丁与关键模块哈希），
+  并记录 App 实际路径及容器 UUID。首次升级旧容器需要用户明确记录当前已知可用版本；
+  不用 `reg query` 或 `wineboot` 探测版本，以免探测本身更新容器。
+- 版本不匹配或有未完成迁移时，字体检查、SOLIDWORKS、Wine 工具与 Windows CLI
+  入口均阻止启动新版 Wine。App 与 CLI 的预检＋启动共用文件锁，迁移期间也阻止
+  wineserver 清理动作竞争。原生 CLI 与已有 daemon 的网络查询不启动 Wine。
+- 用户确认已保存文档后，停止**选定容器**，保留完整旧 App、容器数据和注册表。
+  同卷用 APFS clone；跨卷先检查实际所需空间，再用 `ditto` 复制。无法备份就不开始迁移。
+- 显式执行 `wineboot -u`，重新绑定 Mono RuntimePath、放置校验过的 x86/x64 RegAsm，
+  检查 SW COM 注册键、Windows Python 的 pythoncom/win32com/swcli 导入以及 Tahoma 字体链接。
+  完成后仍需用户验证 SOLIDWORKS 打开、建模、保存与重开，不能将依赖检查称为 CAD 全面验收。
+- 失败则保留失败容器，恢复升级前副本，并用归档旧运行时修复内置 DLL 链接和 Mono 路径。
+  新 App 随后保持版本阻断；按提示退出它并打开归档旧 App。恢复失败或进程中断时保留
+  journal 与备份，维护页可重试恢复。依赖检查成功但实际使用异常，也可选择“回退上次升级”。
+  **回退恢复的是升级前快照，升级后新增的容器内设置/文件留在 failed-bottle，需自行取回。**
+- 完成安装后归档并记录版本。固定主容器及已建立身份记录的诊断容器受管理；
+  高级 CLI 指定、从未建立记录的自定义容器仍由调用者负责其升级，不隐式接管。
+
+主容器状态与保留内容在 `~/Library/Application Support/MacSW/.bottle.wine-runtime/`：
+`receipt.json`、`pending.json`（仅迁移未完成时存在）、`last-upgrade.json`、
+`migration.log`、`apps/<Wine 身份>/MacSW.app` 和 `backups/<UUID>/bottle`。
+不会自动清理 App、容器备份或失败副本。不要修改 journal 路径或在迁移中手动启动旧 App。
+
+本地验证包含原有与修改后的 Wine 11.16 **真实补丁差异**迁移、主动回退、实际 wineboot
+之后的失败注入与恢复/重试，以及同版本 App 搬位置后的重新绑定。主容器只建立可用版本
+基线，本轮没有改变 Wine / Mono 版本。真正的新 Wine / Mono 版本兼容性仍须将来逐次验收。
+
 ## 本地检查
 
 SwiftPM 编译与测试：

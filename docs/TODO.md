@@ -10,7 +10,8 @@
 - [ ] 定位共享门禁中的原生超时/关闭异常，完成同一宿主的建模 → 尺寸可见与隐藏序列。
 - [ ] 分别验证全新安装与官方基底缓存恢复后的运行结果，不以缓存完整性替代 COM/建模证明。
 - [x] App 升级时同步既有 bottle 中的 Windows SWCLI backend：App 启动及 Windows CLI 入口共用清单校验、占用保护和可恢复的整体替换；验证不只检查 macOS client 版本。见 [升级记录](native-modeling-investigation.md#既有容器的-swcli-backend-升级2026-10-10)。
-- [ ] 独立设计 Wine 运行时升级与既有容器迁移：停容器、版本/补丁身份记录、备份、wineboot、回归及失败回滚；不与 SWCLI backend 同步混为一项。
+- [x] 独立实现 Wine 运行时升级与既有容器迁移：文件身份预检、用户确认、停容器、旧 App 与完整容器备份、wineboot、Mono/RegAsm 重新绑定、依赖回归、失败恢复及主动回退；不与 SWCLI backend 同步混为一项。见 [升级与恢复](app-wine11-migration.md#既有容器的运行时升级与恢复2026-10-10)。
+- [ ] 使用下一次真实 Wine / Mono 版本升级验证完整安装、COM 激活、连续建模、保存与重开；当前跨补丁和 App 位置迁移验证不替代这一项。
 
 ## 官方安装后的待核查项
 

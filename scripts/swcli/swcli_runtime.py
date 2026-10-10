@@ -151,6 +151,7 @@ def main():
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--version")
     parser.add_argument("--source-commit")
+    parser.add_argument("--installing", action="store_true")
     args = parser.parse_args()
     resources = args.contents / "Resources/SWCLI"
     if args.build_manifest:
@@ -161,7 +162,16 @@ def main():
     elif args.verify:
         read_manifest(resources)
     elif args.prefix:
-        synchronize(args.contents, args.prefix)
+        # Import explicitly: -I excludes the script directory from sys.path.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import wine_runtime
+        if wine_runtime.managed(args.prefix):
+            with wine_runtime.launch_lock(args.prefix):
+                if not (args.installing and wine_runtime.status(args.contents, args.prefix) == "baseline"):
+                    wine_runtime.require_ready(args.contents, args.prefix)
+                synchronize(args.contents, args.prefix)
+        else:
+            synchronize(args.contents, args.prefix)
     else:
         parser.error("--prefix, --build-manifest or --verify is required")
 

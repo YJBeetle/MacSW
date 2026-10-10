@@ -6,6 +6,36 @@ public final class WineService: @unchecked Sendable {
     public static let shared = WineService()
     private let stateLock = NSLock()
     private var activePrefixes = Set<String>()
+    private var installingPrefixes = Set<String>()
+
+    /// Only the confirmed installer may initialize a fresh/replaced bottle.
+    func setInstalling(_ installing: Bool, prefix: URL) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if installing { installingPrefixes.insert(prefix.path) }
+        else { installingPrefixes.remove(prefix.path) }
+    }
+
+    func isInstalling(prefix: URL) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return installingPrefixes.contains(prefix.path)
+    }
+
+    func start(_ process: Process) throws {
+        guard let path = process.environment?["WINEPREFIX"] else {
+            try process.run()
+            return
+        }
+        stateLock.lock()
+        let installing = installingPrefixes.contains(path)
+        stateLock.unlock()
+        if installing { try process.run() }
+        else {
+            try WineRuntimeService.withLaunchLock(prefix: URL(fileURLWithPath: path),
+                checkIdentity: process.executableURL?.lastPathComponent != "wineserver") { try process.run() }
+        }
+    }
 
     /// 单个日志文件的大小上限，超过就从头写。
     static let maximumLogBytes: Int64 = 4 * 1024 * 1024
@@ -141,7 +171,7 @@ public final class WineService: @unchecked Sendable {
         process.standardOutput = handle ?? FileHandle.nullDevice
         process.standardError = handle ?? FileHandle.nullDevice
         defer { try? handle?.close() }
-        try process.run()
+        try start(process)
         process.waitUntilExit()
         return process.terminationStatus
     }
@@ -159,7 +189,7 @@ public final class WineService: @unchecked Sendable {
                     continuation.resume(returning: finished.terminationStatus)
                 }
                 do {
-                    try process.run()
+                    try self.start(process)
                     if Task.isCancelled, process.isRunning { process.terminate() }
                 } catch {
                     process.terminationHandler = nil
@@ -198,7 +228,7 @@ public final class WineService: @unchecked Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in continuation.resume(returning: finished.terminationStatus) }
                 do {
-                    try process.run()
+                    try self.start(process)
                     if Task.isCancelled, process.isRunning { process.terminate() }
                 } catch {
                     process.terminationHandler = nil
@@ -311,7 +341,7 @@ public final class WineService: @unchecked Sendable {
                 launchHandle = try self.logHandle(for: launchLog)
                 solidWorks.standardOutput = launchHandle ?? FileHandle.nullDevice
                 solidWorks.standardError = launchHandle ?? FileHandle.nullDevice
-                try solidWorks.run()
+                try self.start(solidWorks)
                 DispatchQueue.main.async { onStarted() }
                 solidWorks.waitUntilExit()
                 let result = solidWorks.terminationStatus
@@ -347,12 +377,16 @@ public final class WineService: @unchecked Sendable {
 
     public func launchTool(_ name: String, prefix: URL) throws {
         let process = makeProcess(arguments: [name], prefix: prefix)
-        try process.run()
+        try start(process)
     }
 
     /// CMD 是控制台程序；从图形应用直接启动时没有交互式终端，读到 EOF 就会退出。
     /// 通过 Terminal 的伪终端运行同一份 Wine 和容器，避免依赖当前不可用的 wineconsole 图形后端。
     public func launchCommandPromptInTerminal(prefix: URL) async throws {
+        let runtimeState = WineRuntimeService.status(prefix: prefix)
+        guard runtimeState.allowsLaunch else {
+            throw MacSWError.make(runtimeState.message, domain: "MacSW.WineService")
+        }
         let script = """
         on run argv
             tell application "Terminal"
@@ -381,7 +415,12 @@ public final class WineService: @unchecked Sendable {
             wineEnvironment[key].map { "\(key)=\(Self.shellQuote($0))" }
         }
         let cmd = Self.systemToolPaths["cmd"]!
-        return (["env"] + assignments + [Self.shellQuote(wineBinary.path), Self.shellQuote(cmd)]).joined(separator: " ")
+        let contents = Bundle.main.bundleURL.appendingPathComponent("Contents")
+        let python = contents.appendingPathComponent("Resources/SWCLI/runtime/PythonNative/bin/python3")
+        let guardScript = contents.appendingPathComponent("Resources/SWCLI/bin/wine_runtime.py")
+        return (["env"] + assignments + [Self.shellQuote(python.path), "-I", Self.shellQuote(guardScript.path),
+                "launch", "--contents", Self.shellQuote(contents.path), "--prefix", Self.shellQuote(prefix.path),
+                "--", Self.shellQuote(wineBinary.path), Self.shellQuote(cmd)]).joined(separator: " ")
     }
 
     private static func shellQuote(_ value: String) -> String {

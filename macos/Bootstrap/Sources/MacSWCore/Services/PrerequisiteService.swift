@@ -79,10 +79,14 @@ public final class PrerequisiteService: @unchecked Sendable {
     }
 
     public func prepareSWCLI(prefix: URL) throws {
-        try Self.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: prefix)
+        try Self.prepareSWCLI(bundleURL: Bundle.main.bundleURL, prefix: prefix, installing: wine.isInstalling(prefix: prefix))
     }
 
-    public static func prepareSWCLI(bundleURL: URL, prefix: URL) throws {
+    public static func prepareSWCLI(bundleURL: URL, prefix: URL, installing: Bool = false) throws {
+        let runtimeState = WineRuntimeService.status(prefix: prefix, bundle: bundleURL)
+        guard runtimeState.allowsLaunch || (installing && runtimeState == .baseline) else {
+            throw failure(runtimeState.message + " 请打开设置 → 维护。")
+        }
         let contents = bundleURL.appendingPathComponent("Contents")
         let resources = contents.appendingPathComponent("Resources/SWCLI")
         let helper = resources.appendingPathComponent("bin/swcli_runtime.py")
@@ -102,6 +106,7 @@ public final class PrerequisiteService: @unchecked Sendable {
         let process = Process()
         process.executableURL = python
         process.arguments = ["-I", helper.path, "--contents", contents.path, "--prefix", prefix.path]
+        if installing { process.arguments?.append("--installing") }
         process.environment = WineService.shared.environment(winePrefix: prefix, solidWorks: true)
         process.standardOutput = handle
         process.standardError = handle

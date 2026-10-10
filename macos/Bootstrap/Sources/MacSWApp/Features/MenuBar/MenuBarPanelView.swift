@@ -20,6 +20,10 @@ struct MenuBarPanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             header
             chips
+            if runtime.isMigratingWine || !runtime.wineRuntimeState.allowsLaunch {
+                Text(runtime.isMigratingWine ? "Wine 容器维护中，请勿退出…" : runtime.wineRuntimeState.message + " 请打开设置 → 维护。")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(3)
+            }
             if let reason = failureReason {
                 // "运行异常"不能只有一个词，原因要看得见，不然只能去猜或翻日志。
                 Text(reason)
@@ -76,13 +80,14 @@ struct MenuBarPanelView: View {
                     systemImage: "rectangle.portrait.and.arrow.right",
                     large: true
                 ) { runtime.requestQuit() }
+                .disabled(runtime.isMigratingWine)
             } else {
                 MenuBarActionRow(
                     title: runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS",
                     systemImage: "play.fill",
                     large: true
                 ) { runtime.launch() }
-                .disabled(!runtime.isInstalled || runtime.state == .starting)
+                .disabled(!runtime.isInstalled || runtime.state == .starting || runtime.isMigratingWine || !runtime.wineRuntimeState.allowsLaunch)
             }
             MenuBarActionRow(
                 title: copySucceeded == true ? "已复制" : copySucceeded == false ? "复制失败" : "复制 AI 接入信息",
@@ -106,11 +111,12 @@ struct MenuBarPanelView: View {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
                     runtime.forceStop()
                 }
+                .disabled(runtime.isMigratingWine)
             }
             MenuBarActionRow(title: isQuitting ? "正在结束容器进程…" : "退出 MacSW", systemImage: "power", destructive: true) {
                 quitMacSW()
             }
-            .disabled(isQuitting)
+            .disabled(isQuitting || runtime.isMigratingWine)
         }
     }
 

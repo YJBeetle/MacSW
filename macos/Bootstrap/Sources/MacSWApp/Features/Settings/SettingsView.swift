@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage(AppPreferences.autoLaunchSolidWorksKey) private var autoLaunchSolidWorks = AppPreferences.autoLaunchSolidWorksDefault
     @FocusState private var addressFocused: Bool
     @State private var confirmUninstall = false
+    @State private var runtimeAction: String?
     @State private var maintainsVisibility = false
     @State private var generalVisible = false
     /// nil 表示还没手工选过，此时按容器里的真实状态推导。
@@ -37,6 +38,19 @@ struct SettingsView: View {
         } message: {
             Text(licenseServer.installProblem ?? "")
         }
+        .alert("确认 Wine 容器维护？", isPresented: Binding(
+            get: { runtimeAction != nil }, set: { if !$0 { runtimeAction = nil } }
+        )) {
+            Button("取消", role: .cancel) { runtimeAction = nil }
+            Button("确认并继续") {
+                if let action = runtimeAction { runtime.maintainWineRuntime(action) }
+                runtimeAction = nil
+            }
+        } message: {
+            Text(runtimeAction == "baseline"
+                 ? "仅在当前 Wine 已经正常使用 SOLIDWORKS 时记录。会归档完整 App，不触发 wineboot，也不会用基线绕过已记录的版本差异。"
+                 : "请保存文档。将停止本容器全部 Windows 进程，保留旧 App 和完整容器备份后执行升级或恢复。同卷使用 APFS 克隆，跨卷则检查空间后复制。回退恢复升级前快照；之后的设置与文件保留在失败副本，不会自动合并。恢复后需退出新版并打开归档旧 App；请勿在维护中退出 MacSW。")
+        }
     }
 
     /// 安装失败直接弹窗，别只把原因写在状态行里等人去发现。
@@ -52,6 +66,7 @@ struct SettingsView: View {
             personalizationSection
             licenseSection
         }
+        .disabled(runtime.isMigratingWine)
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
@@ -234,6 +249,31 @@ struct SettingsView: View {
 
     private var maintenanceSettings: some View {
         Form {
+            Section("Wine 版本与升级") {
+                Text(runtime.wineRuntimeState.message).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    if runtime.wineRuntimeState == .baseline {
+                        Button("记录当前可用版本…") { runtimeAction = "baseline" }
+                    }
+                    if runtime.wineRuntimeState == .upgrade {
+                        Button("备份并升级容器…") { runtimeAction = "upgrade" }
+                    }
+                    if runtime.wineRuntimeState == .recovery {
+                        Button("恢复旧容器…") { runtimeAction = "recover" }
+                    }
+                    if runtime.wineRuntimeState == .ready, runtime.canRollbackWine {
+                        Button("回退上次升级…") { runtimeAction = "rollback" }
+                    }
+                    Button("查看备份与日志") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath:
+                            WineRuntimeService.root(prefix: runtime.paths.bottle).path)
+                    }
+                    if runtime.isMigratingWine { ProgressView().controlSize(.small) }
+                }
+                .disabled(runtime.isMigratingWine)
+                Text("版本身份覆盖 Wine、Mono 和补丁。迁移后仍需验证 SOLIDWORKS 的打开、建模与保存；备份不会自动删除。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Wine 工具") {
                 HStack(spacing: 10) {
                     wineToolButton("注册表编辑器", name: "regedit")
@@ -255,7 +295,7 @@ struct SettingsView: View {
             Section("容器操作") {
                 // 两个动作各占一行，说明写在各自按钮右边，读的人不用再去下面找对应关系。
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Button("重启容器") { runtime.restartContainer() }
+                    Button("重启容器") { runtime.restartContainer() }.disabled(runtime.isMigratingWine)
                     Text("结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -267,6 +307,7 @@ struct SettingsView: View {
                         // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
                         Text("强制终止全部进程").foregroundStyle(.red)
                     }
+                    .disabled(runtime.isMigratingWine)
                     Text("终止容器里的全部进程，并在必要时结束 wineserver。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -274,13 +315,14 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !runtime.statusMessage.isEmpty {
-                    Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary)
+                    Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
             Section("安装") {
                 Button("安装或重新安装 SOLIDWORKS…") {
                     AppShell.shared.showBootstrapWindow()
                 }
+                .disabled(runtime.isMigratingWine)
                 Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -288,7 +330,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { maintainsVisibility = true }
+        .onAppear { maintainsVisibility = true; runtime.refreshWineRuntime() }
         .onDisappear { maintainsVisibility = false }
         .task(id: maintainsVisibility) {
             guard maintainsVisibility else { return }

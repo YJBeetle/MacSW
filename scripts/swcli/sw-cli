@@ -46,6 +46,8 @@ export SWCLI_HOST_PLATFORM="macos-wine"
 export PYTHONDONTWRITEBYTECODE=1
 
 require_windows_runtime() {
+    "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" check \
+        --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" || exit $?
     # Stop/status must remain usable with the old backend when an upgrade is
     # blocked by a live daemon. All other Windows entrypoints synchronize first.
     if [ "${1:-}" != "existing" ]; then
@@ -74,6 +76,8 @@ run_windows_windowless_cli() {
     if env \
         SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
         SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
+        "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
+        --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" -- \
         "${WINELOADER}" "${WINDOWS_PYTHONW}" -c "${bootstrap}" "${output_windows}" "$@"; then
         status=0
     else
@@ -102,6 +106,8 @@ case "${1:-}" in
         exec env \
             SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
             SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
+            "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
+            --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" -- \
             "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
         ;;
 esac

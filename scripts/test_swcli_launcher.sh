@@ -52,6 +52,14 @@ if [[ "${1:-}" == "-I" && "${2:-}" == */swcli_runtime.py ]]; then
     printf 'sync prefix=%s\n' "${WINEPREFIX}" >> "${SWCLI_TEST_LOG}"
     exit "${SWCLI_TEST_SYNC_STATUS:-0}"
 fi
+if [[ "${1:-}" == "-I" && "${2:-}" == */wine_runtime.py ]]; then
+    if [[ "${3:-}" == "check" ]]; then
+        exit "${SWCLI_TEST_WINE_STATUS:-0}"
+    fi
+    while [[ "${1:-}" != "--" ]]; do shift; done
+    shift
+    exec "$@"
+fi
 printf 'native translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> "${SWCLI_TEST_LOG}"
 EOF
 chmod +x \
@@ -65,6 +73,12 @@ export MACSW_WINEPREFIX="${PREFIX}"
 export SWCLI_TEST_LOG="${LOG_FILE}"
 export SWCLI_TEST_PYTHON="$(command -v python3)"
 LAUNCHER="${CONTENTS_DIR}/MacOS/sw-cli"
+
+if SWCLI_TEST_WINE_STATUS=1 "${LAUNCHER}" doctor --json; then
+    echo 'doctor ignored Wine runtime preflight' >&2
+    exit 1
+fi
+test ! -s "${LOG_FILE}"
 
 "${LAUNCHER}" --help
 grep -Fq 'native translator=' "${LOG_FILE}"
