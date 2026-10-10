@@ -43,10 +43,15 @@ fetch_wine_source() {
 }
 
 fetch_mono_patch() {
+    # Source is distributed for license compliance, not built or patched locally.
+    download_verified 'Shared Mono engine source' "${MONO_SOURCE_URL}" \
+        "${DIST_DIR}/${MONO_SOURCE_ASSET}" "${MONO_SOURCE_SHA256}"
     local mono_dir="${DIST_DIR}/${MONO_PATCH_RELEASE}"
     mkdir -p "${mono_dir}"
     download_verified "Wine-Mono ${WINE_MONO_VERSION} x86 patch" "${MONO_PATCH_URL}" \
         "${mono_dir}/libmono-2.0-x86.dll" "${MONO_PATCH_SHA256}"
+    download_verified "Wine-Mono ${WINE_MONO_VERSION} shared x64 engine" "${MONO_X64_URL}" \
+        "${mono_dir}/libmono-2.0-x86_64.dll" "${MONO_X64_SHA256}"
     download_verified "Wine-Mono ${WINE_MONO_VERSION} registration mscorlib" "${MONO_MSCORLIB_URL}" \
         "${mono_dir}/mscorlib.dll" "${MONO_MSCORLIB_SHA256}"
     download_verified "Wine-Mono ${WINE_MONO_VERSION} x86 RegAsm" "${MONO_REGASM_X86_URL}" \

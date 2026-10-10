@@ -36,6 +36,13 @@ MSXML_MODULES = {
 }
 MSXML_IDENTITY_KEYS = ("WineMSXMLSchemaPatchSHA256", *MSXML_MODULES)
 
+# Older baseline receipts predate these modules. New manifests must bind the
+# entire extension group; partial declarations never weaken verification.
+TOOLBOX_MODULES = {
+    "MonoCCWModuleSHA256": "share/wine/mono/wine-mono-{MonoVersion}/bin/libmono-2.0-x86_64.dll",
+    "MonoBTLSModuleSHA256": "share/wine/mono/wine-mono-{MonoVersion}/lib/x86_64/libmono-btls-shared.dll",
+}
+
 
 def state_root(prefix):
     if prefix.is_symlink() or prefix.name in ("", ".", "..") or len(prefix.parts) < 3:
@@ -52,6 +59,8 @@ def identity(contents):
         raise RuntimeError("App 的 Wine/Mono 构建身份不完整，请重新下载完整 App。")
     if any(key in values for key in MSXML_IDENTITY_KEYS) and not all(values.get(key) for key in MSXML_IDENTITY_KEYS):
         raise RuntimeError("App 的 MSXML 运行时身份不完整。")
+    if any(key in values for key in TOOLBOX_MODULES) and not all(values.get(key) for key in TOOLBOX_MODULES):
+        raise RuntimeError("App 的 Toolbox 运行时身份不完整。")
     return values
 
 
@@ -65,6 +74,10 @@ def verify_app(contents, values):
         if not all(values.get(key) for key in MSXML_IDENTITY_KEYS):
             raise RuntimeError("App 的 MSXML 运行时身份不完整。")
         modules.update(MSXML_MODULES)
+    if any(key in values for key in TOOLBOX_MODULES):
+        if not all(values.get(key) for key in TOOLBOX_MODULES):
+            raise RuntimeError("App 的 Toolbox 运行时身份不完整。")
+        modules.update(TOOLBOX_MODULES)
     for key, relative in modules.items():
         path = contents / "Frameworks/wine" / relative.format(**values)
         with path.open("rb") as stream:

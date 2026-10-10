@@ -46,6 +46,11 @@ public enum WineRuntimeService {
            !msxmlKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
             throw failure("MSXML 运行时构建身份不完整。")
         }
+        let toolboxKeys = ["MonoCCWModuleSHA256", "MonoBTLSModuleSHA256"]
+        if toolboxKeys.contains(where: { values[$0] != nil }),
+           !toolboxKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
+            throw failure("Toolbox 运行时构建身份不完整。")
+        }
         return values
     }
 

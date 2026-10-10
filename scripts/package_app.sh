@@ -24,6 +24,8 @@ MONO_PATCH="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86.dll"
 MONO_MSCORLIB="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/mscorlib.dll"
 MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
 MONO_REGASM_X64="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86_64.exe"
+MONO_CCW_DLL="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86_64.dll"
+MONO_SOURCE_ARCHIVE="${WORKSPACE_ROOT}/dist/${MONO_SOURCE_ASSET}"
 STDOLE_DLL="${WORKSPACE_ROOT}/dist/${STDOLE_OUTPUT_DIRECTORY}/stdole.dll"
 SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
 SWCLI_ROOT="${WORKSPACE_ROOT}/Dependencies/SWCLI"
@@ -48,7 +50,7 @@ require_file() {
 for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW_NOTICE}" \
     "${WINE_ARCHIVE}" "${WINE_SOURCE_ARCHIVE}" "${WINE_SOURCE_NOTICE_TEMPLATE}" \
     "${WINEMAC_PATCH}" "${WIN32U_PATCH}" "${COMBASE_PATCH}" "${COMCTL32_V6_PATCH}" "${MSXML3_PATCH}" "${WINE_LOADER_PATCH}" "${MONO_PATCH}" "${MONO_MSCORLIB}" \
-    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
+    "${MONO_REGASM_X86}" "${MONO_REGASM_X64}" "${MONO_CCW_DLL}" "${MONO_SOURCE_ARCHIVE}" "${STDOLE_DLL}" "${SEVEN_Z_BIN}" \
     "${SWCLI_SOURCE}/__init__.py" "${SWCLI_LICENSE}" "${SWCLI_LAUNCHER}" \
     "${SWCLI_NATIVE_PATH_HELPER}" "${SWCLI_NATIVE_PATH_SCRIPT}" "${SWCLI_PATH_HELPER}" \
     "${SWCLI_PYTHON_ARCHIVE}" "${SWCLI_PYWIN32_WHEEL}" \
@@ -60,6 +62,8 @@ unset PACKAGE_INPUT
 test "$(shasum -a 256 "${WINE_ARCHIVE}" | awk '{print $1}')" = "${WINE_RUNTIME_SHA256}" || { echo "Wine runtime checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${WINE_SOURCE_ARCHIVE}" | awk '{print $1}')" = "${WINE_SOURCE_SHA256}" || { echo "Wine source checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_PATCH}" | awk '{print $1}')" = "${MONO_PATCH_SHA256}" || { echo "Mono patch checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${MONO_CCW_DLL}" | awk '{print $1}')" = "${MONO_X64_SHA256}" || { echo "Shared Mono x64 checksum mismatch" >&2; exit 1; }
+test "$(shasum -a 256 "${MONO_SOURCE_ARCHIVE}" | awk '{print $1}')" = "${MONO_SOURCE_SHA256}" || { echo "Shared Mono source checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_MSCORLIB}" | awk '{print $1}')" = "${MONO_MSCORLIB_SHA256}" || { echo "Mono mscorlib checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_REGASM_X86}" | awk '{print $1}')" = "${MONO_REGASM_X86_SHA256}" || { echo "x86 RegAsm checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${MONO_REGASM_X64}" | awk '{print $1}')" = "${MONO_REGASM_X64_SHA256}" || { echo "x64 RegAsm checksum mismatch" >&2; exit 1; }
@@ -185,6 +189,10 @@ codesign --force --sign - "${WINEMAC_TARGET}"
 codesign --force --sign - "${WIN32U_TARGET}"
 codesign --force --sign - "${BRANDED_WINE_LOADER}"
 cp "${MONO_PATCH}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-x86.dll"
+MONO_CCW_TARGET="${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-x86_64.dll"
+MONO_BTLS_TARGET="${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/x86_64/libmono-btls-shared.dll"
+require_file "${MONO_BTLS_TARGET}"
+cp "${MONO_CCW_DLL}" "${MONO_CCW_TARGET}"
 cp "${MONO_MSCORLIB}" "${FRAMEWORKS_DIR}/wine/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/mono/4.5/mscorlib.dll"
 cp "${MONO_REGASM_X86}" "${FRAMEWORKS_DIR}/wine/lib/wine/i386-windows/regasm.exe"
 cp "${MONO_REGASM_X64}" "${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-windows/regasm.exe"
@@ -245,6 +253,18 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :MonoMscorlibSHA256 string ${MONO_MSCORLIB_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoRegAsmX86SHA256 string ${MONO_REGASM_X86_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :MonoRegAsmX64SHA256 string ${MONO_REGASM_X64_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoSourceCommit string ${MONO_SOURCE_COMMIT}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoSourceSHA256 string ${MONO_SOURCE_SHA256}" "${BUILD_MANIFEST}"
+# Retain this identity key so existing local-overlay containers upgrade safely.
+/usr/libexec/PlistBuddy -c "Add :MonoCCWModuleSHA256 string ${MONO_X64_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :MonoBTLSModuleSHA256 string $(shasum -a 256 "${MONO_BTLS_TARGET}" | awk '{print $1}')" "${BUILD_MANIFEST}"
+MONO_LICENSES_DIR="${RESOURCES_DIR}/licenses/Mono"
+mkdir -p "${MONO_LICENSES_DIR}"
+for MONO_LICENSE_FILE in LICENSE COPYING.LIB PATENTS.TXT; do
+    tar -xOf "${MONO_SOURCE_ARCHIVE}" "mono-${MONO_SOURCE_COMMIT}/${MONO_LICENSE_FILE}" > "${MONO_LICENSES_DIR}/${MONO_LICENSE_FILE}"
+done
+printf 'Mono engine source: %s\nSHA-256: %s\nShared build source: https://github.com/YJBeetle/wine-mono/tree/%s\nRelease: %s\nBTLS library remains from the pinned Wine runtime.\n' \
+    "${MONO_SOURCE_URL}" "${MONO_SOURCE_SHA256}" "${MONO_PATCH_SOURCE_COMMIT}" "${MONO_PATCH_RELEASE}" > "${MONO_LICENSES_DIR}/SOURCE.txt"
 /usr/libexec/PlistBuddy -c "Add :StdoleVersion string ${STDOLE_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :StdolePackageSHA256 string ${STDOLE_PACKAGE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :StdoleDLLSHA256 string ${STDOLE_DLL_SHA256}" "${BUILD_MANIFEST}"

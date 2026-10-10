@@ -11,6 +11,8 @@ MONO_DLL="${RUNTIME_DIR}/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-
 MONO_MSCORLIB="${RUNTIME_DIR}/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/mono/4.5/mscorlib.dll"
 MONO_REGASM_X86="${RUNTIME_DIR}/lib/wine/i386-windows/regasm.exe"
 MONO_REGASM_X64="${RUNTIME_DIR}/lib/wine/x86_64-windows/regasm.exe"
+MONO_CCW_DLL="${RUNTIME_DIR}/share/wine/mono/${WINE_MONO_DIRECTORY}/bin/libmono-2.0-x86_64.dll"
+MONO_BTLS_DLL="${RUNTIME_DIR}/share/wine/mono/${WINE_MONO_DIRECTORY}/lib/x86_64/libmono-btls-shared.dll"
 WINEMAC_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/winemac.so"
 WIN32U_DRIVER="${RUNTIME_DIR}/lib/wine/x86_64-unix/win32u.so"
 COMBASE_MODULE="${RUNTIME_DIR}/lib/wine/x86_64-windows/combase.dll"
@@ -140,6 +142,18 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :MonoPatchSHA256' "${BUILD_MANIFEST}")
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoMscorlibSHA256' "${BUILD_MANIFEST}")" = "${MONO_MSCORLIB_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoRegAsmX86SHA256' "${BUILD_MANIFEST}")" = "${MONO_REGASM_X86_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :MonoRegAsmX64SHA256' "${BUILD_MANIFEST}")" = "${MONO_REGASM_X64_SHA256}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :MonoSourceCommit' "${BUILD_MANIFEST}")" = "${MONO_SOURCE_COMMIT}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :MonoSourceSHA256' "${BUILD_MANIFEST}")" = "${MONO_SOURCE_SHA256}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :MonoCCWModuleSHA256' "${BUILD_MANIFEST}")" = "${MONO_X64_SHA256}"
+test "$(/usr/libexec/PlistBuddy -c 'Print :MonoCCWModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${MONO_CCW_DLL}" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :MonoBTLSModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${MONO_BTLS_DLL}" | awk '{print $1}')"
+cmp "${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86_64.dll" "${MONO_CCW_DLL}"
+grep -Fq "${MONO_SOURCE_SHA256}" "${CONTENTS_DIR}/Resources/licenses/Mono/SOURCE.txt"
+grep -Fq "${MONO_PATCH_SOURCE_COMMIT}" "${CONTENTS_DIR}/Resources/licenses/Mono/SOURCE.txt"
+for license_file in LICENSE COPYING.LIB PATENTS.TXT; do
+    test -s "${CONTENTS_DIR}/Resources/licenses/Mono/${license_file}"
+done
+file "${MONO_CCW_DLL}" | grep -q 'PE32+ executable.*x86-64'
 test "$(/usr/libexec/PlistBuddy -c 'Print :StdoleVersion' "${BUILD_MANIFEST}")" = "${STDOLE_VERSION}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :StdolePackageSHA256' "${BUILD_MANIFEST}")" = "${STDOLE_PACKAGE_SHA256}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :StdoleDLLSHA256' "${BUILD_MANIFEST}")" = "${STDOLE_DLL_SHA256}"
