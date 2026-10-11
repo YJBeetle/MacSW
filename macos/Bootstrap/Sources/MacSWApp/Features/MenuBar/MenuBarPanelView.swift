@@ -7,6 +7,7 @@ import SwiftUI
 struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
+    @ObservedObject private var swcliDaemon: SWCLIDaemonStore
     @State private var isRefreshing = false
     @State private var isQuitting = false
     @State private var panelWindow: NSWindow?
@@ -15,6 +16,12 @@ struct MenuBarPanelView: View {
     @State private var copyFeedbackTimer: Timer?
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    init(runtime: RuntimeStore, licenseServer: LicenseServerStore) {
+        self.runtime = runtime
+        self.licenseServer = licenseServer
+        self.swcliDaemon = runtime.swcliDaemon
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,6 +47,13 @@ struct MenuBarPanelView: View {
         .frame(width: 296, alignment: .leading)
         .background(MenuBarWindowReader { panelWindow = $0 })
         .task { await refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            // MenuBarExtra can retain its view while hidden, so .task alone
+            // does not guarantee a fresh observation on every reopening.
+            guard let window = notification.object as? NSWindow,
+                  window === panelWindow, window.isVisible else { return }
+            Task { await refresh() }
+        }
         .onReceive(Self.tick) { _ in
             // 面板收起即停止轮询：直接看承载窗口的可见性，
             // MenuBarExtra 的窗口关闭不保证会触发 onDisappear。
@@ -63,12 +77,15 @@ struct MenuBarPanelView: View {
     }
 
     private var chips: some View {
-        HStack(spacing: 6) {
-            MenuBarStatusChip(title: solidWorksStatus, active: runtime.isRunning)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                MenuBarStatusChip(title: solidWorksStatus, active: runtime.isRunning)
+                MenuBarStatusChip(title: swcliDaemon.state.title, active: swcliDaemon.state.isReady,
+                                  help: swcliDaemon.failureMessage ?? swcliDaemon.state.reason ?? "daemon 与 SOLIDWORKS COM host 均就绪时显示可用。")
+            }
             if licenseServer.isInstalled {
                 MenuBarStatusChip(title: flexNetStatus, active: licenseServer.isRunning, help: licenseServer.addressInput)
             }
-            Spacer()
         }
     }
 
@@ -80,15 +97,20 @@ struct MenuBarPanelView: View {
                     systemImage: "rectangle.portrait.and.arrow.right",
                     large: true
                 ) { runtime.requestQuit() }
-                .disabled(runtime.isMigratingWine)
+                .disabled(runtime.isMigratingWine || swcliDaemon.isOperating)
             } else {
                 MenuBarActionRow(
                     title: runtime.state == .starting ? "正在启动…" : "启动 SOLIDWORKS",
                     systemImage: "play.fill",
                     large: true
                 ) { runtime.launch() }
-                .disabled(!runtime.isInstalled || runtime.state == .starting || runtime.isMigratingWine || !runtime.wineRuntimeState.allowsLaunch)
+                .disabled(!runtime.isInstalled || runtime.state == .starting || runtime.isMigratingWine || swcliDaemon.isOperating || !runtime.wineRuntimeState.allowsLaunch)
             }
+            MenuBarActionRow(title: daemonActionTitle, systemImage: "terminal") {
+                runtime.startSWCLIDaemon()
+            }
+            .disabled(!runtime.isInstalled || runtime.isMigratingWine || swcliDaemon.isOperating || swcliDaemon.state.isReady || runtime.state == .starting || runtime.state == .stopping || !runtime.wineRuntimeState.allowsLaunch)
+            .help("已有 SOLIDWORKS 时共享接入；没有时不可见启动。不会强制结束现有实例。")
             MenuBarActionRow(
                 title: copySucceeded == true ? "已复制" : copySucceeded == false ? "复制失败" : "复制 AI 接入信息",
                 systemImage: copySucceeded == true ? "checkmark" : "doc.on.doc"
@@ -111,12 +133,12 @@ struct MenuBarPanelView: View {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
                     runtime.forceStop()
                 }
-                .disabled(runtime.isMigratingWine)
+                .disabled(runtime.isMigratingWine || swcliDaemon.isOperating)
             }
             MenuBarActionRow(title: isQuitting ? "正在结束容器进程…" : "退出 MacSW", systemImage: "power", destructive: true) {
                 quitMacSW()
             }
-            .disabled(isQuitting || runtime.isMigratingWine)
+            .disabled(isQuitting || runtime.isMigratingWine || swcliDaemon.isOperating)
         }
     }
 
@@ -236,21 +258,30 @@ struct MenuBarPanelView: View {
         }
     }
 
-    /// 面板可见时每两秒刷新；只用 ps 与本机端口探测，不启动 Wine。
+    /// 面板可见时每两秒刷新；只用 ps、端口及原生 health 请求，不启动 Wine。
     private func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         async let running: Void = runtime.refreshNow()
         async let licensing: Void = licenseServer.refreshRunningState()
-        _ = await (running, licensing)
+        async let cli: Void = swcliDaemon.refresh()
+        _ = await (running, licensing, cli)
     }
 
     /// 面板上的"异常"要能把原因一起说出来。
     private var failureReason: String? {
+        if let reason = swcliDaemon.failureMessage ?? swcliDaemon.state.reason { return reason }
         if case .failed(let reason) = runtime.state { return reason }
         if case .failed(let reason) = licenseServer.state { return reason }
         return nil
+    }
+
+    private var daemonActionTitle: String {
+        if swcliDaemon.isOperating { return "正在启动 SWCLI…" }
+        if swcliDaemon.state.isReady { return "SWCLI daemon 已就绪" }
+        if case .needsRecovery = swcliDaemon.state { return "恢复 SWCLI daemon" }
+        return "启动 SWCLI daemon"
     }
 
     private var solidWorksStatus: String {

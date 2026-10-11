@@ -21,7 +21,7 @@ public final class RuntimeStore: ObservableObject {
 
     /// Called only after a UI confirmation that explicitly permits stopping SW.
     public func maintainWineRuntime(_ command: String) {
-        guard !isMigratingWine, !licenseServer.isOperating,
+        guard !isMigratingWine, !licenseServer.isOperating, !swcliDaemon.isOperating,
               state != .starting, state != .stopping, !wine.isInstalling(prefix: paths.bottle),
               pendingWineTool == nil, ["baseline", "upgrade", "recover", "rollback"].contains(command) else { return }
         isMigratingWine = true
@@ -60,17 +60,20 @@ public final class RuntimeStore: ObservableObject {
     private var fontPreparationID: UUID?
     private var fontPreparationSuspended = false
     private var didRunStartup = false
+    public let swcliDaemon: SWCLIDaemonStore
 
     public init(
         paths: AppPaths,
         licenseServer: LicenseServerStore,
         wine: WineService = .shared,
         fontLinkRepair: (@Sendable (URL) async throws -> Void)? = nil,
-        swcliPreparation: (@Sendable (URL) async throws -> Void)? = nil
+        swcliPreparation: (@Sendable (URL) async throws -> Void)? = nil,
+        swcliDaemon: SWCLIDaemonStore? = nil
     ) {
         self.paths = paths
         self.licenseServer = licenseServer
         self.wine = wine
+        self.swcliDaemon = swcliDaemon ?? SWCLIDaemonStore(service: SWCLIDaemonService(bundleURL: Bundle.main.bundleURL, paths: paths))
         self.fontLinkRepair = fontLinkRepair ?? { prefix in
             _ = try await RegistryService(wine: wine).repairTahomaFontLinkIfNeeded(prefix: prefix)
         }
@@ -84,6 +87,22 @@ public final class RuntimeStore: ObservableObject {
 
     public var isInstalled: Bool { paths.solidWorksInstalled }
     public var isRunning: Bool { if case .running = state { return true }; return false }
+
+    public func startSWCLIDaemon() {
+        refreshWineRuntime()
+        guard isInstalled, !isMigratingWine, !fontPreparationSuspended,
+              wineRuntimeState.allowsLaunch, state != .starting, state != .stopping else { return }
+        swcliDaemon.start { [self] observed in
+            // Deploying over a disconnected but still listening backend is
+            // unsafe. Existing startup preparation already deployed its files;
+            // the lifecycle wrapper checks/synchronizes again before starting.
+            try await ensureFontLinkPrepared()
+            if observed == .stopped { try await ensureSWCLIPrepared() }
+            try await licenseServer.ensureRunningIfNeeded()
+            await refreshState()
+            return ProcessInventory.isSolidWorksRunning(processes)
+        }
+    }
 
     /// App 启动时建立唯一的字体准备任务，自动和手动启动都等待它完成。
     public func prepareFontLinkAtAppLaunch() {
@@ -124,6 +143,7 @@ public final class RuntimeStore: ObservableObject {
     public func suspendFontPreparationForBottleDeletion() async {
         if let task = wineMigrationTask { await task.value }
         fontPreparationSuspended = true
+        await swcliDaemon.waitForOperation()
         // The filesystem deployment must finish before the installer removes
         // the bottle; cancellation alone cannot stop a synchronous copy safely.
         if let task = swcliTask {
@@ -174,6 +194,7 @@ public final class RuntimeStore: ObservableObject {
     }
 
     public func launch() {
+        guard !swcliDaemon.isOperating else { return }
         guard isInstalled else {
             state = .unavailable
             statusMessage = "尚未完成 SOLIDWORKS 安装。"
@@ -258,7 +279,7 @@ public final class RuntimeStore: ObservableObject {
     }
 
     public func requestQuit() {
-        guard isRunning else { return }
+        guard isRunning, !swcliDaemon.isOperating else { return }
         state = .stopping
         Task {
             let code = (try? await wine.requestSolidWorksQuit(prefix: paths.bottle)) ?? -1
@@ -272,7 +293,7 @@ public final class RuntimeStore: ObservableObject {
     }
 
     public func forceStop() {
-        guard !isMigratingWine else { return }
+        guard !isMigratingWine, !swcliDaemon.isOperating else { return }
         Task {
             refreshWineRuntime()
             if !wineRuntimeState.allowsLaunch {
@@ -300,6 +321,7 @@ public final class RuntimeStore: ObservableObject {
     /// 托盘退出时只收尾当前容器；先停托管许可证进程，再结束 wineserver 和其余 Wine 客户进程。
     /// 未能确认进程全部退出时由调用方留在 App 中显示错误，避免假装已经清理完毕。
     public func stopContainerForAppQuit() async throws {
+        guard !swcliDaemon.isOperating else { throw runtimeError("SWCLI 正在启动，请完成后再退出。") }
         guard !isMigratingWine else { throw runtimeError("Wine 迁移正在执行，请完成后再退出。") }
         refreshWineRuntime()
         if !wineRuntimeState.allowsLaunch {
@@ -329,7 +351,7 @@ public final class RuntimeStore: ObservableObject {
 
     /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。
     public func restartContainer() {
-        guard !isMigratingWine else { return }
+        guard !isMigratingWine, !swcliDaemon.isOperating else { return }
         refreshWineRuntime()
         guard wineRuntimeState.allowsLaunch else {
             statusMessage = wineRuntimeState.message + " 请打开设置 → 维护。"

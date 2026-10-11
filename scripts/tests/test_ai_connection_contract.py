@@ -9,6 +9,16 @@ SOURCES = PROJECT / "macos/Bootstrap/Sources"
 
 
 class AIConnectionContractTests(unittest.TestCase):
+    def test_menu_status_polls_only_while_visible_and_refreshes_on_reopening(self):
+        view = (SOURCES / "MacSWApp/Features/MenuBar/MenuBarPanelView.swift").read_text()
+        self.assertIn("Timer.publish(every: 2", view)
+        tick = view.split(".onReceive(Self.tick)", 1)[1].split("private var header", 1)[0]
+        self.assertIn("panelWindow?.isVisible == true", tick)
+        self.assertLess(tick.index("panelWindow?.isVisible == true"), tick.index("await refresh()"))
+        self.assertIn("NSWindow.didBecomeKeyNotification", view)
+        self.assertIn("window === panelWindow, window.isVisible", view)
+        self.assertIn("swcliDaemon.refresh()", view)
+
     def test_copy_action_is_between_solidworks_and_logs_without_dismissing_panel(self):
         view = (SOURCES / "MacSWApp/Features/MenuBar/MenuBarPanelView.swift").read_text()
         self.assertLess(view.index('"启动 SOLIDWORKS"'), view.index('"复制 AI 接入信息"'))

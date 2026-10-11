@@ -51,6 +51,16 @@ final class AIConnectionInfoTests: XCTestCase {
         XCTAssertTrue(command.contains("'/tmp/Agent'\\''s $(echo unsafe) `app`.app/Contents/MacOS/sw-cli'"))
     }
 
+    func testPromptSeparatesReadinessFromLifecycleAuthorization() {
+        let text = AIConnectionInfo(bundleURL: app, paths: paths).text
+        for guidance in ["host_connected=true", "worker_alive=true", "recovery_required=false",
+                         "host 非空", "启动 SWCLI daemon", "恢复 SWCLI daemon", "不可见启动",
+                         "复制这段接入信息本身不是", "--attach-existing", "daemon restart",
+                         "命令尚未执行", "不要改用其他命令绕过审批"] {
+            XCTAssertTrue(text.contains(guidance), guidance)
+        }
+    }
+
     func testEndpointMatchesConfiguredEnvironmentAndEmptyUsesDefault() {
         let environment = ["SWCLI_ENDPOINT": "127.0.0.1:19000"]
         let information = AIConnectionInfo(bundleURL: app, paths: paths, environment: environment)
