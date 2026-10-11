@@ -191,7 +191,7 @@ class SigningProvenanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             jobs = [{"name": "Build & package", "conclusion": "success"},
                     {"name": "SOLIDWORKS installation & runtime", "conclusion": "success", "steps": [
-                        {"name": "Shared modeling, driving dimensions and Toolbox on one host", "conclusion": "success"}]}]
+                        {"name": "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)", "conclusion": "success"}]}]
             artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False, "digest": "sha256:" + "a" * 64}
             destination = Path(directory) / "download"
             def download(args, **kwargs):
@@ -245,7 +245,7 @@ class SigningProvenanceTests(unittest.TestCase):
     def test_full_gate_required_not_skipped_install_only(self):
         jobs = [{"name": "Build & package", "conclusion": "success"},
                 {"name": "SOLIDWORKS installation & runtime", "conclusion": "success", "steps": [
-                    {"name": "Shared modeling, driving dimensions and Toolbox on one host", "conclusion": "success"}]}]
+                    {"name": "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)", "conclusion": "success"}]}]
         source.validate_jobs(jobs)
         for conclusion in ("skipped", "failure", "cancelled", None):
             jobs[1]["steps"][0]["conclusion"] = conclusion
@@ -253,6 +253,16 @@ class SigningProvenanceTests(unittest.TestCase):
                 source.validate_jobs(jobs)
         with self.assertRaises(RuntimeError):
             source.validate_jobs(jobs[:1])
+
+    def test_core_or_single_mode_cannot_authorize_signing(self):
+        for name in ("Shared modeling, driving dimensions and Toolbox on one host (core, visible)",
+                     "Shared modeling, driving dimensions and Toolbox on one host (full, visible)",
+                     "Shared modeling, driving dimensions and Toolbox on one host"):
+            jobs = [{"name": "Build & package", "conclusion": "success"},
+                    {"name": "SOLIDWORKS installation & runtime", "conclusion": "success",
+                     "steps": [{"name": name, "conclusion": "success"}]}]
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, "full visible/hidden"):
+                source.validate_jobs(jobs)
 
     def test_exact_unexpired_artifact_requires_sha256(self):
         artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False, "digest": "sha256:" + "a" * 64}

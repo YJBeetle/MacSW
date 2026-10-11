@@ -18,6 +18,11 @@ on:
         description: 'Ignore the clean installed-base cache and exercise installation again'
         type: boolean
         default: false
+      runtime_suite:
+        description: 'Core daily regression or full pre-release CAD coverage'
+        type: choice
+        options: [core, full]
+        default: full
       media_path:
         description: 'ISO path in the gdrive remote'
         type: string
@@ -389,13 +394,14 @@ jobs:
           export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
-      - name: Shared modeling, driving dimensions and Toolbox on one host
+      - name: Shared modeling, driving dimensions and Toolbox on one host (${{ inputs.runtime_suite || 'core' }}, ${{ inputs.runtime_suite == 'full' && 'visible+hidden' || 'visible' }})
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
-        timeout-minutes: 340
+        timeout-minutes: ${{ inputs.runtime_suite == 'full' && 340 || 180 }}
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
-            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence"
+            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
+            --suite '${{ inputs.runtime_suite || 'core' }}'
 
       - name: Stop isolated runtime test bottle
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true'

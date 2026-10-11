@@ -147,13 +147,16 @@ class RuntimeWorkflowTests(unittest.TestCase):
         upload = self.runtime.split("- name: Upload sanitized runtime", 1)[1]
         self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
 
-    def test_shared_stage_budget_covers_both_modes_and_startup(self):
+    def test_daily_and_full_budgets_cover_selected_modes(self):
         step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
-        self.assertIn("timeout-minutes: 340", step)
-        self.assertLess(2 * sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
-                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30)
-                        + 6 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS)
-                        + 120, 340 * 60)
+        self.assertIn("inputs.runtime_suite == 'full' && 340 || 180", step)
+        self.assertIn("--suite '${{ inputs.runtime_suite || 'core' }}'", step)
+        self.assertIn("options: [core, full]", self.workflow)
+        for modes, minutes in ((1, 180), (2, 340)):
+            budget = modes * (sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
+                              + ci.STARTUP_TIMEOUT_SECONDS + 30
+                              + 3 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS)) + 120
+            self.assertLess(budget, minutes * 60)
         self.assertIn("timeout-minutes: 360", self.runtime.split("steps:", 1)[0])
 
 
@@ -171,8 +174,8 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.app.mkdir(parents=True)
         (self.root / "app-support/bottle/dosdevices").mkdir(parents=True)
 
-    def gate(self):
-        return ci.RuntimeGate(self.app, self.root / "evidence")
+    def gate(self, suite="full"):
+        return ci.RuntimeGate(self.app, self.root / "evidence", suite=suite)
 
     def test_log_snapshot_is_bounded_and_preserves_inherited_write_offset(self):
         native_pread = os.pread
@@ -926,8 +929,15 @@ class RuntimeAdapterTests(unittest.TestCase):
         start.assert_not_called()
         bitmap.assert_not_called()
 
-    def test_shared_modeling_driving_then_toolbox_without_intermediate_restart(self):
-        gate = self.gate()
+    def test_full_modeling_driving_toolbox_uses_two_modes(self):
+        self.assert_shared_sequence("full")
+
+    def test_core_modeling_driving_toolbox_uses_one_mode(self):
+        self.assert_shared_sequence("core")
+
+    def assert_shared_sequence(self, suite):
+        gate = self.gate(suite)
+        modes = ("visible", "hidden") if suite == "full" else ("visible",)
         self.install_modeling_samples(gate.prefix)
         scripts = [Path(name) for name in ci.SHARED_GATES]
         events = []
@@ -952,14 +962,15 @@ class RuntimeAdapterTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--host-output-dir") + 1], "Q:\\models")
                 self.assertNotIn("--wine-prefix", args)
                 self.assertNotIn("--require-toolbox", args)
+                self.assertEqual(args[args.index("--suite") + 1], suite)
             if args[1].name == "verify-driving-dimensions.py":
                 self.assertEqual(kwargs["timeout"], 3600)
                 self.assertIn("--after-modeling", args)
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
             elif args[1].name == "verify-modeling.py":
-                self.assertEqual(kwargs["timeout"], 5400)
                 self.assertNotIn("--after-modeling", args)
+                self.assertEqual(kwargs["timeout"], 5400)
                 for option in ("--sample-part", "--sample-assembly"):
                     self.assertEqual(args[args.index(option) + 1], "Q:\\models")
             else:
@@ -976,18 +987,44 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "stop", side_effect=lambda: events.append("stop")):
             gate.run()
         self.assertEqual([call.args for call in metrics.call_args_list],
-                         [(gate, mode) for mode in ("visible", "hidden") for _ in range(3)])
-        self.assertEqual(events, ["bitmap-driver", "start:visible", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop",
-                                  "start:hidden", "verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py", "stop"])
-        self.assertEqual(same_host.call_count, 12)
-        self.assertEqual(windows_path.call_count, 8)
-        self.assertEqual([call.args for call in collect_evidence.call_args_list], [("visible",), ("hidden",)])
+                         [(gate, mode) for mode in modes for _ in range(3)])
+        expected_events = ["bitmap-driver"]
+        for mode in modes:
+            expected_events += ["start:" + mode, *ci.SHARED_GATES, "stop"]
+        self.assertEqual(events, expected_events)
+        self.assertEqual(same_host.call_count, 6 * len(modes))
+        self.assertEqual(windows_path.call_count, 4 * len(modes))
+        self.assertEqual([call.args for call in collect_evidence.call_args_list], [(mode,) for mode in modes])
         self.assertTrue(gate.record["completed"])
+        self.assertEqual(gate.record["suite"], suite)
+        self.assertEqual(gate.record["coverage"], {mode: suite for mode in modes})
         self.assertEqual(gate.record["budgets_seconds"], {
             "request": 600, "startup": 300, "startup_outer": 330,
             "shared_gates": {"modeling": 5400, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30,
             "native_sample_interval": 60, "native_sample_limit_per_mode": 140,
             "system_metrics_tool": 2})
+
+    def test_full_hidden_failure_is_required_and_never_retried(self):
+        gate = self.gate("full")
+        self.install_modeling_samples(gate.prefix)
+        failure = RuntimeError("original hidden failure")
+        def command(args, **kwargs):
+            if gate.record["phase"] == "hidden.modeling":
+                raise failure
+        with patch.object(ci, "shared_gates", return_value=[Path(name) for name in ci.SHARED_GATES]), \
+                patch.object(gate, "verify_bitmap_driver"), patch.object(ci, "HostMetrics"), \
+                patch.object(gate, "start", return_value={"process_id": 42}) as start, \
+                patch.object(gate, "same_host"), patch.object(gate, "command", side_effect=command) as commands, \
+                patch.object(gate, "windows_path", return_value="Q:\\models"), \
+                patch.object(gate, "collect_evidence") as collect, patch.object(gate, "stop") as stop:
+            with self.assertRaises(RuntimeError) as caught:
+                gate.run()
+        self.assertIs(caught.exception, failure)
+        self.assertEqual([call.args for call in start.call_args_list], [("visible",), ("hidden",)])
+        self.assertEqual([call.args for call in collect.call_args_list], [("visible",), ("hidden",)])
+        self.assertEqual(commands.call_count, 4)
+        stop.assert_called_once_with()
+        self.assertFalse(gate.record["completed"])
 
     def test_toolbox_failure_keeps_original_error_and_evidence_without_next_mode(self):
         gate = self.gate()

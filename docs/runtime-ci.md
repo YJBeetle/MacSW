@@ -10,6 +10,12 @@
 或其他 ref 不能执行。tag 发布仍只构建和打包，不调用私有安装/运行步骤。
 push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动输入也不会跳过共享门禁。
 
+阶段和覆盖档位是两个独立选项：`runtime_stage=full` 表示运行 CAD 门禁；
+`runtime_suite=core|full` 决定覆盖范围。普通 master push 使用 core，仅跑可见模式；
+手动完整验收选 full，保留可见／隐藏两轮。两档均顺序运行建模、尺寸、Toolbox，
+每轮内部不重启宿主，并保留每组文档清场检查。core 将重复的尺寸协议反例集中在
+Front，Top／Right 仍验证几何。签名任务只接受同一提交的 full 双模式成功结果。
+
 ## 构建与运行分离
 
 - `build`：单元测试（`make test`）和编译／校验／归档（`make archive`）为独立步骤。
@@ -342,7 +348,8 @@ gh workflow run build-app.yml --repo YJBeetle/MacSW --ref master \
   -f verify_solidworks=true -f runtime_stage=install -f language=chinese-simplified
 ```
 
-将 `runtime_stage` 改为 `full` 执行共享建模与尺寸完整验证。
+将 `runtime_stage` 改为 `full`，并设置 `-f runtime_suite=full` 执行双模式完整验收；
+调试日常档可设置 `-f runtime_suite=core`，但结果不能用于签名发布。
 首次安装或排查安装回归时可追加 `-f force_fresh_install=true`。
 
 首轮 [run 37694344157](https://github.com/YJBeetle/MacSW/actions/runs/37694344157)

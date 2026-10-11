@@ -41,9 +41,9 @@ def validate_jobs(jobs):
             raise RuntimeError("Required build/runtime job did not pass: " + name)
     runtime = next(job for job in jobs if job["name"] == "SOLIDWORKS installation & runtime")
     matches = [step for step in runtime.get("steps", [])
-               if step.get("name") == "Shared modeling, driving dimensions and Toolbox on one host"]
+               if step.get("name") == "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)"]
     if len(matches) != 1 or matches[0].get("conclusion") != "success":
-        raise RuntimeError("Installation-only runs cannot be used for signing")
+        raise RuntimeError("Signing requires the full visible/hidden CAD suite; core or installation-only runs are insufficient")
 
 
 def validate_artifact(artifacts):

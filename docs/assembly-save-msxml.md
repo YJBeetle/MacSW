@@ -51,7 +51,8 @@ SWCLI 同步到 `6cac51f8b9ce72b195cf64209ed64defa6745eea`，新增 `.SLDASM` �
 另存支持与同宿主保存／关闭／重开门禁，并检查 PRT、ASM 原位保存后的文件大小。
 这些测试需要在 DockerSW 的实际宿主重新运行；MacSW 成功不代表 DockerSW 已通过。
 MacSW CI 从安装目录定位唯一、非空的官方 PRT／ASM 样例，经过容器路径转换后传入
-共享 modeling 门禁，在 visible 和 hidden 两种模式执行保存／关闭／重开检查。
+共享 modeling 门禁。日常档在 visible 模式执行保存／关闭／重开检查；
+完整验收保留 visible／hidden 两轮完整门禁，日常通过不代表 hidden ASM 保存已验证。
 样例缺失或多版本歧义会在启动宿主前失败，不会悄悄跳过 ASM 门禁。
 保存不是 Pack and Go，重开仍依赖可访问的组件文件；测试应使用副本并保持 Toolbox
 副本路径，避免 SW 自动重映射到原库生成配置。

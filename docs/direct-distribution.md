@@ -32,6 +32,8 @@ Developer 角色即可，账户需开启双重认证后生成 App 专用密码�
 参考 [GitHub 临时钥匙串流程](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)。
 
 首次运行：同一个 master 提交先完成 Build & Package 的完整运行门禁，
+选择 `verify_solidworks=true`、`runtime_stage=full`、`runtime_suite=full`，
+必须通过 visible／hidden 两轮；普通 push 的 core 日常档不能作为签名输入。
 再手动运行 Developer ID Direct Distribution，传入该 build run ID。
 不接受其他提交、fork、PR、失败构建、仅安装验证或过期产物；核对服务端
 artifact SHA-256 后才解开 App ZIP。仍未配置凭据时流程应失败，不退化为

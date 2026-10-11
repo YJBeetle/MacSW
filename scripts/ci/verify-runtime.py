@@ -512,7 +512,11 @@ class SharedGateProgress:
 
 
 class RuntimeGate:
-    def __init__(self, app, evidence):
+    def __init__(self, app, evidence, suite="full"):
+        if suite not in ("core", "full"):
+            raise ValueError("Unknown runtime suite")
+        self.suite = suite
+        self.modes = ("visible", "hidden") if suite == "full" else ("visible",)
         self.root = ci_root()
         if app.resolve() != self.root / "MacSW.app" or evidence.resolve() != self.root / "evidence":
             raise RuntimeError("Only the isolated CI App and evidence paths are allowed")
@@ -530,6 +534,7 @@ class RuntimeGate:
         self.native_sample_states = {}
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
                        "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
+                       "suite": suite, "coverage": {mode: suite for mode in self.modes},
                        "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
                                            "startup": STARTUP_TIMEOUT_SECONDS,
                                            "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
@@ -737,10 +742,11 @@ class RuntimeGate:
         scripts = shared_gates()
         sample_part, sample_assembly = modeling_samples(self.prefix)
         self.verify_bitmap_driver()
-        for mode in ("visible", "hidden"):
+        for mode in self.modes:
             host = self.start(mode)
             try:
-                for script, name in zip(scripts, ("modeling", "driving", "toolbox")):
+                stages = list(zip(scripts, ("modeling", "driving", "toolbox")))
+                for script, name in stages:
                     self.phase(mode + "." + name)
                     output = self.cwd / mode / name
                     output.mkdir(parents=True, exist_ok=True)
@@ -756,7 +762,8 @@ class RuntimeGate:
                     else:
                         # Modeling writes CAD files: both namespaces must refer
                         # to the SAME physical directory for artifact checks.
-                        arguments += ["--host-output-dir", self.windows_path(output)]
+                        arguments += ["--host-output-dir", self.windows_path(output),
+                                      "--suite", self.suite]
                     if name == "driving":
                         arguments += ["--after-modeling", self.cwd / mode / "modeling/modeling.json"]
                     elif name == "modeling":
@@ -809,6 +816,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path)
     parser.add_argument("--evidence", type=Path)
+    parser.add_argument("--suite", choices=("core", "full"), default="full")
     parser.add_argument("--cleanup-private", action="store_true")
     parser.add_argument("--check-shared-gates", action="store_true")
     args = parser.parse_args()
@@ -820,7 +828,7 @@ def main():
         return
     if args.app is None or args.evidence is None:
         raise RuntimeError("--app and --evidence are required")
-    gate = RuntimeGate(args.app, args.evidence)
+    gate = RuntimeGate(args.app, args.evidence, suite=args.suite)
     try:
         gate.run()
     except Exception as error:
