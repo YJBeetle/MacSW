@@ -41,10 +41,65 @@ def modeling_samples(prefix):
 
 # Hosted software rendering is slower than local hardware. These are CI-only
 # limits; the shared assertions and SWCLI product defaults remain unchanged.
-REQUEST_TIMEOUT_SECONDS = 300
+REQUEST_TIMEOUT_SECONDS = 600
 STARTUP_TIMEOUT_SECONDS = 300
 SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 3600, "driving": 3600, "toolbox": 600}
 SAMPLE_TIMEOUT_SECONDS = 30
+NATIVE_SAMPLE_INTERVAL_SECONDS = 60
+NATIVE_SAMPLE_LIMIT_PER_MODE = 140
+SYSTEM_METRICS_TIMEOUT_SECONDS = 2
+
+
+def system_memory_metrics():
+    """Numeric, read-only OS observations; never retain raw tool output."""
+    record = {}
+    commands = {
+        "vm_stat": ["/usr/bin/vm_stat"],
+        "swap": ["/usr/sbin/sysctl", "-n", "vm.swapusage"],
+        "pressure": ["/usr/bin/memory_pressure", "-Q"],
+    }
+    for name, command in commands.items():
+        try:
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, encoding="utf-8", errors="replace",
+                                    timeout=SYSTEM_METRICS_TIMEOUT_SECONDS,
+                                    env={"LC_ALL": "C", "LANG": "C"})
+            if result.returncode != 0:
+                raise ValueError("tool failed")
+            if name == "vm_stat":
+                page = re.search(r"page size of (\d+) bytes", result.stdout)
+                if not page or int(page[1]) <= 0:
+                    raise ValueError("page size unavailable")
+                counters = {}
+                for label in ("Pages free", "Pages active", "Pages inactive", "Pages speculative",
+                              "Pages wired down", "Pages purgeable", "Pages occupied by compressor",
+                              "Compressions", "Decompressions", "Pageins", "Pageouts", "Swapins", "Swapouts"):
+                    match = re.search(r"^" + re.escape(label) + r":\s*(\d+)\.?\s*$",
+                                      result.stdout, re.MULTILINE)
+                    if match:
+                        counters[label.lower().replace(" ", "_")] = int(match[1])
+                if not counters:
+                    raise ValueError("VM counters unavailable")
+                record["vm_stat"] = {"page_size_bytes": int(page[1]), "counters": counters}
+            elif name == "swap":
+                amounts = {}
+                for label in ("total", "used", "free"):
+                    match = re.search(r"\b" + label + r"\s*=\s*(\d+(?:\.\d+)?)([KMGT])\b", result.stdout)
+                    if not match:
+                        raise ValueError("swap amount unavailable")
+                    value = float(match[1]) * 1024 ** ("KMGT".index(match[2]) + 1)
+                    if not math.isfinite(value):
+                        raise ValueError("invalid swap amount")
+                    amounts[label + "_bytes"] = round(value)
+                record["swap"] = amounts
+            else:
+                match = re.search(r"System-wide memory free percentage:\s*(\d+)%", result.stdout)
+                if not match or not 0 <= int(match[1]) <= 100:
+                    raise ValueError("memory availability unavailable")
+                record["available_percent"] = int(match[1])
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            record.setdefault("diagnostic_errors", {})[name] = type(error).__name__
+    return record
 
 
 def runtime_inventory(directory):
@@ -158,11 +213,15 @@ class HostMetrics:
         self.last_progress_seconds = None
         self.last_native_event = None
         self.last_native_change = time.monotonic()
-        self.sampled = False
+        self.last_system_metrics_seconds = None
+        # Shared across all three gates in this mode, so a new metrics context
+        # cannot overwrite reports or reset the diagnostic rate/size limits.
+        self.sample_state = gate.native_sample_states.setdefault(
+            mode, {"count": 0, "last_at": None})
 
     def sample_stalled_host(self, processes):
-        """One read-only native sample after an unchanged call boundary for 30s."""
-        if self.sampled or self.stopped.is_set():
+        """Repeat bounded samples for stalled AND progressing slow requests."""
+        if self.sample_state["count"] >= NATIVE_SAMPLE_LIMIT_PER_MODE or self.stopped.is_set():
             return None
         path = self.gate.evidence / (self.mode + "-daemon.log")
         try:
@@ -172,21 +231,36 @@ class HostMetrics:
                 lines = source.read().decode("utf-8", errors="replace").splitlines()
             event = next(json.loads(line) for line in reversed(lines)
                          if line.startswith('{"event": "swcli.native-call"'))
+            if event["phase"] not in ("begin", "end"):
+                return None
+            if event["stage"] == "operation" and event["phase"] == "end":
+                return None  # The request has already finished, not stalled.
             key = (event["worker_pid"], event["request_id"], event["sequence"], event["phase"])
             now = time.monotonic()
             if key != self.last_native_event:
                 self.last_native_event, self.last_native_change = key, now
+            stalled = event["phase"] == "begin" and now - self.last_native_change >= 30
+            previous = self.sample_state["last_at"]
+            periodic = now - (self.started_at if previous is None else previous) >= NATIVE_SAMPLE_INTERVAL_SECONDS
+            # A completed, unchanged boundary is idle, not a slow request.
+            active = event["phase"] == "begin" or now - self.last_native_change < 30
+            if not active or not (stalled or periodic):
                 return None
-            if event["phase"] != "begin" or now - self.last_native_change < 30:
+            if previous is not None and now - previous < NATIVE_SAMPLE_INTERVAL_SECONDS:
                 return None
             hosts = [item["host"] for item in self.gate.record["hosts"] if item["mode"] == self.mode]
             targets = [item for item in processes if item["name"] == "sldworks.exe"]
             if len(hosts) != 1 or not hosts[0]["owned_by_daemon"] or len(targets) != 1:
                 return None
-            self.sampled = True
-            output = self.gate.evidence / (self.mode + "-native-stall.log")
+            self.sample_state["count"] += 1
+            self.sample_state["last_at"] = now
+            output = self.gate.evidence / (self.mode + "-native-sample-"
+                                          + str(self.sample_state["count"]).zfill(3) + ".log")
             observation = {"request_id": event["request_id"], "operation": event["operation"],
                            "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
+                           "boundary_phase": event["phase"], "reason": "stalled" if stalled else "periodic",
+                           "observed_utc_time": datetime.now(timezone.utc).isoformat(),
+                           "phase": self.gate.record["phase"], "sample_index": self.sample_state["count"],
                            "unix_pid": targets[0]["unix_pid"], "evidence": output.name,
                            "duration_seconds": 2, "interval_ms": 10,
                            "tool_timeout_seconds": SAMPLE_TIMEOUT_SECONDS}
@@ -208,7 +282,7 @@ class HostMetrics:
             return observation
         except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError) as error:
             # Missing logs/tool failures cannot turn a CAD failure into a pass.
-            return {"diagnostic_error": type(error).__name__} if self.sampled else None
+            return {"diagnostic_error": type(error).__name__} if self.sample_state["count"] else None
 
     def capture(self):
         record = {"phase": self.gate.record["phase"],
@@ -224,9 +298,13 @@ class HostMetrics:
             if result.returncode != 0:
                 raise RuntimeError("ps failed")
             record["processes"] = wine_process_metrics(result.stdout, self.gate.app)
+            if (self.last_system_metrics_seconds is None
+                    or record["elapsed_seconds"] - self.last_system_metrics_seconds >= 60):
+                record["system_memory"] = system_memory_metrics()
+                self.last_system_metrics_seconds = record["elapsed_seconds"]
             sample = self.sample_stalled_host(record["processes"])
             if sample is not None:
-                record["native_stall_sample"] = sample
+                record["native_sample"] = sample
         except Exception as error:
             # OS/tool failures are diagnostic gaps, not CAD failures. Exception
             # messages, ps stderr and raw command lines must never be published.
@@ -266,7 +344,7 @@ class HostMetrics:
     def __exit__(self, *exception):
         self.stopped.set()
         if self.started:
-            self.thread.join(timeout=SAMPLE_TIMEOUT_SECONDS + 6)
+            self.thread.join(timeout=SAMPLE_TIMEOUT_SECONDS + 6 + 3 * SYSTEM_METRICS_TIMEOUT_SECONDS)
         return False
 
 
@@ -446,13 +524,17 @@ class RuntimeGate:
         self.helper = app / "Contents/MacOS/MacSWCI"
         self.runtime_helper = app / "Contents/MacOS/MacSWCIRuntime"
         self.path_helper = app / "Contents/Resources/SWCLI/bin/swcli-path"
+        self.native_sample_states = {}
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
                        "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
                        "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
                                            "startup": STARTUP_TIMEOUT_SECONDS,
                                            "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
                                            "shared_gates": dict(SHARED_GATE_TIMEOUT_SECONDS),
-                                           "native_sample_tool": SAMPLE_TIMEOUT_SECONDS}}
+                                           "native_sample_tool": SAMPLE_TIMEOUT_SECONDS,
+                                           "native_sample_interval": NATIVE_SAMPLE_INTERVAL_SECONDS,
+                                           "native_sample_limit_per_mode": NATIVE_SAMPLE_LIMIT_PER_MODE,
+                                           "system_metrics_tool": SYSTEM_METRICS_TIMEOUT_SECONDS}}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
                         # OLE trace emits millions of GUID/string events during

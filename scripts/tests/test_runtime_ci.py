@@ -401,8 +401,8 @@ class RuntimeAdapterTests(unittest.TestCase):
                     returncode=0, stdout=r"42 1 0:00 100 S C:\MacSW\Python311\python.exe", stderr="private")) as run:
             metrics.capture()
             metrics.capture()
-        self.assertEqual(run.call_args.args[0], ["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="])
-        self.assertEqual(run.call_args.kwargs["timeout"], 5)
+        self.assertEqual(run.call_args_list[0].args[0], ["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="])
+        self.assertEqual(run.call_args_list[0].kwargs["timeout"], 5)
         self.assertEqual(run.call_args.kwargs["env"], {"LC_ALL": "C", "LANG": "C"})
         text = (gate.evidence / "visible-host-metrics.log").read_text()
         records = [json.loads(line) for line in text.splitlines()]
@@ -457,7 +457,7 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_native_stall_samples_one_owned_host_after_unchanged_boundary(self):
         gate, metrics, event, path, targets = self.stall_metrics()
-        with patch.object(ci.time, "monotonic", side_effect=[10, 39, 40]), \
+        with patch.object(ci.time, "monotonic", side_effect=[10, 39, 40, 41]), \
                 patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
             self.assertIsNone(metrics.sample_stalled_host(targets))
             self.assertIsNone(metrics.sample_stalled_host(targets))
@@ -466,7 +466,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result["call"], "FirstFeature")
         self.assertEqual(result["request_id"], "request-1")
         run.assert_called_once_with(
-            ["/usr/bin/sample", "42", "2", "10", "-file", str(gate.evidence / "visible-native-stall.log")],
+            ["/usr/bin/sample", "42", "2", "10", "-file", str(gate.evidence / "visible-native-sample-001.log")],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=30, env={"LC_ALL": "C", "LANG": "C"})
         self.assertFalse(gate.record["completed"])
@@ -485,6 +485,115 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIsNone(metrics.sample_stalled_host(targets))
         run.assert_not_called()
 
+    def test_native_samples_repeat_at_minute_intervals_without_overwriting_and_are_capped(self):
+        gate, metrics, _, _, targets = self.stall_metrics()
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40, 99, 100, 160]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            first = metrics.sample_stalled_host(targets)
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            second = metrics.sample_stalled_host(targets)
+            third = metrics.sample_stalled_host(targets)
+            metrics.sample_state["count"] = ci.NATIVE_SAMPLE_LIMIT_PER_MODE
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([row["evidence"] for row in (first, second, third)],
+                         [f"visible-native-sample-{n:03}.log" for n in (1, 2, 3)])
+        self.assertTrue(all(row["reason"] == "stalled" for row in (first, second, third)))
+        self.assertFalse(gate.record["completed"])
+
+    def test_native_periodic_samples_capture_progressing_calls_but_not_idle_ends(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        metrics.started_at = 0
+        with patch.object(ci.time, "monotonic", side_effect=[10, 70, 130, 191]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            event.update(sequence=100, phase="end")
+            path.write_text(json.dumps(event) + "\n")
+            first = metrics.sample_stalled_host(targets)
+            event.update(sequence=300)
+            path.write_text(json.dumps(event) + "\n")
+            second = metrics.sample_stalled_host(targets)
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual([first["reason"], second["reason"]], ["periodic", "periodic"])
+        self.assertEqual(second["boundary_phase"], "end")
+
+    def test_native_sample_rate_and_numbering_survive_shared_gate_transitions(self):
+        gate, metrics, _, _, targets = self.stall_metrics()
+        metrics.started_at = 0
+        with patch.object(ci.time, "monotonic", return_value=60), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)):
+            first = metrics.sample_stalled_host(targets)
+        successor = ci.HostMetrics(gate, "visible")
+        with patch.object(ci.time, "monotonic", side_effect=[119, 120]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertIsNone(successor.sample_stalled_host(targets))
+            second = successor.sample_stalled_host(targets)
+        run.assert_called_once()
+        self.assertEqual(first["sample_index"], 1)
+        self.assertEqual(second["sample_index"], 2)
+
+    def test_native_completed_operation_is_not_sampled_even_when_periodic_is_due(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        metrics.started_at = 0
+        event.update(phase="end", stage="operation")
+        path.write_text(json.dumps(event) + "\n")
+        with patch.object(ci.time, "monotonic", return_value=100), \
+                patch.object(ci.subprocess, "run") as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        run.assert_not_called()
+
+    def test_system_memory_metrics_keep_only_numeric_allowlisted_fields(self):
+        outputs = [
+            'Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+            'Pages free: 12.\nPages occupied by compressor: 34.\n'
+            'Swapins: 5.\nSwapouts: 6.\nPrivate text: secret\n',
+            'total = 1024.00M used = 256.00M free = 768.00M (encrypted) secret',
+            'System-wide memory free percentage: 42%\nsecret',
+        ]
+        with patch.object(ci.subprocess, "run", side_effect=[
+                SimpleNamespace(returncode=0, stdout=text) for text in outputs]) as run:
+            result = ci.system_memory_metrics()
+        self.assertEqual(result, {
+            "vm_stat": {"page_size_bytes": 16384, "counters": {
+                "pages_free": 12, "pages_occupied_by_compressor": 34, "swapins": 5, "swapouts": 6}},
+            "swap": {"total_bytes": 1024 * 1024 ** 2, "used_bytes": 256 * 1024 ** 2,
+                     "free_bytes": 768 * 1024 ** 2}, "available_percent": 42})
+        self.assertEqual(run.call_args_list[-1].args[0], ["/usr/bin/memory_pressure", "-Q"])
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], 2)
+            self.assertEqual(call.kwargs["env"], {"LC_ALL": "C", "LANG": "C"})
+        self.assertNotIn("secret", json.dumps(result))
+
+    def test_system_memory_failures_are_independent_sanitized_diagnostic_gaps(self):
+        for response in (OSError("secret"), subprocess.TimeoutExpired("secret", 2),
+                         SimpleNamespace(returncode=1, stdout="secret"),
+                         SimpleNamespace(returncode=0, stdout="secret")):
+            with self.subTest(response=type(response).__name__):
+                kwargs = {"side_effect": response} if isinstance(response, Exception) else {"return_value": response}
+                with patch.object(ci.subprocess, "run", **kwargs) as run:
+                    result = ci.system_memory_metrics()
+                self.assertEqual(set(result["diagnostic_errors"]), {"vm_stat", "swap", "pressure"})
+                self.assertEqual(run.call_count, 3)
+                self.assertNotIn("secret", json.dumps(result))
+
+    def test_system_memory_capture_is_minute_bounded_and_does_not_decide_success(self):
+        gate = self.gate()
+        metrics = ci.HostMetrics(gate, "visible")
+        metrics.started_at = 0
+        with patch.object(ci.time, "monotonic", side_effect=[0, 59, 60, 119, 120]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="")), \
+                patch.object(ci, "system_memory_metrics", return_value={"available_percent": 42}) as memory, \
+                patch.object(metrics, "sample_stalled_host", return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(5):
+                metrics.capture()
+        self.assertEqual(memory.call_count, 3)
+        records = [json.loads(line) for line in (gate.evidence / "visible-host-metrics.log").read_text().splitlines()]
+        self.assertEqual([row["elapsed_seconds"] for row in records if "system_memory" in row], [0, 60, 120])
+        self.assertFalse(gate.record["completed"])
+
     def test_native_stall_never_samples_shared_ambiguous_missing_or_stopped_hosts(self):
         gate, metrics, event, path, targets = self.stall_metrics()
         metrics.last_native_event = (32, "request-1", 78, "begin")
@@ -500,9 +609,9 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIsNone(metrics.sample_stalled_host(targets))
         run.assert_not_called()
 
-    def test_native_stall_tool_failure_is_once_only_and_keeps_private_text_out(self):
+    def test_native_stall_tool_failure_is_rate_limited_and_keeps_private_text_out(self):
         _, metrics, event, path, targets = self.stall_metrics()
-        with patch.object(ci.time, "monotonic", side_effect=[10, 40]), \
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40, 41]), \
                 patch.object(ci.subprocess, "run", side_effect=OSError("private native text")) as run:
             self.assertIsNone(metrics.sample_stalled_host(targets))
             result = metrics.sample_stalled_host(targets)
@@ -517,11 +626,11 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_native_stall_timeout_retains_boundary_and_partial_report(self):
         gate, metrics, event, path, targets = self.stall_metrics()
-        output = gate.evidence / "visible-native-stall.log"
+        output = gate.evidence / "visible-native-sample-001.log"
         def sample(*args, **kwargs):
             output.write_text("partial sample report\n")
             raise subprocess.TimeoutExpired(args[0], kwargs["timeout"], stderr="private error")
-        with patch.object(ci.time, "monotonic", side_effect=[10, 40]), \
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40, 41]), \
                 patch.object(ci.subprocess, "run", side_effect=sample) as run:
             self.assertIsNone(metrics.sample_stalled_host(targets))
             result = metrics.sample_stalled_host(targets)
@@ -551,7 +660,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 with metrics:
                     raise RuntimeError("original gate error")
         start.assert_called_once_with()
-        join.assert_called_once_with(timeout=36)
+        join.assert_called_once_with(timeout=42)
         self.assertTrue(metrics.stopped.is_set())
 
     def test_metrics_thread_creation_failure_does_not_block_shared_gate(self):
@@ -820,7 +929,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIn("--endpoint", args)
             self.assertEqual(args[args.index("--cli-command") + 1], gate.cli)
             self.assertEqual(args[args.index("--endpoint") + 1], gate.env["SWCLI_ENDPOINT"])
-            self.assertEqual(args[args.index("--request-timeout") + 1], "300")
+            self.assertEqual(args[args.index("--request-timeout") + 1], "600")
             output = args[args.index("--output-dir") + 1]
             self.assertTrue(output.is_relative_to(gate.prefix / "drive_c"))
             if args[1].name == "verify-toolbox.py":
@@ -866,8 +975,10 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual([call.args for call in collect_evidence.call_args_list], [("visible",), ("hidden",)])
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["budgets_seconds"], {
-            "request": 300, "startup": 300, "startup_outer": 330,
-            "shared_gates": {"modeling": 3600, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30})
+            "request": 600, "startup": 300, "startup_outer": 330,
+            "shared_gates": {"modeling": 3600, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30,
+            "native_sample_interval": 60, "native_sample_limit_per_mode": 140,
+            "system_metrics_tool": 2})
 
     def test_toolbox_failure_keeps_original_error_and_evidence_without_next_mode(self):
         gate = self.gate()
