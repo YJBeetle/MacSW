@@ -149,9 +149,12 @@ class RuntimeWorkflowTests(unittest.TestCase):
 
     def test_shared_stage_budget_covers_both_modes_and_startup(self):
         step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
-        self.assertIn("timeout-minutes: 300", step)
+        self.assertIn("timeout-minutes: 340", step)
         self.assertLess(2 * sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
-                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30), 300 * 60)
+                        + 2 * (ci.STARTUP_TIMEOUT_SECONDS + 30)
+                        + 6 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS)
+                        + 120, 340 * 60)
+        self.assertIn("timeout-minutes: 360", self.runtime.split("steps:", 1)[0])
 
 
 class RuntimeAdapterTests(unittest.TestCase):
@@ -447,7 +450,11 @@ class RuntimeAdapterTests(unittest.TestCase):
     def stall_metrics(self):
         gate = self.gate()
         gate.record["hosts"] = [{"mode": "visible", "host": {"owned_by_daemon": True}}]
-        metrics = ci.HostMetrics(gate, "visible")
+        # Constructor and observations must share a synthetic clock. Mixing
+        # runner uptime with the small timestamps below makes periodic sampling
+        # depend on how recently the machine booted.
+        with patch.object(ci.time, "monotonic", return_value=0):
+            metrics = ci.HostMetrics(gate, "visible")
         event = {"event": "swcli.native-call", "worker_pid": 32, "request_id": "request-1",
                  "sequence": 78, "phase": "begin", "call": "FirstFeature", "stage": "read",
                  "operation": "feature.extrude", "monotonic_seconds": 999999}
@@ -473,7 +480,9 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_native_stall_end_or_new_call_resets_observation_without_sampling(self):
         _, metrics, event, path, targets = self.stall_metrics()
-        with patch.object(ci.time, "monotonic", side_effect=[10, 100, 200, 220]), \
+        # Stay before the periodic deadline: this case tests boundary resets,
+        # not the independently covered sampling of progressing requests.
+        with patch.object(ci.time, "monotonic", side_effect=[10, 20, 30, 50]), \
                 patch.object(ci.subprocess, "run") as run:
             self.assertIsNone(metrics.sample_stalled_host(targets))
             event["phase"] = "end"
@@ -949,7 +958,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
             elif args[1].name == "verify-modeling.py":
-                self.assertEqual(kwargs["timeout"], 3600)
+                self.assertEqual(kwargs["timeout"], 5400)
                 self.assertNotIn("--after-modeling", args)
                 for option in ("--sample-part", "--sample-assembly"):
                     self.assertEqual(args[args.index(option) + 1], "Q:\\models")
@@ -976,7 +985,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["budgets_seconds"], {
             "request": 600, "startup": 300, "startup_outer": 330,
-            "shared_gates": {"modeling": 3600, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30,
+            "shared_gates": {"modeling": 5400, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30,
             "native_sample_interval": 60, "native_sample_limit_per_mode": 140,
             "system_metrics_tool": 2})
 

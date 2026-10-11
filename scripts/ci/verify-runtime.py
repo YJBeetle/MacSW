@@ -43,7 +43,10 @@ def modeling_samples(prefix):
 # limits; the shared assertions and SWCLI product defaults remain unchanged.
 REQUEST_TIMEOUT_SECONDS = 600
 STARTUP_TIMEOUT_SECONDS = 300
-SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 3600, "driving": 3600, "toolbox": 600}
+# The expanded gate includes native assembly save/reopen and sample exports.
+# A 600-second request can now complete, but the accumulated software-renderer
+# work still exceeds the former one-hour modeling limit.
+SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 5400, "driving": 3600, "toolbox": 600}
 SAMPLE_TIMEOUT_SECONDS = 30
 NATIVE_SAMPLE_INTERVAL_SECONDS = 60
 NATIVE_SAMPLE_LIMIT_PER_MODE = 140
