@@ -54,6 +54,7 @@ public final class RuntimeStore: ObservableObject {
     private let licenseServer: LicenseServerStore
     private let fontLinkRepair: @Sendable (URL) async throws -> Void
     private let swcliPreparation: @Sendable (URL) async throws -> Void
+    private let processSnapshot: @Sendable (String, String) async -> [WineProcess]
     private var swcliTask: Task<Void, Error>?
     private var swcliTaskID: UUID?
     private var fontPreparation: Task<Void, Error>?
@@ -68,11 +69,15 @@ public final class RuntimeStore: ObservableObject {
         wine: WineService = .shared,
         fontLinkRepair: (@Sendable (URL) async throws -> Void)? = nil,
         swcliPreparation: (@Sendable (URL) async throws -> Void)? = nil,
-        swcliDaemon: SWCLIDaemonStore? = nil
+        swcliDaemon: SWCLIDaemonStore? = nil,
+        processSnapshot: (@Sendable (String, String) async -> [WineProcess])? = nil
     ) {
         self.paths = paths
         self.licenseServer = licenseServer
         self.wine = wine
+        self.processSnapshot = processSnapshot ?? { bottle, runtime in
+            await ProcessInventory.snapshot(bottlePath: bottle, wineRuntimePath: runtime)
+        }
         self.swcliDaemon = swcliDaemon ?? SWCLIDaemonStore(service: SWCLIDaemonService(bundleURL: Bundle.main.bundleURL, paths: paths))
         self.fontLinkRepair = fontLinkRepair ?? { prefix in
             _ = try await RegistryService(wine: wine).repairTahomaFontLinkIfNeeded(prefix: prefix)
@@ -204,19 +209,18 @@ public final class RuntimeStore: ObservableObject {
         case .starting, .running, .stopping: return
         case .unavailable, .unknown, .stopped, .failed: break
         }
-        // 状态未知时先确认没有第二份在跑，再决定是否启动。
-        let needsRunningProbe = state == .unknown
         state = .starting
         statusMessage = "正在准备启动 SOLIDWORKS…"
         Task {
             do {
-                try await ensureFontLinkPrepared()
-                try await ensureSWCLIPrepared()
-                if needsRunningProbe { await refreshState() }
+                // stopped 也可能只是旧观测：daemon 可在两次菜单刷新之间启动隐藏实例。
+                await refreshState()
                 if isRunning {
                     statusMessage = "SOLIDWORKS 已在运行。"
                     return
                 }
+                try await ensureFontLinkPrepared()
+                try await ensureSWCLIPrepared()
                 // 许可服务器起不来只降级为提示，不阻断 SOLIDWORKS 启动。
                 let licensingWarning: String?
                 do {
@@ -224,6 +228,12 @@ public final class RuntimeStore: ObservableObject {
                     licensingWarning = nil
                 } catch {
                     licensingWarning = error.localizedDescription
+                }
+                // 准备和许可检查需要等待，真正启动前再确认一次，不能沿用旧的 stopped。
+                await refreshState()
+                if isRunning {
+                    statusMessage = "SOLIDWORKS 已在运行。"
+                    return
                 }
                 guard FileManager.default.isExecutableFile(atPath: wine.wineBinary.path) else {
                     throw runtimeError("App 内置 Wine 运行时缺失，请重新打包。")
@@ -411,10 +421,7 @@ public final class RuntimeStore: ObservableObject {
     }
 
     private func refreshState() async {
-        let snapshot = await ProcessInventory.snapshot(
-            bottlePath: paths.bottle.path,
-            wineRuntimePath: wine.runtimeURL.path
-        )
+        let snapshot = await processSnapshot(paths.bottle.path, wine.runtimeURL.path)
         if snapshot != processes { processes = snapshot }
         apply(observingRunning: ProcessInventory.isSolidWorksRunning(snapshot))
     }

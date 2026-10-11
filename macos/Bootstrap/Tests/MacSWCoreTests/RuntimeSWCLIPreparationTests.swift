@@ -9,6 +9,16 @@ final class RuntimeSWCLIPreparationTests: XCTestCase {
         func record() { count += 1 }
     }
 
+    private actor ProcessObservations {
+        var running = false
+        var count = 0
+        func startHiddenHost() { running = true }
+        func snapshot() -> [WineProcess] {
+            count += 1
+            return running ? [WineProcess(name: "sldworks.exe", pid: 4452, residentKB: 23232, elapsed: "00:20:36")] : []
+        }
+    }
+
     private func installedPaths() throws -> AppPaths {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-sync-startup-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
@@ -32,6 +42,50 @@ final class RuntimeSWCLIPreparationTests: XCTestCase {
         let count = await calls.count
         XCTAssertEqual(count, 1)
         XCTAssertFalse(store.isRunning)
+    }
+
+    func testLaunchRechecksStoppedStateBeforePreparingOrStartingAnotherHost() async throws {
+        let paths = try installedPaths()
+        let observations = ProcessObservations()
+        let store = RuntimeStore(paths: paths, licenseServer: LicenseServerStore(paths: paths),
+            fontLinkRepair: { _ in XCTFail("已有 host 不应再准备字体") },
+            swcliPreparation: { _ in XCTFail("已有 host 不应再同步 backend") },
+            processSnapshot: { bottle, _ in
+                XCTAssertEqual(bottle, paths.bottle.path)
+                return await observations.snapshot()
+            })
+        await store.refreshNow()
+        XCTAssertEqual(store.state, .stopped)
+        await observations.startHiddenHost()
+        store.launch()
+        for _ in 0..<200 {
+            if store.state != .starting { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.state, .running)
+        XCTAssertEqual(store.statusMessage, "SOLIDWORKS 已在运行。")
+        let count = await observations.count
+        XCTAssertEqual(count, 2)
+    }
+
+    func testLaunchRechecksHostThatAppearedWhilePreparing() async throws {
+        let paths = try installedPaths()
+        let observations = ProcessObservations()
+        let store = RuntimeStore(paths: paths, licenseServer: LicenseServerStore(paths: paths),
+            fontLinkRepair: { _ in await observations.startHiddenHost() },
+            swcliPreparation: { _ in },
+            processSnapshot: { _, _ in await observations.snapshot() })
+        await store.refreshNow()
+        XCTAssertEqual(store.state, .stopped)
+        store.launch()
+        for _ in 0..<200 {
+            if store.state != .starting { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(store.state, .running)
+        XCTAssertEqual(store.statusMessage, "SOLIDWORKS 已在运行。")
+        let count = await observations.count
+        XCTAssertEqual(count, 3)
     }
 
     func testFailureIsVisibleAndCanBeRetriedAfterDaemonStops() async throws {

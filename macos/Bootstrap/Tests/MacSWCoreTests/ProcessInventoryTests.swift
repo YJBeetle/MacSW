@@ -58,6 +58,18 @@ final class ProcessInventoryTests: XCTestCase {
         ))
     }
 
+    func testHiddenCOMHostIsDetectedRegardlessOfExecutableCase() {
+        for name in ["sldworks.exe", "SldWorks.exe", "SLDWORKS.exe"] {
+            let output = "  4452 23232 00:20:36 C:\\Program Files\\SOLIDWORKS\\\(name) -Embedding"
+            let candidates = ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime)
+            XCTAssertEqual(candidates.map(\.pid), [4452], "候选漏检就无法继续读取 WINEPREFIX")
+            XCTAssertEqual(candidates.first?.name, name)
+            XCTAssertTrue(ProcessInventory.isSolidWorksRunning(candidates))
+            XCTAssertTrue(ProcessInventory.parse(output, bottlePath: Self.bottle, wineRuntimePath: Self.wineRuntime,
+                processPrefixes: [4452: "/private/tmp/other/bottle"]).isEmpty)
+        }
+    }
+
     /// 合计必须从 KB 换算：逐行向上取整会把两个 600 KB 报成 2 MB。
     func testTotalRoundsOnceInsteadOfPerRow() {
         let small = [
@@ -161,7 +173,7 @@ final class ProcessInventoryTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-process-probe-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let executable = directory.appendingPathComponent("SLDWORKS.exe")
+        let executable = directory.appendingPathComponent("sldworks.exe")
         // Apple 系统程序可能隐藏环境或需要 platform 签名；使用真正的普通客户进程。
         let source = directory.appendingPathComponent("probe.c")
         try "#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n"

@@ -85,7 +85,9 @@ public enum ProcessInventory {
         }
         if !bottlePath.isEmpty, command.localizedCaseInsensitiveContains(bottlePath) { return true }
         if !wineRuntimePath.isEmpty, command.localizedCaseInsensitiveContains(wineRuntimePath) { return true }
-        return solidWorksProcesses.contains { command.contains($0) }
+        // COM 隐藏启动会把 argv[0] 写成小写 sldworks.exe -Embedding。
+        // 候选阶段就要忽略大小写，否则后面根本没有机会读取它的 WINEPREFIX。
+        return solidWorksProcesses.contains { command.localizedCaseInsensitiveContains($0) }
     }
 
     private static func canonicalPath(_ path: String) -> String {
