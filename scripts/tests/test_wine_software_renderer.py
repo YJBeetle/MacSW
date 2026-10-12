@@ -66,9 +66,15 @@ class SoftwareRendererTests(unittest.TestCase):
         # Compile the patch's real postimage, not a separate Python model.
         function = re.search(r"static CGLContextObj init_context\([^\n]+\)\n\{.*?\n\}",
                              postimage(), re.S).group(0)
+        selector = re.search(r"static BOOL select_renderer\([^\n]+\)\n\{.*?\n\}",
+                             postimage(), re.S).group(0)
         prelude = r'''
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
+#define TRUE 1
+#define FALSE 0
+static int force_software_renderer;
 typedef int BOOL;
 typedef int CGLOpenGLProfile;
 typedef int CGLPixelFormatAttribute;
@@ -98,12 +104,12 @@ static CGLContextObj CGLGetCurrentContext(void) { return current; }
 static CGLError CGLChoosePixelFormat(const CGLPixelFormatAttribute *attrs,
                                     CGLPixelFormatObj *pix, GLint *screens) {
     assert(chooses < 2);
-    if (!chooses) {
+    if (!chooses && !force_software_renderer) {
         assert(attrs[0] == kCGLPFADisplayMask && attrs[1] == 8);
         assert(attrs[2] == kCGLPFAAccelerated && attrs[3] == kCGLPFAOpenGLProfile);
         assert(attrs[4] == requested_profile && attrs[5] == 0);
     } else {
-        assert(requested_profile == kCGLOGLPVersion_Legacy);
+        assert(force_software_renderer || requested_profile == kCGLOGLPVersion_Legacy);
         assert(attrs[0] == kCGLPFARendererID && attrs[1] == kCGLRendererGenericFloatID);
         assert(attrs[2] == kCGLPFAOpenGLProfile && attrs[3] == requested_profile && attrs[4] == 0);
     }
@@ -146,6 +152,9 @@ int main(int argc, char **argv) {
     config.reported_acceleration = 2; /* BOOL output must be normalized. */
     requested_profile = kCGLOGLPVersion_Legacy;
     current = (CGLContextObj)&previous_storage;
+    assert(select_renderer(NULL) && !force_software_renderer);
+    assert(select_renderer("auto") && !force_software_renderer);
+    assert(!select_renderer("typo") && !force_software_renderer);
     switch (test) {
     case 0: break; /* hardware wins without consulting software */
     case 1: config.choose_error[0] = kCGLBadPixelFormat; config.no_pix[0] = 1;
@@ -172,6 +181,16 @@ int main(int argc, char **argv) {
              config.choose_error[0] = kCGLBadPixelFormat; config.no_pix[0] = 1;
              success = 0; expected_releases = 0; break;
     case 14: requested_profile = kCGLOGLPVersion_GL3_Core; break;
+    case 15: assert(select_renderer("software") && force_software_renderer);
+             config.reported_acceleration = 0; break;
+    case 16: assert(select_renderer("software")); requested_profile = kCGLOGLPVersion_GL3_Core;
+             config.choose_error[0] = kCGLBadPixelFormat; config.no_pix[0] = 1;
+             success = 0; expected_releases = 0; break;
+    case 17: assert(select_renderer("software")); /* unexpected hardware must fail */
+             success = 0; break;
+    case 18: assert(select_renderer("software"));
+             config.choose_error[0] = kCGLBadAlloc; config.no_pix[0] = 1;
+             success = 0; expected_releases = 0; break;
     default: abort();
     }
     BOOL accelerated = -7;
@@ -191,11 +210,11 @@ int main(int argc, char **argv) {
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "init-context.c"
-            source.write_text(prelude + function + cases)
+            source.write_text(prelude + selector + function + cases)
             executable = root / "init-context"
             subprocess.run(["cc", "-std=c99", "-Wall", "-Wextra", "-Werror", str(source),
                             "-o", str(executable)], check=True, capture_output=True)
-            for scenario in range(15):
+            for scenario in range(19):
                 with self.subTest(scenario=scenario):
                     subprocess.run([str(executable), str(scenario)], check=True, capture_output=True)
 
