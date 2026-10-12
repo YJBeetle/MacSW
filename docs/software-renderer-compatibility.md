@@ -183,12 +183,12 @@ CI adapter 可使用 `--renderer software`，会核对实际位图 GL renderer�
 feature-depth、面／边等完整建模观察。运行 JSON 明确记录 suite 和 mode coverage，
 建模和尺寸的 suite 必须相同。用例拆入共享 CLI 的 gate_support 文件，平台不复制 CAD 断言。
 
-日常共享步骤预算 240 分钟，尺寸整组 7200 秒；完整验收拆成可见／隐藏两个
-独立 job，每模式共享步骤 330 分钟，尺寸整组 12600 秒。建模 5400 秒、
-Toolbox 600 秒、单请求 600 秒不变；每 job 仍最多 360 分钟。
+日常共享步骤最多 240 分钟；完整验收在一个 runner 上依次跑可见／隐藏模式，
+整个共享步骤最多 330 分钟。每组换新的 CLI／SW，会话隔离不修复底层内存积累。
+组内 CAD 限制 1800 秒、单请求 600 秒不变；runtime job 仍最多 360 分钟。
 Windows 使用相同分档／模式规则；DockerSW 保留后台单模式，
 自动正式镜像提升仍要求 full，手动 core 不提升正式标签。MacSW 签名输入只接受同一
-提交上两个完整模式的 job 和 full 共享步骤成功。实际耗时待新 CI 验证。
+提交上 runtime job 和 full 双模式共享步骤成功。实际耗时待新 CI 验证。
 
 ### 本机短用例内存对照（2026-10-12）
 

@@ -236,12 +236,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   runtime-test:
-    name: SOLIDWORKS installation & runtime (${{ matrix.mode }})
+    name: SOLIDWORKS installation & runtime
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: ${{ fromJSON(inputs.runtime_suite == 'full' && inputs.runtime_stage != 'install' && '["visible","hidden"]' || '["visible"]') }}
     # Private resources must never be available to PRs, forks, tags or other refs.
     if: >-
       github.repository == 'YJBeetle/MacSW' &&
@@ -253,7 +249,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: macsw-solidworks-runtime-${{ matrix.mode }}
+      group: macsw-solidworks-runtime
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
@@ -403,7 +399,7 @@ jobs:
           export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
-      - name: Shared modeling, driving dimensions and Toolbox on one host (${{ inputs.runtime_suite || 'core' }}, ${{ matrix.mode }})
+      - name: Shared isolated functional test sets (${{ inputs.runtime_suite || 'core' }}, ${{ inputs.runtime_suite == 'full' && 'visible+hidden' || 'visible' }})
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
         timeout-minutes: ${{ inputs.runtime_suite == 'full' && 330 || 240 }}
         run: |
@@ -411,7 +407,6 @@ jobs:
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
             --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
             --suite '${{ inputs.runtime_suite || 'core' }}' \
-            --mode '${{ matrix.mode }}' \
             --renderer '${{ inputs.runtime_renderer || 'auto' }}'
 
       - name: Stop isolated runtime test bottle
@@ -433,7 +428,7 @@ jobs:
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.redact-runtime.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
-          name: MacSW-SOLIDWORKS-runtime-evidence-${{ matrix.mode }}
+          name: MacSW-SOLIDWORKS-runtime-evidence
           archive: true
           path: |
             ${{ runner.temp }}/MacSW-runtime/evidence/*.json

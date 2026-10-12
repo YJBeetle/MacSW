@@ -125,7 +125,7 @@ class RuntimeScreenshotTests(unittest.TestCase):
             image.write_bytes(self.png())
             receipt = {"source": "github-hosted-desktop", "success": True, "owned_by_daemon": True,
                        "shared_interactive": False, "runner_environment": "github-hosted", "display_id": 1,
-                       "phase": "visible.driving", "file": image.name, "host_windows_pid": 512,
+                       "phase": "visible.test-sets", "test_set": "exports", "file": image.name, "host_windows_pid": 512,
                        "width": 600, "height": 400,
                        "size_bytes": len(self.png()), "sha256": hashlib.sha256(self.png()).hexdigest()}
             with patch.dict(privacy.os.environ, GITHUB_ACTIONS="true", RUNNER_TEMP=temporary,

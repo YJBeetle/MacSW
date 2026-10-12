@@ -188,10 +188,10 @@ class SigningInventoryTests(unittest.TestCase):
 
 class SigningProvenanceTests(unittest.TestCase):
     def full_jobs(self):
-        return [{"name": "Build & package", "conclusion": "success"}, *[
-            {"name": "SOLIDWORKS installation & runtime (" + mode + ")", "conclusion": "success",
-             "steps": [{"name": "Shared modeling, driving dimensions and Toolbox on one host (full, " + mode + ")",
-                        "conclusion": "success"}]} for mode in ("visible", "hidden")]]
+        return [{"name": "Build & package", "conclusion": "success"},
+            {"name": "SOLIDWORKS installation & runtime", "conclusion": "success",
+             "steps": [{"name": "Shared isolated functional test sets (full, visible+hidden)",
+                        "conclusion": "success"}]}]
 
     def test_corrupt_download_rejected_before_extracting(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -204,7 +204,7 @@ class SigningProvenanceTests(unittest.TestCase):
             with patch.dict(os.environ, GITHUB_REPOSITORY=source.REPOSITORY,
                             GITHUB_REF="refs/heads/master", GITHUB_EVENT_NAME="workflow_dispatch"), \
                     patch.object(source, "api", side_effect=[self.run_record(),
-                        {"total_count": 3, "jobs": jobs}, {"total_count": 1, "artifacts": [artifact]}]), \
+                        {"total_count": 2, "jobs": jobs}, {"total_count": 1, "artifacts": [artifact]}]), \
                     patch.object(source.subprocess, "run", side_effect=download):
                 with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                     source.fetch("123", "a" * 40, destination)
@@ -257,7 +257,7 @@ class SigningProvenanceTests(unittest.TestCase):
             source.validate_jobs(jobs[:1])
 
     def test_missing_failed_or_duplicate_mode_cannot_authorize_signing(self):
-        for index in (1, 2):
+        for index in (1,):
             for conclusion in ("failure", "skipped", "cancelled", None):
                 jobs = self.full_jobs()
                 jobs[index]["conclusion"] = conclusion
@@ -270,7 +270,7 @@ class SigningProvenanceTests(unittest.TestCase):
                 source.validate_jobs(jobs + [jobs[index]])
 
     def test_successful_jobs_still_require_matching_full_steps(self):
-        for index in (1, 2):
+        for index in (1,):
             jobs = self.full_jobs()
             jobs[index]["steps"][0]["name"] = jobs[index]["steps"][0]["name"].replace("(full,", "(core,")
             with self.subTest(index=index), self.assertRaises(RuntimeError):

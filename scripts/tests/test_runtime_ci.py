@@ -130,7 +130,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
     def test_official_cache_and_always_cleanup_stay_in_runtime_job(self):
         snapshot = self.runtime.index("- name: Save only verified official base")
         fixtures = self.runtime.index("- name: Prepare temporary licensing and runtime fixtures")
-        gates = self.runtime.index("- name: Shared modeling, driving dimensions and Toolbox on one host")
+        gates = self.runtime.index("- name: Shared isolated functional test sets")
         self.assertLess(snapshot, fixtures)
         self.assertLess(fixtures, gates)
         self.assertIn("TAR_OPTIONS: --same-permissions", self.runtime)
@@ -148,17 +148,18 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
 
     def test_daily_and_full_budgets_cover_selected_modes(self):
-        step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
+        step = self.runtime.split("- name: Shared isolated functional test sets", 1)[1].split("- name:", 1)[0]
         self.assertIn("inputs.runtime_suite == 'full' && 330 || 240", step)
         self.assertIn("--suite '${{ inputs.runtime_suite || 'core' }}'", step)
-        self.assertIn("--mode '${{ matrix.mode }}'", step)
+        self.assertNotIn("--mode", step)
         self.assertIn("--renderer '${{ inputs.runtime_renderer || 'auto' }}'", step)
         self.assertIn("options: [core, full]", self.workflow)
-        self.assertIn("fail-fast: false", self.runtime)
-        self.assertIn("'[\"visible\",\"hidden\"]' || '[\"visible\"]'", self.runtime)
-        self.assertIn("inputs.runtime_stage != 'install'", self.runtime)
-        self.assertIn("group: macsw-solidworks-runtime-${{ matrix.mode }}", self.runtime)
-        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence-${{ matrix.mode }}", self.runtime)
+        self.assertNotIn("matrix:", self.runtime)
+        self.assertIn("'visible+hidden' || 'visible'", self.runtime)
+        self.assertIn("group: macsw-solidworks-runtime\n", self.runtime)
+        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence\n", self.runtime)
+        self.assertLess(ci.SETS_TIMEOUT_SECONDS["core"], 240 * 60)
+        self.assertLess(ci.SETS_TIMEOUT_SECONDS["full"], 330 * 60)
         for timeouts, minutes in ((ci.SHARED_GATE_TIMEOUT_SECONDS, 240),
                                   (ci.FULL_SHARED_GATE_TIMEOUT_SECONDS, 330)):
             budget = (sum(timeouts.values()) + ci.STARTUP_TIMEOUT_SECONDS + 30
@@ -933,12 +934,78 @@ class RuntimeAdapterTests(unittest.TestCase):
         with patch.object(ci, "shared_gates"), patch.object(gate, "start") as start, \
                 patch.object(gate, "verify_bitmap_driver") as bitmap:
             with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
-                gate.run()
+                gate.run_continuous()
         start.assert_not_called()
         bitmap.assert_not_called()
 
     def test_full_modeling_driving_toolbox_uses_two_modes(self):
         self.assert_shared_sequence("full")
+
+    def test_isolated_sets_prepare_once_and_require_both_full_modes(self):
+        gate = self.gate("full")
+        self.install_modeling_samples(gate.prefix)
+        _, assembly = ci.modeling_samples(gate.prefix)
+        assembly.with_suffix(".slddrw").write_bytes(b"drawing fixture")
+        def command(args, **kwargs):
+            self.assertEqual(Path(args[1]).name, ci.SETS_GATE)
+            self.assertIn("--fixture-work-dir", args)
+            mode = args[args.index("--mode") + 1]
+            output = Path(args[args.index("--output-dir") + 1])
+            plan = ci.shared_plan("full")
+            proof = {"completed": True, "success": True, "suite": "full", "mode": mode,
+                "session_policy": "fresh-per-test-set", "expected_sets": [item.name for item in plan],
+                "sets": [{"name": item.name, "success": True, "cleanup_errors": [], "server_exit_code": 0,
+                          "host": {"process_id": 100 + index},
+                          "steps": [{"script": step.script} for step in item.steps]}
+                         for index, item in enumerate(plan)]}
+            (output / "runtime-sets.json").write_text(json.dumps(proof))
+        with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "prepare") as prepare, \
+                patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command) as calls, \
+                patch.object(gate, "windows_path", return_value="Q:\\mapped"), \
+                patch.object(gate, "capture_sw_window"), patch.object(gate, "collect_startup_evidence"), \
+                patch.object(gate, "collect_evidence") as collect:
+            gate.run()
+        prepare.assert_called_once_with("visible")
+        self.assertEqual(calls.call_count, 2)
+        self.assertEqual([call.args for call in collect.call_args_list], [("visible",), ("hidden",)])
+        self.assertTrue(gate.record["completed"])
+        self.assertEqual(set(gate.record["functional_sets"]), {"visible", "hidden"})
+        self.assertEqual(gate.record["session_policy"], "fresh-per-test-set")
+
+    def test_isolated_sets_reject_truncated_success_and_collect_failure(self):
+        gate = self.gate("core")
+        self.install_modeling_samples(gate.prefix)
+        _, assembly = ci.modeling_samples(gate.prefix)
+        assembly.with_suffix(".slddrw").write_bytes(b"drawing fixture")
+        def command(args, **kwargs):
+            output = Path(args[args.index("--output-dir") + 1])
+            (output / "runtime-sets.json").write_text(json.dumps({"completed": True, "success": True,
+                "suite": "core", "mode": "visible", "session_policy": "fresh-per-test-set",
+                "expected_sets": [], "sets": []}))
+        with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "prepare"), \
+                patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command) as calls, \
+                patch.object(gate, "windows_path", return_value="Q:\\mapped"), \
+                patch.object(gate, "capture_sw_window") as capture, patch.object(gate, "collect_evidence") as collect:
+            with self.assertRaisesRegex(RuntimeError, "coverage did not pass"):
+                gate.run()
+        collect.assert_called_once_with("visible")
+        capture.assert_called_once_with("visible", "failure")
+        self.assertEqual(calls.call_count, 1)
+        self.assertFalse(gate.record["completed"])
+
+    def test_observer_uses_only_active_set_and_finished_host_only_for_failure(self):
+        gate = self.gate("core")
+        gate.record["phase"] = "visible.test-sets"
+        gate.record["hosts"] = [{"mode": "visible", "host": {"process_id": 999}}]
+        path = gate.cwd / "visible/runtime-sets/runtime-sets.json"
+        path.parent.mkdir(parents=True)
+        proof = {"active_set": "exports", "sets": [{"name": "exports", "host": {"process_id": 42}}]}
+        path.write_text(json.dumps(proof))
+        self.assertEqual(gate.observed_host("visible")["host"]["process_id"], 42)
+        proof["active_set"] = None
+        path.write_text(json.dumps(proof))
+        self.assertIsNone(gate.observed_host("visible"))
+        self.assertEqual(gate.observed_host("visible", allow_finished=True)["test_set"], "exports")
 
     def test_core_modeling_driving_toolbox_uses_one_mode(self):
         self.assert_shared_sequence("core")
@@ -1044,7 +1111,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "windows_path", return_value="Q:\\models") as windows_path, \
                 patch.object(gate, "collect_evidence") as collect_evidence, \
                 patch.object(gate, "stop", side_effect=lambda: events.append("stop")):
-            gate.run()
+            gate.run_continuous()
         self.assertEqual([call.args for call in metrics.call_args_list],
                          [(gate, mode) for mode in modes for _ in range(3)])
         expected_events = ["bitmap-driver"]
@@ -1078,7 +1145,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "windows_path", return_value="Q:\\models"), \
                 patch.object(gate, "collect_evidence") as collect, patch.object(gate, "stop") as stop:
             with self.assertRaises(RuntimeError) as caught:
-                gate.run()
+                gate.run_continuous()
         self.assertIs(caught.exception, failure)
         self.assertEqual([call.args for call in start.call_args_list], [("visible",), ("hidden",)])
         self.assertEqual([call.args for call in collect.call_args_list], [("visible",), ("hidden",)])
@@ -1104,7 +1171,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "collect_evidence") as collect_evidence, \
                 patch.object(gate, "stop") as stop:
             with self.assertRaises(RuntimeError) as caught:
-                gate.run()
+                gate.run_continuous()
         self.assertIs(caught.exception, failure)
         start.assert_called_once_with("visible")
         collect_evidence.assert_called_once_with("visible")

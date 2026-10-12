@@ -1,4 +1,4 @@
-"""Prepare MacSW hosts and run SWCLI-owned gates sequentially on the same COM host.
+"""Prepare one MacSW bottle and run shared functional sets with fresh hosts.
 
 No CAD test operations or geometry assertions belong here. Shared gate scripts
 and assertions live in the pinned SWCLI submodule. Paths are converted by the
@@ -22,6 +22,14 @@ import time
 
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py")
+SETS_GATE = "verify-runtime-sets.py"
+SETS_TIMEOUT_SECONDS = {"core": 13800, "full": 19200}
+
+
+def shared_plan(suite):
+    sys.path.insert(0, str(PROJECT / "Dependencies/SWCLI/scripts/ci"))
+    from gate_support.runtime_plan import runtime_plan
+    return runtime_plan(suite)
 
 
 def modeling_samples(prefix):
@@ -222,6 +230,7 @@ class HostMetrics:
         self.last_native_change = time.monotonic()
         self.last_system_metrics_seconds = None
         self.last_screenshot_seconds = 0
+        self.last_set = None
         # Shared across all three gates in this mode, so a new metrics context
         # cannot overwrite reports or reset the diagnostic rate/size limits.
         self.sample_state = gate.native_sample_states.setdefault(
@@ -256,7 +265,8 @@ class HostMetrics:
                 return None
             if previous is not None and now - previous < NATIVE_SAMPLE_INTERVAL_SECONDS:
                 return None
-            hosts = [item["host"] for item in self.gate.record["hosts"] if item["mode"] == self.mode]
+            owned = self.gate.observed_host(self.mode)
+            hosts = [owned["host"]] if owned else []
             targets = [item for item in processes if item["name"] == "sldworks.exe"]
             if len(hosts) != 1 or not hosts[0]["owned_by_daemon"] or len(targets) != 1:
                 return None
@@ -299,6 +309,12 @@ class HostMetrics:
         try:
             record["load_average"] = list(os.getloadavg())
             record["free_disk_bytes"] = shutil.disk_usage(self.gate.root).free
+            owned = self.gate.observed_host(self.mode)
+            if owned and "test_set" in owned:
+                record["test_set"] = owned["test_set"]
+                if owned["test_set"] != self.last_set:
+                    self.last_set = owned["test_set"]
+                    self.gate.capture_sw_window(self.mode, "start-" + self.last_set)
             result = subprocess.run(["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="],
                                     stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                     encoding="utf-8", errors="replace", timeout=5,
@@ -415,6 +431,13 @@ def shared_gates():
     return scripts
 
 
+def shared_sets_gate():
+    script = PROJECT / "Dependencies/SWCLI/scripts/ci" / SETS_GATE
+    if not script.is_file():
+        raise RuntimeError("Pinned SWCLI lacks the shared isolated functional sets gate")
+    return script
+
+
 def text_output(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
 
@@ -440,7 +463,7 @@ class SharedGateProgress:
     """
 
     PATTERN = re.compile(
-        r"(Modeling gate|Driving-dimension gate|Toolbox gate): ([a-z][a-z0-9_. -]{0,95})"
+        r"(Modeling gate|Driving-dimension gate|Toolbox gate|Runtime sets): ([a-z][a-z0-9_. -]{0,95})"
     )
 
     def __init__(self, output, evidence, phase, started):
@@ -622,7 +645,7 @@ class RuntimeGate:
                 tempfile.TemporaryFile(dir=self.cwd / "tmp") as stderr:
             process = None
             progress = None
-            if any(Path(str(argument)).name in SHARED_GATES for argument in arguments):
+            if any(Path(str(argument)).name in (*SHARED_GATES, SETS_GATE) for argument in arguments):
                 progress = SharedGateProgress(
                     stdout, self.evidence / "shared-step-progress.log",
                     self.record["phase"], started,
@@ -689,13 +712,7 @@ class RuntimeGate:
             raise RuntimeError("COM host identity/mode changed between shared gates")
 
     def start(self, mode):
-        self.phase(mode + ".prepare")
-        self.command([self.runtime_helper, "prepare", mode])
-        deployment = verify_swcli_deployment(self.app, self.prefix)
-        self.record["swcli_deployments"].append(dict(deployment, mode=mode))
-        self.checkpoint()
-        self.command([self.helper, "prepare"])
-        self.command([self.runtime_helper, "inspect", mode])
+        self.prepare(mode)
         self.phase(mode + ".startup")
         self.log = (self.evidence / (mode + "-daemon.log")).open("w")
         flags = ["--visible"] if mode == "visible" else []
@@ -720,6 +737,40 @@ class RuntimeGate:
         self.collect_startup_evidence()
         self.checkpoint()
         return host
+
+    def prepare(self, mode):
+        self.phase(mode + ".prepare")
+        self.command([self.runtime_helper, "prepare", mode])
+        deployment = verify_swcli_deployment(self.app, self.prefix)
+        self.record["swcli_deployments"].append(dict(deployment, mode=mode))
+        self.checkpoint()
+        self.command([self.helper, "prepare"])
+        self.command([self.runtime_helper, "inspect", mode])
+
+    def active_set_host(self, mode):
+        path = self.cwd / mode / "runtime-sets/runtime-sets.json"
+        if not path.is_file():
+            return None
+        record = runtime_record(path, "Shared runtime sets")
+        active = record.get("active_set")
+        matches = [item for item in record.get("sets", []) if item.get("name") == active and "host" in item]
+        if len(matches) != 1:
+            return None
+        return {"mode": mode, "test_set": active, "host": matches[0]["host"]}
+
+    def observed_host(self, mode, allow_finished=False):
+        if self.record["phase"] == mode + ".test-sets":
+            active = self.active_set_host(mode)
+            if active or not allow_finished:
+                return active
+            path = self.cwd / mode / "runtime-sets/runtime-sets.json"
+            if path.is_file():
+                sets = runtime_record(path, "Shared runtime sets").get("sets", [])
+                if sets and "host" in sets[-1]:
+                    return {"mode": mode, "test_set": sets[-1]["name"], "host": sets[-1]["host"]}
+            return None
+        hosts = [item for item in self.record["hosts"] if item["mode"] == mode]
+        return hosts[0] if len(hosts) == 1 else None
 
     def collect_startup_evidence(self):
         acquisitions = []
@@ -757,7 +808,7 @@ class RuntimeGate:
         source = self.cwd / mode
         if source.exists():
             for artifact in source.rglob("*"):
-                if not artifact.is_file() or artifact.suffix != ".json":
+                if not artifact.is_file() or artifact.suffix not in (".json", ".log"):
                     continue
                 destination = self.evidence / mode / artifact.relative_to(source)
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -766,14 +817,15 @@ class RuntimeGate:
     def capture_sw_window(self, mode, reason):
         """Hosted CAD desktop diagnostics; never capture private setup or local desktop."""
         phase = self.record["phase"]
-        allowed = {mode + "." + name for name in SHARED_GATE_TIMEOUT_SECONDS}
+        allowed = {mode + "." + name for name in (*SHARED_GATE_TIMEOUT_SECONDS, "test-sets")}
         limit = SCREENSHOT_LIMIT_PER_MODE - (9 if reason.startswith("periodic-") else 0)
         if sum(item.get("mode") == mode for item in self.record["screenshots"]) >= limit:
             return
         observation = {"phase": phase, "mode": mode, "reason": reason,
                        "utc_time": datetime.now(timezone.utc).isoformat()}
         try:
-            hosts = [item["host"] for item in self.record["hosts"] if item["mode"] == mode]
+            active = self.observed_host(mode, allow_finished=reason in ("failure", "end"))
+            hosts = [active["host"]] if active else []
             if (phase not in allowed or len(hosts) != 1 or not hosts[0]["owned_by_daemon"]
                     or hosts[0]["shared_interactive"]):
                 return
@@ -782,6 +834,8 @@ class RuntimeGate:
             targets = [p for p in wine_process_metrics(result.stdout, self.app)
                        if p["name"] == "sldworks.exe"]
             observation["host_present"] = result.returncode == 0 and len(targets) == 1
+            if active and "test_set" in active:
+                observation["test_set"] = active["test_set"]
             if observation["host_present"]:
                 observation["unix_pid"] = targets[0]["unix_pid"]
             directory = self.evidence / "screenshots"
@@ -809,7 +863,7 @@ class RuntimeGate:
             if phase in allowed:
                 self.record["screenshots"].append(observation)
 
-    def run(self):
+    def run_continuous(self):
         scripts = shared_gates()
         sample_part, sample_assembly = modeling_samples(self.prefix)
         self.verify_bitmap_driver()
@@ -851,6 +905,67 @@ class RuntimeGate:
             finally:
                 self.collect_evidence(mode)
             self.stop()
+        self.record["completed"] = True
+        self.phase("completed")
+
+    def run(self):
+        script = shared_sets_gate()
+        sample_part, sample_assembly = modeling_samples(self.prefix)
+        sample_drawing = sample_assembly.with_suffix(".slddrw")
+        if not sample_drawing.is_file() or sample_drawing.is_symlink():
+            raise RuntimeError("Installed official drawing fixture is missing")
+        self.verify_bitmap_driver()
+        self.prepare(self.modes[0])  # One container/App deployment, not per test set or mode.
+        self.record["session_policy"] = "fresh-per-test-set"
+        self.record["functional_sets"] = {}
+        self.record["budgets_seconds"]["functional_suite"] = SETS_TIMEOUT_SECONDS[self.suite]
+        self.record["budgets_seconds"]["test_set"] = 1800
+        deadline = time.monotonic() + SETS_TIMEOUT_SECONDS[self.suite]
+        expected = [item.name for item in shared_plan(self.suite)]
+        for mode in self.modes:
+            self.phase(mode + ".test-sets")
+            output = self.cwd / mode / "runtime-sets"
+            output.mkdir(parents=True, exist_ok=True)
+            work = self.cwd / "private-drawing-work"
+            work.mkdir(exist_ok=True)
+            arguments = [sys.executable, script, "--suite", self.suite, "--mode", mode,
+                         "--output-dir", output, "--host-output-dir", self.windows_path(output),
+                         "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"],
+                         "--request-timeout", str(REQUEST_TIMEOUT_SECONDS), "--startup-timeout", str(STARTUP_TIMEOUT_SECONDS),
+                         "--set-timeout", "1800", "--sample-part", self.windows_path(sample_part),
+                         "--sample-assembly", self.windows_path(sample_assembly),
+                         "--sample-drawing", self.windows_path(sample_drawing), "--sample-drawing-local", sample_drawing,
+                         "--fixture-work-dir", work, "--host-fixture-work-dir", self.windows_path(work),
+                         "--wine-prefix", self.prefix, "--daemon-log", self.evidence / (mode + "-daemon.log")]
+            try:
+                with HostMetrics(self, mode):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise RuntimeError("Shared functional suite budget exhausted")
+                    self.command(arguments, timeout=remaining)
+                proof = runtime_record(output / "runtime-sets.json", "Shared functional sets")
+                if (proof.get("completed") is not True or proof.get("success") is not True
+                        or proof.get("suite") != self.suite or proof.get("mode") != mode
+                        or proof.get("session_policy") != "fresh-per-test-set"
+                        or proof.get("expected_sets") != expected
+                        or [item.get("name") for item in proof.get("sets", [])] != proof["expected_sets"]
+                        or not all(item.get("success") is True and item.get("cleanup_errors") == []
+                                   and item.get("server_exit_code") == 0
+                                   and [step.get("script") for step in item.get("steps", [])]
+                                       == [step.script for step in planned.steps]
+                                   for item, planned in zip(proof["sets"], shared_plan(self.suite)))):
+                    raise RuntimeError("Shared functional test-set coverage did not pass")
+                self.record["functional_sets"][mode] = proof
+                self.record["hosts"] += [{"mode": mode, "test_set": item["name"], "host": item["host"]}
+                                         for item in proof["sets"]]
+                self.collect_startup_evidence()
+                self.capture_sw_window(mode, "end")
+                self.checkpoint()
+            except Exception:
+                self.capture_sw_window(mode, "failure")
+                raise
+            finally:
+                self.collect_evidence(mode)
         self.record["completed"] = True
         self.phase("completed")
 
@@ -903,6 +1018,11 @@ def main():
     args = parser.parse_args()
     if args.check_shared_gates:
         shared_gates()
+        shared_sets_gate()
+        for item in shared_plan("full"):
+            for step in item.steps:
+                if not (PROJECT / "Dependencies/SWCLI/scripts/ci" / step.script).is_file():
+                    raise RuntimeError("Pinned SWCLI lacks functional entrypoint: " + step.script)
         return
     if args.cleanup_private:
         cleanup_runtime(ci_root())

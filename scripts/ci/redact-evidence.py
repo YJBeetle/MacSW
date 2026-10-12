@@ -71,7 +71,7 @@ def main():
         if (not valid_source or receipt.get("success") is not True
                 or receipt.get("owned_by_daemon") is not True or receipt.get("shared_interactive") is not False
                 or receipt.get("phase") not in {mode + "." + stage for mode in ("visible", "hidden")
-                                               for stage in ("modeling", "driving", "toolbox")}
+                                               for stage in ("modeling", "driving", "toolbox", "test-sets")}
                 or receipt.get("file") != image.name
                 or type(receipt.get("host_windows_pid")) is not int or receipt["host_windows_pid"] <= 0
                 or not 24 <= len(data) <= 25 * 1024 * 1024
