@@ -46,11 +46,15 @@ STARTUP_TIMEOUT_SECONDS = 300
 # The expanded gate includes native assembly save/reopen and sample exports.
 # A 600-second request can now complete, but the accumulated software-renderer
 # work still exceeds the former one-hour modeling limit.
-SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 5400, "driving": 3600, "toolbox": 600}
+SHARED_GATE_TIMEOUT_SECONDS = {"modeling": 5400, "driving": 7200, "toolbox": 600}
+FULL_SHARED_GATE_TIMEOUT_SECONDS = {**SHARED_GATE_TIMEOUT_SECONDS, "driving": 12600}
 SAMPLE_TIMEOUT_SECONDS = 30
 NATIVE_SAMPLE_INTERVAL_SECONDS = 60
 NATIVE_SAMPLE_LIMIT_PER_MODE = 140
 SYSTEM_METRICS_TIMEOUT_SECONDS = 2
+SCREENSHOT_TIMEOUT_SECONDS = 20
+SCREENSHOT_INTERVAL_SECONDS = 300
+SCREENSHOT_LIMIT_PER_MODE = 64
 
 
 def system_memory_metrics():
@@ -217,6 +221,7 @@ class HostMetrics:
         self.last_native_event = None
         self.last_native_change = time.monotonic()
         self.last_system_metrics_seconds = None
+        self.last_screenshot_seconds = 0
         # Shared across all three gates in this mode, so a new metrics context
         # cannot overwrite reports or reset the diagnostic rate/size limits.
         self.sample_state = gate.native_sample_states.setdefault(
@@ -335,6 +340,10 @@ class HostMetrics:
         self.capture()
         while not self.stopped.wait(self.interval):
             self.capture()
+            elapsed = time.monotonic() - self.started_at
+            if elapsed - self.last_screenshot_seconds >= SCREENSHOT_INTERVAL_SECONDS:
+                self.last_screenshot_seconds = elapsed
+                self.gate.capture_sw_window(self.mode, "periodic-" + str(round(elapsed)).zfill(5))
 
     def __enter__(self):
         try:
@@ -347,7 +356,8 @@ class HostMetrics:
     def __exit__(self, *exception):
         self.stopped.set()
         if self.started:
-            self.thread.join(timeout=SAMPLE_TIMEOUT_SECONDS + 6 + 3 * SYSTEM_METRICS_TIMEOUT_SECONDS)
+            self.thread.join(timeout=SAMPLE_TIMEOUT_SECONDS + 6 + 3 * SYSTEM_METRICS_TIMEOUT_SECONDS
+                             + SCREENSHOT_TIMEOUT_SECONDS)
         return False
 
 
@@ -512,11 +522,20 @@ class SharedGateProgress:
 
 
 class RuntimeGate:
-    def __init__(self, app, evidence, suite="full"):
+    def __init__(self, app, evidence, suite="full", renderer="auto", mode=None):
         if suite not in ("core", "full"):
             raise ValueError("Unknown runtime suite")
         self.suite = suite
         self.modes = ("visible", "hidden") if suite == "full" else ("visible",)
+        if mode is not None:
+            if mode not in self.modes:
+                raise ValueError("Mode is not supported by the selected suite")
+            self.modes = (mode,)
+        self.timeouts = dict(FULL_SHARED_GATE_TIMEOUT_SECONDS if suite == "full"
+                             else SHARED_GATE_TIMEOUT_SECONDS)
+        if renderer not in ("auto", "software"):
+            raise ValueError("Unknown renderer selection")
+        self.renderer = renderer
         self.root = ci_root()
         if app.resolve() != self.root / "MacSW.app" or evidence.resolve() != self.root / "evidence":
             raise RuntimeError("Only the isolated CI App and evidence paths are allowed")
@@ -534,16 +553,22 @@ class RuntimeGate:
         self.native_sample_states = {}
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
                        "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
+                       "screenshots": [],
                        "suite": suite, "coverage": {mode: suite for mode in self.modes},
+                       "renderer_request": renderer,
                        "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
                                            "startup": STARTUP_TIMEOUT_SECONDS,
                                            "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
-                                           "shared_gates": dict(SHARED_GATE_TIMEOUT_SECONDS),
+                                           "shared_gates": dict(self.timeouts),
                                            "native_sample_tool": SAMPLE_TIMEOUT_SECONDS,
                                            "native_sample_interval": NATIVE_SAMPLE_INTERVAL_SECONDS,
                                            "native_sample_limit_per_mode": NATIVE_SAMPLE_LIMIT_PER_MODE,
-                                           "system_metrics_tool": SYSTEM_METRICS_TIMEOUT_SECONDS}}
+                                           "system_metrics_tool": SYSTEM_METRICS_TIMEOUT_SECONDS,
+                                           "screenshot_tool": SCREENSHOT_TIMEOUT_SECONDS,
+                                           "screenshot_interval": SCREENSHOT_INTERVAL_SECONDS,
+                                           "screenshot_limit_per_mode": SCREENSHOT_LIMIT_PER_MODE}}
         self.env = dict(os.environ, MACSW_WINEPREFIX=str(self.prefix), WINEPREFIX=str(self.prefix),
+                        MACSW_OPENGL_RENDERER=renderer,
                         SWCLI_ENDPOINT="127.0.0.1:18495", PYTHONDONTWRITEBYTECODE="1",
                         # OLE trace emits millions of GUID/string events during
                         # cold startup and can distort its timing. Keep
@@ -738,6 +763,52 @@ class RuntimeGate:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(artifact, destination)
 
+    def capture_sw_window(self, mode, reason):
+        """Hosted CAD desktop diagnostics; never capture private setup or local desktop."""
+        phase = self.record["phase"]
+        allowed = {mode + "." + name for name in SHARED_GATE_TIMEOUT_SECONDS}
+        limit = SCREENSHOT_LIMIT_PER_MODE - (9 if reason.startswith("periodic-") else 0)
+        if sum(item.get("mode") == mode for item in self.record["screenshots"]) >= limit:
+            return
+        observation = {"phase": phase, "mode": mode, "reason": reason,
+                       "utc_time": datetime.now(timezone.utc).isoformat()}
+        try:
+            hosts = [item["host"] for item in self.record["hosts"] if item["mode"] == mode]
+            if (phase not in allowed or len(hosts) != 1 or not hosts[0]["owned_by_daemon"]
+                    or hosts[0]["shared_interactive"]):
+                return
+            result = subprocess.run(["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="],
+                                    capture_output=True, text=True, timeout=5)
+            targets = [p for p in wine_process_metrics(result.stdout, self.app)
+                       if p["name"] == "sldworks.exe"]
+            observation["host_present"] = result.returncode == 0 and len(targets) == 1
+            if observation["host_present"]:
+                observation["unix_pid"] = targets[0]["unix_pid"]
+            directory = self.evidence / "screenshots"
+            directory.mkdir(exist_ok=True)
+            path = directory / (phase.replace(".", "-") + "-" + reason + ".png")
+            capture = subprocess.run([sys.executable, PROJECT / "scripts/ci/capture-sw-window.py",
+                                      "--output", path,
+                                      "--scope", "desktop"],
+                                     capture_output=True, text=True, timeout=SCREENSHOT_TIMEOUT_SECONDS)
+            receipt = json.loads(capture.stdout)
+            observation.update(receipt)
+            if (capture.returncode == 0 and receipt.get("success") is True
+                    and receipt.get("source") == "github-hosted-desktop"
+                    and receipt.get("display_id") == 1
+                    and receipt.get("file") == path.name):
+                observation.update(owned_by_daemon=True, shared_interactive=False,
+                                   runner_environment="github-hosted",
+                                   host_windows_pid=hosts[0]["process_id"])
+                path.with_suffix(".json").write_text(json.dumps(observation, indent=2) + "\n")
+            elif receipt.get("success") is True:
+                raise ValueError("Screenshot receipt does not match the selected host")
+        except Exception as error:
+            observation.update(success=False, diagnostic_error=type(error).__name__)
+        finally:
+            if phase in allowed:
+                self.record["screenshots"].append(observation)
+
     def run(self):
         scripts = shared_gates()
         sample_part, sample_assembly = modeling_samples(self.prefix)
@@ -751,6 +822,7 @@ class RuntimeGate:
                     output = self.cwd / mode / name
                     output.mkdir(parents=True, exist_ok=True)
                     self.same_host(host)
+                    self.capture_sw_window(mode, "start")
                     arguments = [sys.executable, script, "--output-dir", output,
                                  "--cli-command", self.cli, "--endpoint", self.env["SWCLI_ENDPOINT"],
                                  "--request-timeout", str(REQUEST_TIMEOUT_SECONDS)]
@@ -770,8 +842,12 @@ class RuntimeGate:
                         arguments += ["--sample-part", self.windows_path(sample_part),
                                       "--sample-assembly", self.windows_path(sample_assembly)]
                     with HostMetrics(self, mode):
-                        self.command(arguments, timeout=SHARED_GATE_TIMEOUT_SECONDS[name])
+                        self.command(arguments, timeout=self.timeouts[name])
                     self.same_host(host)
+                    self.capture_sw_window(mode, "end")
+            except Exception:
+                self.capture_sw_window(mode, "failure")
+                raise
             finally:
                 self.collect_evidence(mode)
             self.stop()
@@ -797,6 +873,9 @@ class RuntimeGate:
                     item.get("depth", 0) < 24 or item.get("stencil", 0) < 8 for item in records)):
             raise RuntimeError("Native bitmap pixel/format/context verification failed")
         self.record["bitmap_driver"] = records
+        if self.renderer == "software" and any(
+                item.get("renderer") != "Apple Software Renderer" for item in records):
+            raise RuntimeError("Explicit software renderer request did not produce Apple Software Renderer")
         self.checkpoint()
 
     def inspect_cgl_renderers(self):
@@ -817,6 +896,8 @@ def main():
     parser.add_argument("--app", type=Path)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--suite", choices=("core", "full"), default="full")
+    parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
+    parser.add_argument("--mode", choices=("visible", "hidden"))
     parser.add_argument("--cleanup-private", action="store_true")
     parser.add_argument("--check-shared-gates", action="store_true")
     args = parser.parse_args()
@@ -828,7 +909,7 @@ def main():
         return
     if args.app is None or args.evidence is None:
         raise RuntimeError("--app and --evidence are required")
-    gate = RuntimeGate(args.app, args.evidence, suite=args.suite)
+    gate = RuntimeGate(args.app, args.evidence, suite=args.suite, renderer=args.renderer, mode=args.mode)
     try:
         gate.run()
     except Exception as error:

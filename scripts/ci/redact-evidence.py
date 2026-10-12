@@ -1,11 +1,13 @@
-"""Final publication barrier for CI text evidence and whitelisted installer logs."""
+"""Publication barrier for text logs and approved hosted CAD-stage screenshots."""
 
 import base64
 import configparser
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
+import struct
 import sys
 
 
@@ -51,6 +53,34 @@ def main():
     if directory.is_symlink():
         raise RuntimeError("Refusing an evidence directory symlink")
     values = sensitive_values(os.environ)
+    # Binary screenshots cannot be text-redacted. Admit only hashed captures
+    # from hosted CAD stages. Full desktop images were explicitly authorized;
+    # neither installation nor credential/licensing setup is an allowed stage.
+    for image in (directory / "screenshots").glob("*.png"):
+        if image.is_symlink() or image.with_suffix(".json").is_symlink():
+            raise RuntimeError("Screenshot symlink")
+        receipt = json.loads(image.with_suffix(".json").read_text())
+        data = image.read_bytes()
+        source = receipt.get("source")
+        valid_source = (source == "github-hosted-desktop"
+                        and receipt.get("runner_environment") == "github-hosted"
+                        and type(receipt.get("display_id")) is int and receipt["display_id"] == 1)
+        if source == "owned-sw-window":
+            valid_source = all(type(receipt.get(key)) is int and receipt[key] > 0
+                               for key in ("unix_pid", "window_id"))
+        if (not valid_source or receipt.get("success") is not True
+                or receipt.get("owned_by_daemon") is not True or receipt.get("shared_interactive") is not False
+                or receipt.get("phase") not in {mode + "." + stage for mode in ("visible", "hidden")
+                                               for stage in ("modeling", "driving", "toolbox")}
+                or receipt.get("file") != image.name
+                or type(receipt.get("host_windows_pid")) is not int or receipt["host_windows_pid"] <= 0
+                or not 24 <= len(data) <= 25 * 1024 * 1024
+                or not data.startswith(b"\x89PNG\r\n\x1a\n")
+                or any(not 1 <= dimension <= 16384 for dimension in struct.unpack(">II", data[16:24]))
+                or (receipt.get("width"), receipt.get("height")) != struct.unpack(">II", data[16:24])
+                or receipt.get("size_bytes") != len(data)
+                or receipt.get("sha256") != hashlib.sha256(data).hexdigest()):
+            raise RuntimeError("Unverified screenshot blocks publication")
     for path in directory.rglob("*"):
         if path.is_symlink():
             raise RuntimeError("Refusing an evidence symlink")
@@ -61,7 +91,7 @@ def main():
         if path.suffix == ".json":
             json.loads(text)
         path.write_text(text, encoding="utf-8")
-    print("Runtime text evidence passed the publication privacy barrier.")
+    print("Runtime evidence passed the publication privacy barrier.")
 
 
 if __name__ == "__main__":

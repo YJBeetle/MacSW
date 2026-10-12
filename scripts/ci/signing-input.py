@@ -35,15 +35,18 @@ def validate_run(run, sha):
 
 
 def validate_jobs(jobs):
-    for name in ("Build & package", "SOLIDWORKS installation & runtime"):
-        matches = [job for job in jobs if job.get("name") == name]
+    builds = [job for job in jobs if job.get("name") == "Build & package"]
+    if len(builds) != 1 or builds[0].get("conclusion") != "success":
+        raise RuntimeError("Required build job did not pass")
+    for mode in ("visible", "hidden"):
+        matches = [job for job in jobs
+                   if job.get("name") == "SOLIDWORKS installation & runtime (" + mode + ")"]
         if len(matches) != 1 or matches[0].get("conclusion") != "success":
-            raise RuntimeError("Required build/runtime job did not pass: " + name)
-    runtime = next(job for job in jobs if job["name"] == "SOLIDWORKS installation & runtime")
-    matches = [step for step in runtime.get("steps", [])
-               if step.get("name") == "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)"]
-    if len(matches) != 1 or matches[0].get("conclusion") != "success":
-        raise RuntimeError("Signing requires the full visible/hidden CAD suite; core or installation-only runs are insufficient")
+            raise RuntimeError("Signing requires the full visible/hidden CAD suite: missing or failed " + mode)
+        steps = [step for step in matches[0].get("steps", []) if step.get("name") ==
+                 "Shared modeling, driving dimensions and Toolbox on one host (full, " + mode + ")"]
+        if len(steps) != 1 or steps[0].get("conclusion") != "success":
+            raise RuntimeError("Signing requires the full visible/hidden CAD suite; core or installation-only runs are insufficient")
 
 
 def validate_artifact(artifacts):

@@ -48,7 +48,7 @@ DIB/WGL 探针都停在 `create-context`，随后 loader 超过 60 秒期限；�
 `PFD_GENERIC_FORMAT` 和 `WGL_NO_ACCELERATION_ARB`；属性不符也是失败。
 
 本机允许使用临时 CGL 测试夹具，拒绝加速格式选择来触发回退；其余软件 CGL
-调用仍执行真实 Apple 实现。不增加产品强制软件开关，不将夹具注入发布 App，
+调用仍执行真实 Apple 实现。当时未增加产品强制软件开关，也未将夹具注入发布 App，
 也不把本机触发回退算作 CI-only 软件环境已通过。
 
 ## 本机验证：2026-10-08
@@ -167,6 +167,12 @@ ntdll 地址当作死锁证明。新的完整 CI 仍需确认组间清场及全�
 
 ### 日常档与完整双模式验收（2026-10-12）
 
+诊断开关 `MACSW_OPENGL_RENDERER=software` 会显式选择真实 Apple 软件 renderer，
+并排除硬件像素格式；未设置或 `auto` 保持原来的硬件优先／软件回退逻辑。
+不写永久注册表，不伪造 GL 属性，不将软件 legacy 冒充 GL3／GL4 core。
+修改环境后应冷启动 Wine，确保 SW 和其激活服务不沿用旧进程环境。
+CI adapter 可使用 `--renderer software`，会核对实际位图 GL renderer；默认 auto。
+
 共享门禁采用 `--suite core|full`。MacSW 普通提交跑日常 core 档，仅启动一个
 可见宿主，依次执行建模 → 尺寸 → Toolbox；完整验收用 full 档，保留可见／隐藏
 两轮完整序列。每轮内部不重启、不重试，文档清场、租约、同宿主及各类导出断言
@@ -177,10 +183,39 @@ ntdll 地址当作死锁证明。新的完整 CI 仍需确认组间清场及全�
 feature-depth、面／边等完整建模观察。运行 JSON 明确记录 suite 和 mode coverage，
 建模和尺寸的 suite 必须相同。用例拆入共享 CLI 的 gate_support 文件，平台不复制 CAD 断言。
 
-日常共享步骤预算 180 分钟，完整双模式仍为 340 分钟，单请求仍为 600 秒；
-整项 job 仍为 360 分钟。Windows 使用相同分档／模式规则；DockerSW 保留后台单模式，
+日常共享步骤预算 240 分钟，尺寸整组 7200 秒；完整验收拆成可见／隐藏两个
+独立 job，每模式共享步骤 330 分钟，尺寸整组 12600 秒。建模 5400 秒、
+Toolbox 600 秒、单请求 600 秒不变；每 job 仍最多 360 分钟。
+Windows 使用相同分档／模式规则；DockerSW 保留后台单模式，
 自动正式镜像提升仍要求 full，手动 core 不提升正式标签。MacSW 签名输入只接受同一
-提交上 full、visible+hidden 步骤成功的完整 runtime job。实际节省时间待新 CI 验证。
+提交上两个完整模式的 job 和 full 共享步骤成功。实际耗时待新 CI 验证。
+
+### 本机短用例内存对照（2026-10-12）
+
+使用新的进程级 renderer 开关和主容器，三种条件分别冷启动 daemon 独占 SW。
+调用共享 `DrivingSmoke.center_constraints("front")`，每轮均要求实际文档清空，
+宿主 PID 不变，不复制 CAD 实现、不重试业务调用。真实 GL 日志分别确认
+`Apple M2 Max / accelerated 1` 和 `Apple Software Renderer / accelerated 0`。
+
+| 条件（两轮） | 耗时 | 初始 footprint | 第一轮结束 | 第二轮结束 |
+| --- | --- | --- | --- | --- |
+| 软件、不执行 sample | 95.2 秒 | 1.2G | 2.0G | 2.4G |
+| 硬件、不执行 sample | 97.9 秒 | 1.2G | 1.7G | 1.7G |
+| 软件、每分钟 sample | 106.0 秒 | 1.2G | 2.0G | 2.4G |
+
+第三个软件宿主再连续执行三轮（不再采样），总计五轮后 footprint 依次为
+2.7G／3.1G／3.4G。每轮保存重开、清场通过。相同宿主的 `vmmap -summary`
+显示 IOSurface 虚拟区域从第二轮后的 627.5M 增至第五轮的约 1.5G；
+硬件两轮后仅 27.4M。RSS 不等于 footprint，关闭文档也不等于释放图形资源。
+这支持软件路径存在图形内存滞留线索，尚未定位到具体 Wine/Apple/SW 资源所有者，
+不能仅凭区域尺寸认定泄漏、或把所有 CI 慢调用都归因于它。短用例不是完整 CI 验收。
+
+诊断脚本 `scripts/diagnostics/compare_runtime_memory.py` 用 App 自带 native Python
+运行，调用共享用例，并保存 `vmmap`、可选 sample、业务记录和清理结果。
+调用者负责冷启动及 renderer 环境；脚本拒绝共享交互宿主或已有文档，不创建容器。
+证据保留在本机 `/private/tmp/macsw-renderer-selection.v4A0P6/`，不上传主容器材料。
+
+以下为历史 2026-10-08/09 的验收记录，不能作为当前提交的通过结论。
 已通过单元测试、构建、完整打包校验、真实安装和基底缓存保存。托管 Wine
 确实回退到 `Apple Software Renderer` / `2.1 APPLE-21.0.19`，八组位图均输出
 成功及真实无加速属性，但外层捕获命令在 60 秒处超时，因此整项门禁仍失败，

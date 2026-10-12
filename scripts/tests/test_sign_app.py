@@ -187,11 +187,15 @@ class SigningInventoryTests(unittest.TestCase):
 
 
 class SigningProvenanceTests(unittest.TestCase):
+    def full_jobs(self):
+        return [{"name": "Build & package", "conclusion": "success"}, *[
+            {"name": "SOLIDWORKS installation & runtime (" + mode + ")", "conclusion": "success",
+             "steps": [{"name": "Shared modeling, driving dimensions and Toolbox on one host (full, " + mode + ")",
+                        "conclusion": "success"}]} for mode in ("visible", "hidden")]]
+
     def test_corrupt_download_rejected_before_extracting(self):
         with tempfile.TemporaryDirectory() as directory:
-            jobs = [{"name": "Build & package", "conclusion": "success"},
-                    {"name": "SOLIDWORKS installation & runtime", "conclusion": "success", "steps": [
-                        {"name": "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)", "conclusion": "success"}]}]
+            jobs = self.full_jobs()
             artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False, "digest": "sha256:" + "a" * 64}
             destination = Path(directory) / "download"
             def download(args, **kwargs):
@@ -200,7 +204,7 @@ class SigningProvenanceTests(unittest.TestCase):
             with patch.dict(os.environ, GITHUB_REPOSITORY=source.REPOSITORY,
                             GITHUB_REF="refs/heads/master", GITHUB_EVENT_NAME="workflow_dispatch"), \
                     patch.object(source, "api", side_effect=[self.run_record(),
-                        {"total_count": 2, "jobs": jobs}, {"total_count": 1, "artifacts": [artifact]}]), \
+                        {"total_count": 3, "jobs": jobs}, {"total_count": 1, "artifacts": [artifact]}]), \
                     patch.object(source.subprocess, "run", side_effect=download):
                 with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                     source.fetch("123", "a" * 40, destination)
@@ -243,9 +247,7 @@ class SigningProvenanceTests(unittest.TestCase):
                 source.validate_run(dict(record, **{field: value}), "a" * 40)
 
     def test_full_gate_required_not_skipped_install_only(self):
-        jobs = [{"name": "Build & package", "conclusion": "success"},
-                {"name": "SOLIDWORKS installation & runtime", "conclusion": "success", "steps": [
-                    {"name": "Shared modeling, driving dimensions and Toolbox on one host (full, visible+hidden)", "conclusion": "success"}]}]
+        jobs = self.full_jobs()
         source.validate_jobs(jobs)
         for conclusion in ("skipped", "failure", "cancelled", None):
             jobs[1]["steps"][0]["conclusion"] = conclusion
@@ -253,6 +255,30 @@ class SigningProvenanceTests(unittest.TestCase):
                 source.validate_jobs(jobs)
         with self.assertRaises(RuntimeError):
             source.validate_jobs(jobs[:1])
+
+    def test_missing_failed_or_duplicate_mode_cannot_authorize_signing(self):
+        for index in (1, 2):
+            for conclusion in ("failure", "skipped", "cancelled", None):
+                jobs = self.full_jobs()
+                jobs[index]["conclusion"] = conclusion
+                with self.subTest(index=index, conclusion=conclusion), self.assertRaises(RuntimeError):
+                    source.validate_jobs(jobs)
+            jobs = self.full_jobs()
+            with self.assertRaises(RuntimeError):
+                source.validate_jobs(jobs[:index] + jobs[index + 1:])
+            with self.assertRaises(RuntimeError):
+                source.validate_jobs(jobs + [jobs[index]])
+
+    def test_successful_jobs_still_require_matching_full_steps(self):
+        for index in (1, 2):
+            jobs = self.full_jobs()
+            jobs[index]["steps"][0]["name"] = jobs[index]["steps"][0]["name"].replace("(full,", "(core,")
+            with self.subTest(index=index), self.assertRaises(RuntimeError):
+                source.validate_jobs(jobs)
+            jobs = self.full_jobs()
+            jobs[index]["steps"] *= 2
+            with self.assertRaises(RuntimeError):
+                source.validate_jobs(jobs)
 
     def test_core_or_single_mode_cannot_authorize_signing(self):
         for name in ("Shared modeling, driving dimensions and Toolbox on one host (core, visible)",

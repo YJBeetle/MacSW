@@ -12,7 +12,8 @@ push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动�
 
 阶段和覆盖档位是两个独立选项：`runtime_stage=full` 表示运行 CAD 门禁；
 `runtime_suite=core|full` 决定覆盖范围。普通 master push 使用 core，仅跑可见模式；
-手动完整验收选 full，保留可见／隐藏两轮。两档均顺序运行建模、尺寸、Toolbox，
+手动完整验收选 full，保留可见／隐藏两轮，分别在独立 runner job 中执行。
+两档均在每个模式内部顺序运行建模、尺寸、Toolbox，
 每轮内部不重启宿主，并保留每组文档清场检查。core 将重复的尺寸协议反例集中在
 Front，Top／Right 仍验证几何。签名任务只接受同一提交的 full 双模式成功结果。
 
@@ -27,13 +28,14 @@ Front，Top／Right 仍验证几何。签名任务只接受同一提交的 full 
   App 使用原有 zip、helper 使用 tar 传递，以保留可执行权限、符号链接及包结构。
   随后恢复官方安装基底或执行首次安装，再运行共享门禁并清理。
 
-两个 job 分别显示状态；安装／运行失败时，构建可保持成功，但工作流整体仍失败。
+构建和每个模式的运行 job 分别显示状态；安装／运行失败时，构建可保持成功，但工作流整体仍失败。
 构建与运行采用独立并发组；运行组仍不取消进行中的安装，避免重复读取 Drive 介质。
 官方安装缓存的身份、权限校验、私有夹具注入顺序和证据脱敏边界均不因拆分而改变。
 tag 的 Release 上传在构建 job 完成，不等待也不触发私有运行 job。
 官方 Actions 使用 Node.js 24 版本：checkout v7、cache（含 restore/save）v6、
 upload-artifact v7、download-artifact v8。上传明确保留 `archive: true`，不启用
-单文件直传模式；原有产物名称、相对路径、内层 App zip/helper tar 和缓存 key 均保持不变。
+单文件直传模式；App/helper 产物名称、相对路径、内层 App zip/helper tar 和缓存 key 均保持不变。
+运行证据分别命名为 `MacSW-SOLIDWORKS-runtime-evidence-visible` / `-hidden`。
 
 ## 职责与顺序
 
@@ -68,10 +70,11 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    `verify-toolbox.py`，
    每个入口前后核对同一个 daemon/SOLIDWORKS COM 主机的 PID、模式和元数据。
    中途不能重启 daemon 或 SOLIDWORKS；任一门禁失败就保留失败，不继续后续门禁。
-7. 完成这三个入口后才停止第一套进程，再在隐藏模式重复上述顺序。
+7. 完整验收的隐藏模式在独立 job 的隔离容器中执行同样的三入口序列；
+   两模式都必须通过，某模式失败不会取消另一模式的证据收集。
 8. 无论成功或失败，都停止隔离 Wine server、弹出本次 ISO、卸载 rclone NFS，
    删除本地 VFS 稀疏缓存、验证资源、临时 App
-   和整个测试容器。只上传通过最终脱敏检查的测试 JSON、daemon 日志及白名单安装日志。
+   和整个测试容器。只上传通过最终发布检查的测试 JSON、daemon 日志、白名单安装日志和 CAD 阶段截图。
    测试生成的 SLDPRT 会被共享测试检查，但不上传二进制模型，以收紧敏感数据边界。
 
 启动可见 SOLIDWORKS 之前，运行 MacSW 专属的 `check_bitmap_opengl.exe` 原生
@@ -108,7 +111,7 @@ WGL 加速属性；软件格式必须报告 `PFD_GENERIC_FORMAT` / `WGL_NO_ACCEL
 （同一物理目录的 Wine 可见路径）。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
-SWCLI 固定提交为 `8971d5aaa0acfcb5cbef34370513852673d6137c`（`0.1.0a8.dev0` 开发版本，
+SWCLI 固定提交为 `1ccd449e6d04af75c56c1908603abddfdaacaded`（`0.1.0a9` 开发版本，
 不是已发布版本；以
 `config/versions.env` 与子模块的成对固定为准），沿用 DockerSW 的共享
 门禁调用顺序。建模和尺寸门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
@@ -117,6 +120,32 @@ SWCLI 固定提交为 `8971d5aaa0acfcb5cbef34370513852673d6137c`（`0.1.0a8.dev0
 尺寸入口额外传入 `--after-modeling` 指向同一模式的成功 `modeling.json`，
 由 SWCLI 核对前序成功、拒绝切除后的续用证明及原生宿主 PID。外层宿主检查仍保留。
 共享入口缺失时，runtime 预检明确失败，**不静默跳过**。
+
+## 有限预算与截图
+
+单请求仍为 600 秒。core 的建模／尺寸／Toolbox 整组期限分别为
+5400／7200／600 秒，共享步骤最多 240 分钟；full 每模式分别为
+5400／12600／600 秒，共享步骤最多 330 分钟。每个 job 仍最多 360 分钟，
+安装等前置步骤也占用该全局预算；全新安装不保证能用完所有阶段的独立上限。
+延长预算不证明慢调用或内存积累已修复，不删断言、不重试、不在一轮中换宿主。
+
+手动 `runtime_renderer=software` 对应 adapter 的 `--renderer software`，
+显式选择真实 Apple 软件 renderer；默认 `auto` 保持硬件优先。位图门禁会验证实际
+renderer，不以请求参数冒充真实选择。本机诊断也可设置 `MACSW_OPENGL_RENDERER`，
+它只影响新启动进程，不写永久注册表，不等于切换 SW 内部的“软件 OpenGL”。
+
+按仓库所有者授权，CAD 阶段截图使用 GitHub 托管 runner 的主显示器全屏，
+以保留额外弹窗、遮挡和宿主退出后的桌面。每组开始、结束、失败时截图，长步骤
+每 300 秒追加一张；每模式最多 64 次尝试，预留结束和失败截图名额。
+只在已确认 daemon 独占宿主的 modeling／driving／toolbox 阶段启用，
+安装、许可、凭据设置不截图。截图工具限制 15 秒，适配层限制 20 秒；
+不可用或无屏幕权限只记录诊断缺口，不改变 CAD 原始结果、不交互请求权限。
+
+`screenshots/*.png` 与 JSON 回执包含 UTC、阶段、模式、宿主存在性、显示器编号、
+尺寸及 SHA-256，并与日志一起上传。发布检查核对来源、获准阶段、宿主归属和
+实际图像哈希；不上传未验证图片。PNG 不能文本脱敏，允许阶段的全屏画面会公开
+进入 14 天保留的 artifact。不要在测试阶段打开 Secret 或私有许可配置。
+本机 helper 默认只截指定 SW 窗口，全屏模式拒绝本机与自托管 runner。
 
 Toolbox 入口传入 `--wine-prefix` 指向本轮隔离容器，且必须 `--require-toolbox`。
 共享脚本通过真实注册表中的 Toolbox Data Location 与 `dosdevices` 映射读取完整

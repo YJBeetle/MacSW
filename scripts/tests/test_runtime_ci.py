@@ -149,13 +149,21 @@ class RuntimeWorkflowTests(unittest.TestCase):
 
     def test_daily_and_full_budgets_cover_selected_modes(self):
         step = self.runtime.split("- name: Shared modeling, driving dimensions and Toolbox on one host", 1)[1].split("- name:", 1)[0]
-        self.assertIn("inputs.runtime_suite == 'full' && 340 || 180", step)
+        self.assertIn("inputs.runtime_suite == 'full' && 330 || 240", step)
         self.assertIn("--suite '${{ inputs.runtime_suite || 'core' }}'", step)
+        self.assertIn("--mode '${{ matrix.mode }}'", step)
+        self.assertIn("--renderer '${{ inputs.runtime_renderer || 'auto' }}'", step)
         self.assertIn("options: [core, full]", self.workflow)
-        for modes, minutes in ((1, 180), (2, 340)):
-            budget = modes * (sum(ci.SHARED_GATE_TIMEOUT_SECONDS.values())
-                              + ci.STARTUP_TIMEOUT_SECONDS + 30
-                              + 3 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS)) + 120
+        self.assertIn("fail-fast: false", self.runtime)
+        self.assertIn("'[\"visible\",\"hidden\"]' || '[\"visible\"]'", self.runtime)
+        self.assertIn("inputs.runtime_stage != 'install'", self.runtime)
+        self.assertIn("group: macsw-solidworks-runtime-${{ matrix.mode }}", self.runtime)
+        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence-${{ matrix.mode }}", self.runtime)
+        for timeouts, minutes in ((ci.SHARED_GATE_TIMEOUT_SECONDS, 240),
+                                  (ci.FULL_SHARED_GATE_TIMEOUT_SECONDS, 330)):
+            budget = (sum(timeouts.values()) + ci.STARTUP_TIMEOUT_SECONDS + 30
+                      + 3 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS
+                             + ci.SCREENSHOT_TIMEOUT_SECONDS) + 6 * 25) + 120
             self.assertLess(budget, minutes * 60)
         self.assertIn("timeout-minutes: 360", self.runtime.split("steps:", 1)[0])
 
@@ -672,7 +680,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 with metrics:
                     raise RuntimeError("original gate error")
         start.assert_called_once_with()
-        join.assert_called_once_with(timeout=42)
+        join.assert_called_once_with(timeout=62)
         self.assertTrue(metrics.stopped.is_set())
 
     def test_metrics_thread_creation_failure_does_not_block_shared_gate(self):
@@ -935,6 +943,57 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_core_modeling_driving_toolbox_uses_one_mode(self):
         self.assert_shared_sequence("core")
 
+    def test_matrix_full_mode_selection_preserves_coverage_and_budget(self):
+        for mode in ("visible", "hidden"):
+            with self.subTest(mode=mode):
+                gate = ci.RuntimeGate(self.app, self.root / "evidence", suite="full", mode=mode)
+                self.assertEqual(gate.modes, (mode,))
+                self.assertEqual(gate.record["coverage"], {mode: "full"})
+                self.assertEqual(gate.timeouts["driving"], 12600)
+                gate.record_path.unlink()
+                (gate.prefix / "dosdevices/m:").unlink()
+        with self.assertRaises(ValueError):
+            ci.RuntimeGate(self.app, self.root / "evidence", suite="core", mode="hidden")
+        with self.assertRaises(ValueError):
+            ci.RuntimeGate(self.app, self.root / "evidence", mode="other")
+
+    def test_desktop_capture_is_cad_only_and_survives_host_exit(self):
+        gate = self.gate("core")
+        gate.record["hosts"] = [{"mode": "visible", "host": {
+            "process_id": 42, "owned_by_daemon": True, "shared_interactive": False}}]
+        gate.record["phase"] = "visible.prepare"
+        with patch.object(ci.subprocess, "run") as run:
+            gate.capture_sw_window("visible", "start")
+        run.assert_not_called()
+        gate.record["phase"] = "visible.driving"
+        image = gate.evidence / "screenshots/visible-driving-failure.png"
+        receipt = {"success": True, "source": "github-hosted-desktop", "file": image.name, "display_id": 1}
+        with patch.object(ci.subprocess, "run", side_effect=[
+                SimpleNamespace(returncode=0, stdout=""),
+                SimpleNamespace(returncode=0, stdout=json.dumps(receipt))]) as run:
+            gate.capture_sw_window("visible", "failure")
+        self.assertIn("desktop", run.call_args_list[1].args[0])
+        record = gate.record["screenshots"][-1]
+        self.assertTrue(record["success"])
+        self.assertFalse(record["host_present"])
+        self.assertEqual(record["host_windows_pid"], 42)
+        self.assertEqual(json.loads(image.with_suffix(".json").read_text()), record)
+
+    def test_screenshot_tool_failure_is_diagnostic_and_count_is_bounded(self):
+        gate = self.gate("core")
+        gate.record["hosts"] = [{"mode": "visible", "host": {
+            "process_id": 42, "owned_by_daemon": True, "shared_interactive": False}}]
+        gate.record["phase"] = "visible.modeling"
+        with patch.object(ci.subprocess, "run", side_effect=OSError("tool failure")):
+            gate.capture_sw_window("visible", "start")
+        self.assertFalse(gate.record["screenshots"][-1]["success"])
+        self.assertEqual(gate.record["screenshots"][-1]["diagnostic_error"], "OSError")
+        gate.record["screenshots"] = [{"mode": "visible"}] * ci.SCREENSHOT_LIMIT_PER_MODE
+        with patch.object(ci.subprocess, "run") as run:
+            gate.capture_sw_window("visible", "failure")
+        run.assert_not_called()
+        self.assertEqual(len(gate.record["screenshots"]), ci.SCREENSHOT_LIMIT_PER_MODE)
+
     def assert_shared_sequence(self, suite):
         gate = self.gate(suite)
         modes = ("visible", "hidden") if suite == "full" else ("visible",)
@@ -964,7 +1023,7 @@ class RuntimeAdapterTests(unittest.TestCase):
                 self.assertNotIn("--require-toolbox", args)
                 self.assertEqual(args[args.index("--suite") + 1], suite)
             if args[1].name == "verify-driving-dimensions.py":
-                self.assertEqual(kwargs["timeout"], 3600)
+                self.assertEqual(kwargs["timeout"], gate.timeouts["driving"])
                 self.assertIn("--after-modeling", args)
                 self.assertEqual(args[args.index("--after-modeling") + 1],
                                  output.parent / "modeling/modeling.json")
@@ -1000,9 +1059,10 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(gate.record["coverage"], {mode: suite for mode in modes})
         self.assertEqual(gate.record["budgets_seconds"], {
             "request": 600, "startup": 300, "startup_outer": 330,
-            "shared_gates": {"modeling": 5400, "driving": 3600, "toolbox": 600}, "native_sample_tool": 30,
+            "shared_gates": gate.timeouts, "native_sample_tool": 30,
             "native_sample_interval": 60, "native_sample_limit_per_mode": 140,
-            "system_metrics_tool": 2})
+            "system_metrics_tool": 2, "screenshot_tool": 20,
+            "screenshot_interval": 300, "screenshot_limit_per_mode": 64})
 
     def test_full_hidden_failure_is_required_and_never_retried(self):
         gate = self.gate("full")
@@ -1099,6 +1159,28 @@ class RuntimeAdapterTests(unittest.TestCase):
             failed = [dict(row) for row in records]
             failed[0][field] = value
             check(failed, False)
+
+    def test_explicit_software_renderer_requires_real_driver_selection(self):
+        gate = ci.RuntimeGate(self.app, self.root / "evidence", renderer="software")
+        self.assertEqual(gate.env["MACSW_OPENGL_RENDERER"], "software")
+        self.assertEqual(gate.record["renderer_request"], "software")
+        probe = gate.app / "Contents/MacOS/check_bitmap_opengl.exe"
+        probe.parent.mkdir(parents=True)
+        probe.touch()
+        records = [{"bpp": bpp, "width": width, "top_down": top_down, "success": True,
+                    "stage": "complete", "red_pixels": width * 8, "gl_error": 0,
+                    "depth": 24, "stencil": 8, "renderer": "Apple Software Renderer"}
+                   for bpp in (24, 32) for width in (7, 8) for top_down in (False, True)]
+        with patch.object(gate, "windows_path", return_value="M:\\probe.exe"), \
+                patch.object(gate, "inspect_cgl_renderers"), \
+                patch.object(gate, "command", return_value='\n'.join(map(json.dumps, records))):
+            gate.verify_bitmap_driver()
+        records[0]["renderer"] = "Apple M2 Max"
+        with patch.object(gate, "windows_path", return_value="M:\\probe.exe"), \
+                patch.object(gate, "inspect_cgl_renderers"), \
+                patch.object(gate, "command", return_value='\n'.join(map(json.dumps, records))):
+            with self.assertRaisesRegex(RuntimeError, "did not produce Apple Software Renderer"):
+                gate.verify_bitmap_driver()
 
     def test_cgl_observations_preserve_unavailable_modes_and_both_architectures(self):
         gate = self.gate()
