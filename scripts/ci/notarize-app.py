@@ -9,7 +9,9 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import secrets
+import stat
 import subprocess
 import sys
 
@@ -69,6 +71,15 @@ def cleanup(directory):
     if not directory.exists():
         return
     paths = list(directory.iterdir())
+    inventory = []
+    for path in sorted(paths):
+        mode = path.lstat().st_mode  # Diagnostics must not follow links.
+        known_name = path.name in ("certificate.p12", "AuthKey.p8", "signing.keychain-db")
+        keychain_name = re.fullmatch(r"signing\.keychain(?:-db)?(?:[.-][A-Za-z0-9_-]{1,80})*", path.name)
+        inventory.append({"name": path.name if known_name or keychain_name else "<unrecognized>",
+                          "kind": "symlink" if stat.S_ISLNK(mode) else "file" if stat.S_ISREG(mode)
+                                  else "directory" if stat.S_ISDIR(mode) else "other"})
+    print(json.dumps({"event": "macsw.credential-cleanup-inventory", "entries": inventory}), flush=True)
     for path in paths:
         if (path.name not in ("certificate.p12", "AuthKey.p8", "signing.keychain-db")
                 or path.is_symlink() or not path.is_file()):
@@ -107,6 +118,13 @@ def prepare(directory, values):
     return keychain, key
 
 
+def inspect_signing_identity(keychain, identity):
+    output = run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning", keychain])
+    names = re.findall(r'^\s*\d+\)\s+[A-Fa-f0-9]{40}\s+"([^"\r\n]+)"', output.decode(errors="replace"), re.M)
+    print(json.dumps({"event": "macsw.signing-identities", "valid_identity_count": len(names),
+                      "selected_identity_present": identity in names}), flush=True)
+
+
 def notarize(app, output, team, identity, key_id="", issuer=""):
     values = {name: os.environ.pop(name, "") for name in SECRET_NAMES}
     if not all(values[name] for name in SECRET_NAMES[:2]) or not all((team, identity)):
@@ -123,6 +141,7 @@ def notarize(app, output, team, identity, key_id="", issuer=""):
         auth = store_profile(mode, keychain, key, values, team, key_id, issuer)
         values.clear()
         print("Notarization authentication validated: " + mode, flush=True)
+        inspect_signing_identity(keychain, identity)
         entries = sign_app.sign(app, identity, team, keychain, PROJECT / "resources/signing")
         (output / "signing-inventory.json").write_text(json.dumps(entries, indent=2) + "\n")
         # Check actual native Python imports and a libffi callback, with no
@@ -157,7 +176,6 @@ def notarize(app, output, team, identity, key_id="", issuer=""):
         run(["/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=2", app])
         info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
         version = info["CFBundleShortVersionString"]
-        import re
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version):
             raise RuntimeError("Unsafe App version")
         final = output / ("MacSW-" + version + "-macOS-signed.zip")

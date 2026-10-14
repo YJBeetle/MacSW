@@ -139,10 +139,57 @@ def refresh_signed_hashes(app):
     path.write_bytes(plistlib.dumps(values, sort_keys=False))
 
 
+def codesign_context(arguments):
+    """Public bundle-relative target only, never argv or a credential path."""
+    args = list(map(str, arguments))
+    if not args or args[0] != "/usr/bin/codesign":
+        return {"stage": "command", "target": "<unknown>"}
+    stage = ("sign" if "--sign" in args else "verify" if "--verify" in args
+             else "entitlements" if "--entitlements" in args else "details")
+    target = Path(args[-1])
+    if "Contents" in target.parts:
+        relative = Path(*target.parts[target.parts.index("Contents"):]).as_posix()
+        label = relative if re.fullmatch(r"[A-Za-z0-9._+ /-]{1,512}", relative) else "<bundle-code>"
+    else:
+        label = "<outer-app>" if target.suffix == ".app" else "<code-target>"
+    return {"stage": stage, "target": label}
+
+
+def codesign_errors(stderr):
+    # Output fixed classifications, not raw messages which could contain
+    # credential-looking data. Unrecognized errors remain explicit gaps.
+    text = (stderr.decode(errors="replace") if isinstance(stderr, bytes) else (stderr or "")).lower()
+    patterns = {
+        "identity-not-found": ("no identity found", "specified item could not be found in the keychain"),
+        "identity-not-usable": ("this identity cannot be used for signing code",),
+        "keychain-internal-error": ("errsecinternalcomponent",),
+        "keychain-interaction-denied": ("user interaction is not allowed",),
+        "certificate-chain-untrusted": ("unable to build chain to self-signed root", "cssmerr_tp_not_trusted"),
+        "certificate-expired": ("cssmerr_tp_cert_expired", "certificate has expired"),
+        "timestamp-unavailable": ("timestamp service is not available",),
+        "bundle-extended-attributes": ("resource fork, finder information, or similar detritus not allowed",),
+        "bundle-format": ("bundle format unrecognized",),
+        "unsigned-code": ("code object is not signed at all",),
+        "signature-invalid": ("invalid signature", "code or signature modified"),
+    }
+    return [label for label, messages in patterns.items() if any(message in text for message in messages)] or ["unclassified"]
+
+
 def command(arguments):
-    result = subprocess.run(list(map(str, arguments)), capture_output=True, timeout=120)
+    context = codesign_context(arguments)
+    try:
+        result = subprocess.run(list(map(str, arguments)), capture_output=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(json.dumps({"event": "macsw.codesign-failure", **context,
+                          "exception_type": type(error).__name__}), flush=True)
+        raise RuntimeError("Distribution command failed during " + context["stage"]
+                           + ": " + type(error).__name__) from None
     if result.returncode:
-        raise RuntimeError("Distribution command failed: " + str(arguments[0]))
+        print(json.dumps({"event": "macsw.codesign-failure", **context,
+                          "exit_code": result.returncode,
+                          "errors": codesign_errors(getattr(result, "stderr", b""))}), flush=True)
+        raise RuntimeError("Distribution command failed during " + context["stage"]
+                           + " (exit " + str(result.returncode) + ")")
     return result.stdout + result.stderr
 
 
@@ -187,6 +234,8 @@ def sign(app, identity, team, keychain, entitlement_dir):
         if plistlib.loads((entitlement_dir / (policy + ".plist")).read_bytes()) != expected:
             raise RuntimeError("Signing policy plist differs from reviewed entitlements")
     def sign_one(target, policy):
+        print(json.dumps({"event": "macsw.signing-target", "policy": policy,
+                          "target": target.relative_to(app).as_posix() if target != app else "<outer-app>"}), flush=True)
         command(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", keychain,
                  "--options", "runtime", "--timestamp", "--entitlements",
                  entitlement_dir / (policy + ".plist"), target])

@@ -71,6 +71,12 @@ validation，也不给所有程序套同一份宽松权限。MacSW 主程序只�
 `codesign` 可访问私钥；`finally` 清理，并有 `always()` 步骤兜底。任务取消
 或主机被终止时仍依赖 GitHub hosted runner 的销毁，不使用自托管机器。
 
+签发诊断只输出指定身份是否存在、有效签名身份数量，以及 `codesign` 的阶段、
+包内相对目标、退出码和固定错误分类。原始 stderr、命令参数、证书／私钥及
+密码不进入日志；未识别的签名错误明确记为 `unclassified`，不据此猜测原因。
+清理额外文件时记录受限钥匙串文件名和不跟随链接的文件类型；未知文件名隐藏，
+仍拒绝删除白名单外文件。Base64 继续要求单行，不增加多行兼容。
+
 签名后验证 native Python 导入/libffi callback、7zz、隔离 Wine prefix 中
 CCW、MSXML 和 x64 BTLS 原语。原语沿用现有测试，不包含延后的 x86 BTLS 调查。
 再次验签，确认测试没有改动密封 App。公证只接受 `Accepted`，保存公证结果

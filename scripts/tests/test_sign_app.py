@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import struct
 import stat
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -184,6 +185,53 @@ class SigningInventoryTests(unittest.TestCase):
         with patch.object(signing, "command", side_effect=[b"", good, plistlib.dumps({"unexpected": True})]):
             with self.assertRaisesRegex(RuntimeError, "Unexpected entitlements"):
                 signing.verify_signature(self.app, "app", "ABCDEFGHIJ")
+
+
+class SigningDiagnosticTests(unittest.TestCase):
+    def test_failure_reports_classification_target_and_exit_not_stderr_or_argv(self):
+        output = io.StringIO()
+        result = SimpleNamespace(returncode=1, stdout=b"private output",
+            stderr=b"unable to build chain to self-signed root; errSecInternalComponent; never-print-secret")
+        args = ["/usr/bin/codesign", "--sign", "private-identity", "--keychain", "/private/private-keychain",
+                "/staging/MacSW.app/Contents/Frameworks/wine/lib/module.so"]
+        with patch.object(signing.subprocess, "run", return_value=result), contextlib.redirect_stdout(output):
+            with self.assertRaises(RuntimeError) as error:
+                signing.command(args)
+        record = json.loads(output.getvalue())
+        self.assertEqual(record["target"], "Contents/Frameworks/wine/lib/module.so")
+        self.assertEqual(record["stage"], "sign")
+        self.assertEqual(record["exit_code"], 1)
+        self.assertEqual(set(record["errors"]), {"certificate-chain-untrusted", "keychain-internal-error"})
+        for secret in ("private output", "never-print-secret", "private-identity", "private-keychain", "/staging"):
+            self.assertNotIn(secret, output.getvalue() + str(error.exception))
+
+    def test_unknown_error_is_a_diagnostic_gap_not_raw_output(self):
+        self.assertEqual(signing.codesign_errors(b"unrecognized-private-output"), ["unclassified"])
+        self.assertEqual(signing.codesign_errors(b"no identity found"), ["identity-not-found"])
+        self.assertEqual(signing.codesign_errors(b"User interaction is not allowed."), ["keychain-interaction-denied"])
+
+    def test_only_bundle_relative_paths_and_known_stages_are_reported(self):
+        cases = [("--force", "details"), ("--sign", "sign"), ("--verify", "verify"),
+                 ("--entitlements", "entitlements")]
+        for flag, stage in cases:
+            record = signing.codesign_context(["/usr/bin/codesign", flag, "/private/MacSW.app"])
+            self.assertEqual(record, {"stage": stage, "target": "<outer-app>"})
+        for target in ("/private/secret", "/private/MacSW.app/Contents/secret\nescape"):
+            record = signing.codesign_context(["/usr/bin/codesign", "--verify", target])
+            self.assertNotIn("secret", record["target"])
+
+    def test_timeout_does_not_render_command_or_captured_output(self):
+        args = ["/usr/bin/codesign", "--sign", "private-identity", "/staging/MacSW.app"]
+        output = io.StringIO()
+        for failure in (subprocess.TimeoutExpired(args, 120, output=b"private-data"),
+                        OSError("private-error")):
+            with self.subTest(kind=type(failure).__name__), \
+                    patch.object(signing.subprocess, "run", side_effect=failure), \
+                    contextlib.redirect_stdout(output):
+                with self.assertRaises(RuntimeError) as error:
+                    signing.command(args)
+                for secret in ("private-identity", "private-data", "private-error"):
+                    self.assertNotIn(secret, str(error.exception) + output.getvalue())
 
 
 class SigningProvenanceTests(unittest.TestCase):
@@ -479,6 +527,51 @@ class CredentialTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as error:
                 notary.run(["security", "import", "private", "-P", "never-print"])
             self.assertNotIn("never-print", str(error.exception))
+
+    def test_identity_diagnostic_does_not_print_identity_names_or_keychain(self):
+        public_name = "Developer ID Application: Fixture (ABCDEFGHIJ)"
+        record = ('  1) ' + 'A' * 40 + ' "' + public_name + '"\n 1 valid identities found\n').encode()
+        output = io.StringIO()
+        with patch.object(notary, "run", return_value=record) as run, contextlib.redirect_stdout(output):
+            notary.inspect_signing_identity(Path("/private/credential-directory/keychain"), public_name)
+        run.assert_called_once_with(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning",
+                                     Path("/private/credential-directory/keychain")])
+        self.assertEqual(json.loads(output.getvalue()), {"event": "macsw.signing-identities",
+                         "valid_identity_count": 1, "selected_identity_present": True})
+        self.assertNotIn(public_name, output.getvalue())
+        self.assertNotIn("credential-directory", output.getvalue())
+        with patch.object(notary, "run", return_value=b"0 valid identities found"), \
+                contextlib.redirect_stdout(output := io.StringIO()):
+            notary.inspect_signing_identity(Path("private"), public_name)
+        self.assertFalse(json.loads(output.getvalue())["selected_identity_present"])
+
+    def test_cleanup_reports_sidecar_type_without_widening_deletion_allowlist(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):
+            directory = Path(temporary) / "macsw-signing-credentials"
+            directory.mkdir()
+            sidecar = directory / "signing.keychain-db.sb-123ABC"
+            sidecar.write_bytes(b"never-print-content")
+            unknown = directory / "never-print-filename"
+            unknown.symlink_to("/missing/never-follow-link")
+            output = io.StringIO()
+            with patch.object(notary.subprocess, "run") as run, contextlib.redirect_stdout(output):
+                with self.assertRaisesRegex(RuntimeError, "Unexpected entry"):
+                    notary.cleanup(directory)
+            run.assert_not_called()
+            self.assertEqual(sidecar.read_bytes(), b"never-print-content")
+            self.assertTrue(unknown.is_symlink())
+            record = json.loads(output.getvalue())
+            self.assertEqual(record["entries"], [{"name": "<unrecognized>", "kind": "symlink"},
+                                               {"name": sidecar.name, "kind": "file"}])
+            for secret in ("never-print-content", "never-print-filename", "never-follow-link", temporary):
+                self.assertNotIn(secret, output.getvalue())
+
+    def test_base64_still_rejects_multiline_without_creating_a_keychain(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(notary, "run") as run:
+            values = {notary.SECRET_NAMES[0]: base64.b64encode(b"fixture-p12").decode() + "\n"}
+            with self.assertRaises(ValueError):
+                notary.prepare(Path(temporary) / "private", values)
+            run.assert_not_called()
 
     def test_signing_workflow_is_manual_protected_and_no_release(self):
         workflow = (PROJECT / ".github/workflows/sign-app.yml").read_text()
