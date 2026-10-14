@@ -130,11 +130,13 @@ class RuntimeScreenshotTests(unittest.TestCase):
                        "size_bytes": len(self.png()), "sha256": hashlib.sha256(self.png()).hexdigest()}
             with patch.dict(privacy.os.environ, GITHUB_ACTIONS="true", RUNNER_TEMP=temporary,
                             RCLONE_CONFIG_B64=""):
-                for changes in ({}, {"runner_environment": "self-hosted"}, {"display_id": True},
-                                {"phase": "visible.prepare"}, {"host_windows_pid": False}):
+                for changes in ({}, {"phase": "visible.visible-smoke"},
+                                {"runner_environment": "self-hosted"}, {"display_id": True},
+                                {"phase": "visible.prepare"}, {"phase": "hidden.visible-smoke"},
+                                {"host_windows_pid": False}):
                     with self.subTest(changes=changes):
                         image.with_suffix(".json").write_text(json.dumps({**receipt, **changes}))
-                        if changes:
+                        if changes and changes != {"phase": "visible.visible-smoke"}:
                             with self.assertRaises(RuntimeError):
                                 privacy.main()
                         else:

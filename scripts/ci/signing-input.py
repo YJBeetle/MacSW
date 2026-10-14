@@ -2,7 +2,7 @@
 
 Validate GitHub's outer artifact digest before reading the App ZIP. This is
 separate from the signing job's credentials and never downloads private CAD
-fixtures. A successful build alone is not a successful full runtime gate.
+fixtures. A successful build alone is not a successful visible smoke test.
 """
 import argparse
 import json
@@ -40,11 +40,11 @@ def validate_jobs(jobs):
         raise RuntimeError("Required build job did not pass")
     matches = [job for job in jobs if job.get("name") == "SOLIDWORKS installation & runtime"]
     if len(matches) != 1 or matches[0].get("conclusion") != "success":
-        raise RuntimeError("Signing requires the full visible/hidden CAD suite: missing or failed runtime job")
+        raise RuntimeError("Signing requires visible smoke: missing or failed runtime job")
     steps = [step for step in matches[0].get("steps", []) if step.get("name") ==
-             "Shared isolated functional test sets (full, visible+hidden)"]
+             "Lightweight visible SOLIDWORKS smoke"]
     if len(steps) != 1 or steps[0].get("conclusion") != "success":
-        raise RuntimeError("Signing requires the full visible/hidden CAD suite; core or installation-only runs are insufficient")
+        raise RuntimeError("Signing requires visible smoke; installation-only or diagnostic runs are insufficient")
 
 
 def validate_artifact(artifacts):
@@ -133,7 +133,7 @@ def fetch(run_id, sha, destination):
         "artifact_digest": artifact["digest"], "app_archive": item.filename,
         "app_sha256": sign_app.digest(destination / "app.zip"),
     }, indent=2) + "\n")
-    print("Trusted build and full CAD gates verified; App artifact digest verified.")
+    print("Trusted build and visible smoke verified; App artifact digest verified.")
 
 
 if __name__ == "__main__":

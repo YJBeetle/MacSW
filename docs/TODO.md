@@ -2,12 +2,13 @@
 
 ## 当前优先级
 
-官方安装已经完成，主界面和新建 Part 已通过。当前优先收口托管 macOS 上的连续
-建模/尺寸门禁；本机、Windows 或 DockerSW 通过不替代 MacSW CI。
+官方安装已经完成，主界面和新建 Part 已通过。MacSW 日常 CI 改为轻量可见冒烟；
+隐藏完整 CAD 为独立手动诊断，不与签名／公证关联。本机、Windows 或 DockerSW
+通过不替代 MacSW CI，轻量通过也不证明隐藏 CAD 或软件渲染内存问题已修复。
 失败记录、当前诊断版本和未完成边界见 [原生建模 CI 调查](native-modeling-investigation.md)。
 以下构建系统迁移不阻塞功能验证。
 
-- [ ] 定位共享门禁中的原生超时/关闭异常，完成同一宿主的建模 → 尺寸可见与隐藏序列。
+- [ ] 定位隐藏 CAD 诊断中的原生超时/关闭异常与软件渲染内存问题；不作为签名／公证门禁。
 - [ ] 分别验证全新安装与官方基底缓存恢复后的运行结果，不以缓存完整性替代 COM/建模证明。
 - [x] App 升级时同步既有 bottle 中的 Windows SWCLI backend：App 启动及 Windows CLI 入口共用清单校验、占用保护和可恢复的整体替换；验证不只检查 macOS client 版本。见 [升级记录](native-modeling-investigation.md#既有容器的-swcli-backend-升级2026-10-10)。
 - [x] 独立实现 Wine 运行时升级与既有容器迁移：文件身份预检、用户确认、停容器、旧 App 与完整容器备份、wineboot、Mono/RegAsm 重新绑定、依赖回归、失败恢复及主动回退；不与 SWCLI backend 同步混为一项。见 [升级与恢复](app-wine11-migration.md#既有容器的运行时升级与恢复2026-10-10)。

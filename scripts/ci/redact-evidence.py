@@ -53,6 +53,9 @@ def main():
     if directory.is_symlink():
         raise RuntimeError("Refusing an evidence directory symlink")
     values = sensitive_values(os.environ)
+    allowed_phases = {mode + "." + stage for mode in ("visible", "hidden")
+                      for stage in ("modeling", "driving", "toolbox", "test-sets")}
+    allowed_phases.add("visible.visible-smoke")
     # Binary screenshots cannot be text-redacted. Admit only hashed captures
     # from hosted CAD stages. Full desktop images were explicitly authorized;
     # neither installation nor credential/licensing setup is an allowed stage.
@@ -70,8 +73,7 @@ def main():
                                for key in ("unix_pid", "window_id"))
         if (not valid_source or receipt.get("success") is not True
                 or receipt.get("owned_by_daemon") is not True or receipt.get("shared_interactive") is not False
-                or receipt.get("phase") not in {mode + "." + stage for mode in ("visible", "hidden")
-                                               for stage in ("modeling", "driving", "toolbox", "test-sets")}
+                or receipt.get("phase") not in allowed_phases
                 or receipt.get("file") != image.name
                 or type(receipt.get("host_windows_pid")) is not int or receipt["host_windows_pid"] <= 0
                 or not 24 <= len(data) <= 25 * 1024 * 1024

@@ -1,4 +1,4 @@
-"""Prepare one MacSW bottle and run shared functional sets with fresh hosts.
+"""Run lightweight visible smoke, or opt-in hidden CAD diagnostics.
 
 No CAD test operations or geometry assertions belong here. Shared gate scripts
 and assertions live in the pinned SWCLI submodule. Paths are converted by the
@@ -23,6 +23,8 @@ import time
 PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py")
 SETS_GATE = "verify-runtime-sets.py"
+VISIBLE_GATE = "verify-visible.py"
+VISIBLE_TIMEOUT_SECONDS = 900
 SETS_TIMEOUT_SECONDS = {"core": 13800, "full": 19200}
 
 
@@ -32,12 +34,14 @@ def shared_plan(suite):
     return runtime_plan(suite)
 
 
-def modeling_samples(prefix):
+def modeling_samples(prefix, *, part_only=False):
     """Locate installed host fixtures; CAD assertions remain in SWCLI."""
     patterns = (
         "drive_c/users/Public/Documents/SOLIDWORKS/SOLIDWORKS */samples/learn/Paper Airplane.SLDPRT",
         "drive_c/Program Files/*/sldBenchmarking/Macro/Mold/bezel moldbase.sldasm",
     )
+    if part_only:
+        patterns = patterns[:1]
     samples = []
     for pattern in patterns:
         matches = [path for path in prefix.glob(pattern) if path.is_file() and not path.is_symlink()
@@ -438,6 +442,13 @@ def shared_sets_gate():
     return script
 
 
+def shared_visible_gate():
+    script = PROJECT / "Dependencies/SWCLI/scripts/ci" / VISIBLE_GATE
+    if not script.is_file():
+        raise RuntimeError("Pinned SWCLI lacks the independent visible smoke entrypoint")
+    return script
+
+
 def text_output(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
 
@@ -545,7 +556,19 @@ class SharedGateProgress:
 
 
 class RuntimeGate:
-    def __init__(self, app, evidence, suite="full", renderer="auto", mode=None):
+    def __init__(self, app, evidence, suite="full", renderer="auto", mode=None,
+                 profile="visible-smoke"):
+        # Retain the explicit suite/mode library interface for existing callers.
+        # CLI/workflows expose only the two named profiles below.
+        if profile not in (None, "visible-smoke", "hidden-full"):
+            raise ValueError("Unknown runtime profile")
+        self.profile = profile
+        if profile is not None:
+            selected_mode = "hidden" if profile == "hidden-full" else "visible"
+            if mode is not None and mode != selected_mode:
+                raise ValueError("Mode is not supported by the selected profile")
+            suite = "full" if profile == "hidden-full" else "core"
+            mode = selected_mode
         if suite not in ("core", "full"):
             raise ValueError("Unknown runtime suite")
         self.suite = suite
@@ -577,12 +600,15 @@ class RuntimeGate:
         self.record = {"completed": False, "phase": "initializing", "commands": [], "hosts": [],
                        "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
                        "screenshots": [],
-                       "suite": suite, "coverage": {mode: suite for mode in self.modes},
+                       "profile": profile,
+                       "suite": None if profile == "visible-smoke" else suite,
+                       "coverage": ({"visible": "read-only-open-inspect-close"}
+                                    if profile == "visible-smoke" else {mode: suite for mode in self.modes}),
                        "renderer_request": renderer,
-                       "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
+                       "budgets_seconds": {"request": None if profile == "visible-smoke" else REQUEST_TIMEOUT_SECONDS,
                                            "startup": STARTUP_TIMEOUT_SECONDS,
                                            "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
-                                           "shared_gates": dict(self.timeouts),
+                                           "shared_gates": {} if profile == "visible-smoke" else dict(self.timeouts),
                                            "native_sample_tool": SAMPLE_TIMEOUT_SECONDS,
                                            "native_sample_interval": NATIVE_SAMPLE_INTERVAL_SECONDS,
                                            "native_sample_limit_per_mode": NATIVE_SAMPLE_LIMIT_PER_MODE,
@@ -645,7 +671,7 @@ class RuntimeGate:
                 tempfile.TemporaryFile(dir=self.cwd / "tmp") as stderr:
             process = None
             progress = None
-            if any(Path(str(argument)).name in (*SHARED_GATES, SETS_GATE) for argument in arguments):
+            if any(Path(str(argument)).name in (*SHARED_GATES, SETS_GATE, VISIBLE_GATE) for argument in arguments):
                 progress = SharedGateProgress(
                     stdout, self.evidence / "shared-step-progress.log",
                     self.record["phase"], started,
@@ -817,7 +843,7 @@ class RuntimeGate:
     def capture_sw_window(self, mode, reason):
         """Hosted CAD desktop diagnostics; never capture private setup or local desktop."""
         phase = self.record["phase"]
-        allowed = {mode + "." + name for name in (*SHARED_GATE_TIMEOUT_SECONDS, "test-sets")}
+        allowed = {mode + "." + name for name in (*SHARED_GATE_TIMEOUT_SECONDS, "test-sets", "visible-smoke")}
         limit = SCREENSHOT_LIMIT_PER_MODE - (9 if reason.startswith("periodic-") else 0)
         if sum(item.get("mode") == mode for item in self.record["screenshots"]) >= limit:
             return
@@ -909,6 +935,80 @@ class RuntimeGate:
         self.phase("completed")
 
     def run(self):
+        if self.profile == "visible-smoke":
+            self.run_visible()
+        else:
+            self.run_sets()
+
+    def finish_visible_daemon(self):
+        # The shared entrypoint already requested public daemon stop. Its
+        # acknowledgment is not sufficient: require normal launcher exit and
+        # disappearance of SW on this isolated hosted VM, before forced cleanup.
+        if self.foreground is None or self.foreground.wait(timeout=90) != 0:
+            raise RuntimeError("Visible swclid did not exit normally")
+        self.record["server_exit_code"] = self.foreground.returncode
+        self.foreground = None
+        if self.log:
+            self.log.close()
+            self.log = None
+        deadline = time.monotonic() + 30
+        while True:
+            result = subprocess.run(["/bin/ps", "-axo", "pid=,pcpu=,time=,rss=,stat=,comm="],
+                                    capture_output=True, text=True, timeout=5,
+                                    env={"LC_ALL": "C", "LANG": "C"})
+            if result.returncode:
+                raise RuntimeError("Cannot verify visible SW process exit")
+            if not any(item["name"] == "sldworks.exe"
+                       for item in wine_process_metrics(result.stdout, self.app)):
+                self.record["host_process_exited"] = True
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Visible SW survived daemon shutdown")
+            time.sleep(0.3)
+
+    def run_visible(self):
+        script = shared_visible_gate()
+        sample, = modeling_samples(self.prefix, part_only=True)
+        self.verify_bitmap_driver()
+        host = self.start("visible")
+        self.record["session_policy"] = "single-visible-smoke"
+        self.record["coverage"] = {"visible": "read-only-open-inspect-close"}
+        self.record["budgets_seconds"]["visible_smoke"] = VISIBLE_TIMEOUT_SECONDS
+        self.phase("visible.visible-smoke")
+        output = self.cwd / "visible/visible-smoke"
+        output.mkdir(parents=True, exist_ok=True)
+        try:
+            with HostMetrics(self, "visible"):
+                self.capture_sw_window("visible", "start")
+                self.command([sys.executable, script, "--output-dir", output,
+                              "--sample-part", self.windows_path(sample), "--cli-command", self.cli,
+                              "--endpoint", self.env["SWCLI_ENDPOINT"]], timeout=VISIBLE_TIMEOUT_SECONDS)
+            proof = runtime_record(output / "visible.json", "Shared visible smoke")
+            if (proof.get("state") != "completed" or proof.get("success") is not True
+                    or proof.get("profile") != "visible-open" or proof.get("cleanup_errors") != []
+                    or not all(isinstance(proof.get(key), dict)
+                               and proof[key].get("process_id") == host["process_id"]
+                               and proof[key].get("platform") == "macos-wine"
+                               and proof[key].get("visible") is True
+                               and proof[key].get("owned_by_daemon") is True
+                               and proof[key].get("shared_interactive") is False
+                               for key in ("host", "host_after"))):
+                raise RuntimeError("Shared visible smoke evidence did not pass")
+            self.record["visible_smoke"] = proof
+            # The standalone gate owns its request defaults; do not report the
+            # hidden CAD adapter's 600-second limit for this independent path.
+            self.record["budgets_seconds"]["request"] = proof.get("request_timeout_seconds")
+            self.finish_visible_daemon()
+            self.capture_sw_window("visible", "end")
+        except Exception:
+            self.capture_sw_window("visible", "failure")
+            raise
+        finally:
+            self.collect_evidence("visible")
+        self.record["completed"] = True
+        self.phase("completed")
+
+    def run_sets(self):
         script = shared_sets_gate()
         sample_part, sample_assembly = modeling_samples(self.prefix)
         sample_drawing = sample_assembly.with_suffix(".slddrw")
@@ -1010,13 +1110,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path)
     parser.add_argument("--evidence", type=Path)
-    parser.add_argument("--suite", choices=("core", "full"), default="full")
+    parser.add_argument("--profile", choices=("visible-smoke", "hidden-full"), default="visible-smoke")
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
-    parser.add_argument("--mode", choices=("visible", "hidden"))
     parser.add_argument("--cleanup-private", action="store_true")
     parser.add_argument("--check-shared-gates", action="store_true")
     args = parser.parse_args()
     if args.check_shared_gates:
+        if args.profile == "visible-smoke":
+            shared_visible_gate()
+            return
         shared_gates()
         shared_sets_gate()
         for item in shared_plan("full"):
@@ -1029,7 +1131,7 @@ def main():
         return
     if args.app is None or args.evidence is None:
         raise RuntimeError("--app and --evidence are required")
-    gate = RuntimeGate(args.app, args.evidence, suite=args.suite, renderer=args.renderer, mode=args.mode)
+    gate = RuntimeGate(args.app, args.evidence, profile=args.profile, renderer=args.renderer)
     try:
         gate.run()
     except Exception as error:

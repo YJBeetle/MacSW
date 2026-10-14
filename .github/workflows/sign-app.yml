@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: 'Successful full Build & Package run for this exact master commit'
+        description: 'Successful Build & Package run with visible smoke for this exact master commit'
         type: string
         required: true
 
@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify trusted full build and download its exact artifact
+      - name: Verify trusted build and visible smoke and download its exact artifact
         env:
           GH_TOKEN: ${{ github.token }}
           MACSW_BUILD_RUN_ID: ${{ inputs.build_run_id }}

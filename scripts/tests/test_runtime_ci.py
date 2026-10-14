@@ -67,8 +67,8 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertLess(self.build.index("run: make test"), self.build.index("make archive"))
         self.assertNotIn("make ci", self.build)
         self.assertIn("needs: build", self.runtime)
-        self.assertIn("group: macsw-build-${{ github.ref }}", self.build)
-        self.assertIn("group: macsw-solidworks-runtime", self.runtime)
+        self.assertIn("group: macsw-build-${{ github.ref }}-${{ inputs.runtime_profile || 'visible-smoke' }}", self.build)
+        self.assertIn("group: macsw-solidworks-runtime-${{ inputs.runtime_profile || 'visible-smoke' }}", self.runtime)
         self.assertIn("cancel-in-progress: false", self.runtime)
         self.assertNotIn("continue-on-error", self.workflow)
         self.assertNotIn("swift build", self.runtime)
@@ -130,7 +130,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
     def test_official_cache_and_always_cleanup_stay_in_runtime_job(self):
         snapshot = self.runtime.index("- name: Save only verified official base")
         fixtures = self.runtime.index("- name: Prepare temporary licensing and runtime fixtures")
-        gates = self.runtime.index("- name: Shared isolated functional test sets")
+        gates = self.runtime.index("- name: Lightweight visible SOLIDWORKS smoke")
         self.assertLess(snapshot, fixtures)
         self.assertLess(fixtures, gates)
         self.assertIn("TAR_OPTIONS: --same-permissions", self.runtime)
@@ -147,25 +147,27 @@ class RuntimeWorkflowTests(unittest.TestCase):
         upload = self.runtime.split("- name: Upload sanitized runtime", 1)[1]
         self.assertIn("steps.redact-runtime.outcome == 'success'", upload)
 
-    def test_daily_and_full_budgets_cover_selected_modes(self):
-        step = self.runtime.split("- name: Shared isolated functional test sets", 1)[1].split("- name:", 1)[0]
-        self.assertIn("inputs.runtime_suite == 'full' && 330 || 240", step)
-        self.assertIn("--suite '${{ inputs.runtime_suite || 'core' }}'", step)
-        self.assertNotIn("--mode", step)
-        self.assertIn("--renderer '${{ inputs.runtime_renderer || 'auto' }}'", step)
-        self.assertIn("options: [core, full]", self.workflow)
-        self.assertNotIn("matrix:", self.runtime)
-        self.assertIn("'visible+hidden' || 'visible'", self.runtime)
-        self.assertIn("group: macsw-solidworks-runtime\n", self.runtime)
-        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence\n", self.runtime)
-        self.assertLess(ci.SETS_TIMEOUT_SECONDS["core"], 240 * 60)
+    def test_default_smoke_and_manual_hidden_diagnostics_are_disjoint(self):
+        step = self.runtime.split("- name: Lightweight visible SOLIDWORKS smoke", 1)[1].split("- name:", 1)[0]
+        diagnostic = self.runtime.split("- name: Diagnostic hidden full CAD tests", 1)[1].split("- name:", 1)[0]
+        self.assertIn("(inputs.runtime_profile || 'visible-smoke') == 'visible-smoke'", step)
+        self.assertIn("--profile visible-smoke", step)
+        self.assertIn("timeout-minutes: 30", step)
+        self.assertIn("github.event_name == 'workflow_dispatch'", diagnostic)
+        self.assertIn("inputs.runtime_profile == 'hidden-full'", diagnostic)
+        self.assertIn("--profile hidden-full", diagnostic)
+        self.assertIn("timeout-minutes: 330", diagnostic)
+        self.assertNotIn("runtime_suite", self.workflow)
+        self.assertNotIn("visible+hidden", self.workflow)
+        self.assertIn("options: [visible-smoke, hidden-full]", self.workflow)
+        self.assertIn("default: visible-smoke", self.workflow)
+        for selected in (step, diagnostic):
+            self.assertIn("--renderer '${{ inputs.runtime_renderer || 'auto' }}'", selected)
+        self.assertLess(ci.VISIBLE_TIMEOUT_SECONDS + ci.STARTUP_TIMEOUT_SECONDS + 30 + 120, 30 * 60)
         self.assertLess(ci.SETS_TIMEOUT_SECONDS["full"], 330 * 60)
-        for timeouts, minutes in ((ci.SHARED_GATE_TIMEOUT_SECONDS, 240),
-                                  (ci.FULL_SHARED_GATE_TIMEOUT_SECONDS, 330)):
-            budget = (sum(timeouts.values()) + ci.STARTUP_TIMEOUT_SECONDS + 30
-                      + 3 * (ci.SAMPLE_TIMEOUT_SECONDS + 6 + 3 * ci.SYSTEM_METRICS_TIMEOUT_SECONDS
-                             + ci.SCREENSHOT_TIMEOUT_SECONDS) + 6 * 25) + 120
-            self.assertLess(budget, minutes * 60)
+        self.assertNotIn("matrix:", self.runtime)
+        self.assertNotIn("SIGNING_", self.runtime)
+        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence\n", self.runtime)
         self.assertIn("timeout-minutes: 360", self.runtime.split("steps:", 1)[0])
 
 
@@ -183,8 +185,8 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.app.mkdir(parents=True)
         (self.root / "app-support/bottle/dosdevices").mkdir(parents=True)
 
-    def gate(self, suite="full"):
-        return ci.RuntimeGate(self.app, self.root / "evidence", suite=suite)
+    def gate(self, suite="full", profile=None):
+        return ci.RuntimeGate(self.app, self.root / "evidence", suite=suite, profile=profile)
 
     def test_log_snapshot_is_bounded_and_preserves_inherited_write_offset(self):
         native_pread = os.pread
@@ -941,8 +943,8 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_full_modeling_driving_toolbox_uses_two_modes(self):
         self.assert_shared_sequence("full")
 
-    def test_isolated_sets_prepare_once_and_require_both_full_modes(self):
-        gate = self.gate("full")
+    def test_hidden_diagnostics_prepare_once_and_run_full_only_hidden(self):
+        gate = self.gate(profile="hidden-full")
         self.install_modeling_samples(gate.prefix)
         _, assembly = ci.modeling_samples(gate.prefix)
         assembly.with_suffix(".slddrw").write_bytes(b"drawing fixture")
@@ -965,12 +967,118 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "capture_sw_window"), patch.object(gate, "collect_startup_evidence"), \
                 patch.object(gate, "collect_evidence") as collect:
             gate.run()
-        prepare.assert_called_once_with("visible")
-        self.assertEqual(calls.call_count, 2)
-        self.assertEqual([call.args for call in collect.call_args_list], [("visible",), ("hidden",)])
+        prepare.assert_called_once_with("hidden")
+        self.assertEqual(calls.call_count, 1)
+        self.assertEqual([call.args for call in collect.call_args_list], [("hidden",)])
         self.assertTrue(gate.record["completed"])
-        self.assertEqual(set(gate.record["functional_sets"]), {"visible", "hidden"})
+        self.assertEqual(set(gate.record["functional_sets"]), {"hidden"})
+        self.assertEqual(gate.record["profile"], "hidden-full")
         self.assertEqual(gate.record["session_policy"], "fresh-per-test-set")
+
+    def test_visible_smoke_is_the_default_and_needs_only_a_part(self):
+        gate = ci.RuntimeGate(self.app, self.root / "evidence")
+        part, assembly = self.install_modeling_samples(gate.prefix)
+        assembly.unlink()  # Neither assembly nor drawing is required for smoke.
+        host = {"process_id": 123, "platform": "macos-wine", "visible": True,
+                "owned_by_daemon": True, "shared_interactive": False}
+        def command(args, **kwargs):
+            self.assertEqual(Path(args[1]).name, ci.VISIBLE_GATE)
+            self.assertEqual(kwargs["timeout"], ci.VISIBLE_TIMEOUT_SECONDS)
+            self.assertEqual(args[args.index("--sample-part") + 1], "Q:\\part")
+            self.assertNotIn("--suite", args)
+            self.assertNotIn("--sample-assembly", args)
+            output = Path(args[args.index("--output-dir") + 1])
+            (output / "visible.json").write_text(json.dumps({
+                "state": "completed", "success": True, "profile": "visible-open",
+                "request_timeout_seconds": 120,
+                "cleanup_errors": [], "host": host, "host_after": host}))
+        with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "start", return_value=host) as start, \
+                patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command) as calls, \
+                patch.object(gate, "windows_path", return_value="Q:\\part") as mapping, \
+                patch.object(gate, "capture_sw_window"), patch.object(gate, "collect_evidence") as collect, \
+                patch.object(gate, "finish_visible_daemon") as finish:
+            gate.run()
+        self.assertEqual(gate.modes, ("visible",))
+        start.assert_called_once_with("visible")
+        mapping.assert_called_once_with(part)
+        finish.assert_called_once_with()
+        collect.assert_called_once_with("visible")
+        self.assertEqual(calls.call_count, 1)
+        self.assertTrue(gate.record["completed"])
+        self.assertEqual(gate.record["coverage"], {"visible": "read-only-open-inspect-close"})
+        self.assertIsNone(gate.record["suite"])
+        self.assertEqual(gate.record["budgets_seconds"]["request"], 120)
+        self.assertEqual(gate.record["budgets_seconds"]["shared_gates"], {})
+        self.assertNotIn("functional_sets", gate.record)
+
+    def test_visible_smoke_rejects_incomplete_or_changed_host_evidence(self):
+        host = {"process_id": 123, "platform": "macos-wine", "visible": True,
+                "owned_by_daemon": True, "shared_interactive": False}
+        good = {"state": "completed", "success": True, "profile": "visible-open",
+                "cleanup_errors": [], "host": host, "host_after": host}
+        cases = [{"success": False}, {"state": "running"}, {"profile": "other"},
+                 {"cleanup_errors": ["failure"]}, {"host": None},
+                 *[{"host_after": dict(host, **change)} for change in (
+                     {"process_id": 124}, {"visible": False}, {"owned_by_daemon": False},
+                     {"shared_interactive": True}, {"platform": "windows"})]]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                gate = self.gate(profile="visible-smoke")
+                self.install_modeling_samples(gate.prefix)
+                def command(args, **kwargs):
+                    output = Path(args[args.index("--output-dir") + 1])
+                    (output / "visible.json").write_text(json.dumps(dict(good, **changes)))
+                with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "start", return_value=host), \
+                        patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command), \
+                        patch.object(gate, "windows_path", return_value="Q:\\part"), \
+                        patch.object(gate, "capture_sw_window") as capture, \
+                        patch.object(gate, "collect_evidence") as collect, \
+                        patch.object(gate, "finish_visible_daemon") as finish:
+                    with self.assertRaisesRegex(RuntimeError, "visible smoke evidence did not pass"):
+                        gate.run()
+                finish.assert_not_called()
+                collect.assert_called_once_with("visible")
+                self.assertIn(unittest.mock.call("visible", "failure"), capture.call_args_list)
+                self.assertFalse(gate.record["completed"])
+                gate.record_path.unlink()
+                (gate.prefix / "dosdevices/m:").unlink()
+
+    def test_visible_exit_requires_normal_daemon_and_absent_sw(self):
+        gate = self.gate(profile="visible-smoke")
+        daemon = unittest.mock.Mock(returncode=0)
+        daemon.wait.return_value = 0
+        gate.foreground = daemon
+        with patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="")):
+            gate.finish_visible_daemon()
+        daemon.wait.assert_called_once_with(timeout=90)
+        self.assertEqual(gate.record["server_exit_code"], 0)
+        self.assertTrue(gate.record["host_process_exited"])
+        self.assertIsNone(gate.foreground)
+
+    def test_visible_exit_rejects_abnormal_daemon_or_surviving_sw(self):
+        gate = self.gate(profile="visible-smoke")
+        daemon = unittest.mock.Mock(returncode=1)
+        daemon.wait.return_value = 1
+        gate.foreground = daemon
+        with self.assertRaisesRegex(RuntimeError, "did not exit normally"):
+            gate.finish_visible_daemon()
+        daemon.wait.return_value = 0
+        daemon.returncode = 0
+        output = "123 10.0 0:01.0 1234 R C:\\Program Files\\SOLIDWORKS\\SLDWORKS.exe\n"
+        with patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output)), \
+                patch.object(ci.time, "monotonic", side_effect=[0, 31]):
+            with self.assertRaisesRegex(RuntimeError, "survived daemon shutdown"):
+                gate.finish_visible_daemon()
+        self.assertNotIn("host_process_exited", gate.record)
+
+    def test_profile_sensitive_preflight_checks_only_visible_by_default(self):
+        with patch.object(sys, "argv", ["verify-runtime.py", "--check-shared-gates"]), \
+                patch.object(ci, "shared_visible_gate") as visible, \
+                patch.object(ci, "shared_sets_gate") as sets, patch.object(ci, "shared_gates") as cad:
+            ci.main()
+        visible.assert_called_once_with()
+        sets.assert_not_called()
+        cad.assert_not_called()
 
     def test_isolated_sets_reject_truncated_success_and_collect_failure(self):
         gate = self.gate("core")
@@ -1013,14 +1121,14 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_matrix_full_mode_selection_preserves_coverage_and_budget(self):
         for mode in ("visible", "hidden"):
             with self.subTest(mode=mode):
-                gate = ci.RuntimeGate(self.app, self.root / "evidence", suite="full", mode=mode)
+                gate = ci.RuntimeGate(self.app, self.root / "evidence", suite="full", mode=mode, profile=None)
                 self.assertEqual(gate.modes, (mode,))
                 self.assertEqual(gate.record["coverage"], {mode: "full"})
                 self.assertEqual(gate.timeouts["driving"], 12600)
                 gate.record_path.unlink()
                 (gate.prefix / "dosdevices/m:").unlink()
         with self.assertRaises(ValueError):
-            ci.RuntimeGate(self.app, self.root / "evidence", suite="core", mode="hidden")
+            ci.RuntimeGate(self.app, self.root / "evidence", suite="core", mode="hidden", profile=None)
         with self.assertRaises(ValueError):
             ci.RuntimeGate(self.app, self.root / "evidence", mode="other")
 

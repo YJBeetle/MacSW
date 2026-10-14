@@ -5,18 +5,25 @@
 使用 GitHub 托管的 Apple Silicon
 `macos-14` runner、仓库固定版本的 Wine/Mono/SWCLI，以及打包后的 App。
 `runtime_stage=install` 只执行真实安装和私有夹具准备，不等待共享建模入口；
-`runtime_stage=full` 再顺序执行共享运行验证。工作流不响应 PR，且 job 层再次限制事件类型。
+`runtime_stage=full` 表示执行选定运行测试，并不表示 CAD full 档。
+工作流不响应 PR，且 job 层再次限制事件类型。
 带私有资源的验证只允许本仓库 `master` push 或 master 的手动选择执行，fork、PR
 或其他 ref 不能执行。tag 发布仍只构建和打包，不调用私有安装/运行步骤。
-push 使用默认介质、夹具、简体中文和 `full` 阶段；没有手动输入也不会跳过共享门禁。
+push 使用默认介质、夹具、简体中文和 `full` 阶段，运行轻量可见冒烟。
 
-阶段和覆盖档位是两个独立选项：`runtime_stage=full` 表示运行 CAD 门禁；
-`runtime_suite=core|full` 决定覆盖范围。普通 master push 使用 core，仅跑可见模式；
-手动完整验收选 full，保留可见／隐藏两轮，在一个 runner job 的同一已部署容器中依次执行。
-两档均在每个模式内部顺序运行建模、尺寸、Toolbox，
-每组启动新的 CLI daemon／SW，会核对独占归属、不同 PID 和文档清场，组内不重启。
-失败续用→Front 直径的跨脚本检查保留同一宿主。core 将重复的尺寸协议反例集中在
-Front，Top／Right 仍验证几何。签名任务只接受同一提交的 full 双模式成功结果。
+`runtime_profile` 有两个互斥入口，替代原来的 `runtime_suite`：
+
+- `visible-smoke`（默认）：独立共享 `verify-visible.py` 入口。新建独占可见
+  CLI／SW 会话，只读打开官方 Part、inspect、关闭并确认空文档，正常停止 daemon，
+  然后确认 SW 进程消失。不创建模型、不重建、不保存、不导出、不运行尺寸或 Toolbox。
+- `hidden-full`（仅手动）：共享 `verify-runtime-sets.py --suite full --mode hidden`，
+  只跑隐藏完整 17 组。每组启动新的 CLI／SW，会核对归属、不同 PID 和文档清场，
+  组内不重启；失败续用→Front 直径保留同一宿主。
+
+两类运行复用构建、安装基底缓存和证据清理，但采用不同并发队列；
+不重复两模式 CAD 全套，也不复制安装脚本。隐藏档是诊断测试，
+不作为签名／公证前置条件；失败不重试、不静默忽略。
+签名只接受同一提交成功的轻量可见构建输入，仍校验可信来源和产物完整性。
 
 ## 构建与运行分离
 
@@ -67,11 +74,11 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    `sldProcMon.exe`（可逆重命名，与 DockerSW 相同），记录 VC++ 模块大小、哈希和
    Wine builtin/placeholder 标记，并将 Mono 的宿主路径按实际映射重新绑定，再
    启动打包 `sw-cli daemon serve`，等待健康检查确认 COM 主机就绪。
-6. 调用共享 `verify-runtime-sets.py`，core 11 组、full 17 组，按方面分脚本。
+6. 默认调用独立 `verify-visible.py`，只需要官方 Part，不要求装配体或 drawing
+   样例存在。核对共享成功证据和前后宿主 PID／归属／可见性；停止确认不代替退出证明。
+7. 手动隐藏档改为调用 `verify-runtime-sets.py`，full 17 组，按方面分脚本。
    每组使用新的 CLI／SW 会话，组内核对同一宿主身份并保留全部原生断言。
-   失败不重试，也不以重启跳过；未知文档、错误归属或异常退出阻止后续组。
-7. full 在同一 runner、同一隔离容器继续执行隐藏模式的相同 17 组；
-   不重新安装或部署。两模式都必须通过；任一失败终止本次验收并收集证据。
+   不重新安装或部署；失败不重试，也不以重启跳过；未知文档、错误归属或异常退出阻止后续组。
 8. 无论成功或失败，都停止隔离 Wine server、弹出本次 ISO、卸载 rclone NFS，
    删除本地 VFS 稀疏缓存、验证资源、临时 App
    和整个测试容器。只上传通过最终发布检查的测试 JSON、daemon 日志、白名单安装日志和 CAD 阶段截图。
@@ -83,7 +90,7 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
 都会使运行门禁失败。八组结果写入 `runtime.json` 的 `bitmap_driver`。
 探针从仓库 C 源码构建，随原有 helper tar 传递，仅注入临时 CI App，不进入
 发布 App zip。它验证 MacSW 图形驱动，不复制 SWCLI 的 CAD 操作或几何断言；
-通过原生探针也不能代替后续共享建模/尺寸门禁。
+通过原生探针也不能代替所选共享可见冒烟或隐藏 CAD 测试。
 
 宿主命令通过私有匿名临时文件接收 stdout/stderr，单独等待直接子进程退出，
 不等待 Wine 后台进程关闭继承的日志管道。每条命令记录 `unix_pid`、真实
@@ -103,7 +110,7 @@ Wine 原有主显示器加速请求、任意加速 renderer、自动选择和指
 legacy 加速格式不存在时尝试 Apple 软件 renderer，不将 core 请求降为 legacy，
 也不更改 SW 的“软件 OpenGL”选项。位图探针额外核对真实 renderer、GL 版本及
 WGL 加速属性；软件格式必须报告 `PFD_GENERIC_FORMAT` / `WGL_NO_ACCELERATION_ARB`。
-这不会跳过八组像素门禁，后续共享建模→尺寸仍须在同一宿主顺序通过。
+这不会跳过八组像素门禁；隐藏诊断的跨脚本续用组仍须在同一宿主顺序通过。
 候选状态、已知风险及验收边界见[软件 renderer 待办](software-renderer-compatibility.md)。
 
 共享入口参数约定：`--output-dir`（本机输出目录）、`--cli-command`（打包后的 CLI）、
@@ -111,10 +118,9 @@ WGL 加速属性；软件格式必须报告 `PFD_GENERIC_FORMAT` / `WGL_NO_ACCEL
 （同一物理目录的 Wine 可见路径）。
 输出目录在容器 `drive_c` 内；本机与 Wine 必须看到同一批模型与 JSON，不能只给
 两侧分别建立独立目录。每次共享入口结束或失败后，再将白名单文件复制到上传证据目录。
-SWCLI 固定提交为 `145fcbbaf748a53d0eee1ad5be47a571a1098a6e`（`0.1.0a9` 开发版本，
-不是已发布版本；以
-`config/versions.env` 与子模块的成对固定为准），沿用 DockerSW 的共享
-门禁调用顺序。建模和尺寸门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
+SWCLI 固定版本以 `config/versions.env` 与子模块的成对固定为准；
+本次同步独立可见冒烟入口，但 MacSW 不沿用 Windows／DockerSW 默认隐藏 full 策略。
+隐藏档的建模和尺寸门禁使用明确的十分钟租约，并在写操作、预期拒绝断言及关闭前
 续租；尺寸门禁的协议和 CLI 写操作均覆盖。此修改针对慢调用导致租约过期的测试问题，
 不改变 daemon 默认期限、原生断言或命令超时，也不重试过期/失败操作。
 续用检查组的尺寸入口额外传入 `--after-modeling` 指向同组的成功 `modeling.json`，
@@ -123,9 +129,11 @@ SWCLI 固定提交为 `145fcbbaf748a53d0eee1ad5be47a571a1098a6e`（`0.1.0a9` 开
 
 ## 有限预算与截图
 
-单请求仍为 600 秒，每组 CAD 期限 1800 秒，启动单独限制 300 秒。
-core 全部测试组共享 13800 秒总预算，full 可见／隐藏两轮共享 19200 秒，
-不是每组或每模式重新获得全轮预算。workflow 步骤分别最多 240／330 分钟。
+可见冒烟共享入口的外层预算为 900 秒，workflow 步骤最多 30 分钟；
+共享可见入口沿用其原有单请求预算，不改变产品默认值。
+隐藏诊断单请求为 600 秒，每组 CAD 期限 1800 秒，启动单独限制 300 秒。
+full 全部隐藏测试组共享 19200 秒总预算，不是每组重新获得全轮预算；
+workflow 隐藏步骤最多 330 分钟。
 一个 runtime job 仍最多 360 分钟，
 安装等前置步骤也占用该全局预算；全新安装不保证能用完所有阶段的独立上限。
 这些限制与会话隔离不证明软件渲染内存积累已修复；不删断言、不重试、不在组内换宿主。
@@ -138,7 +146,7 @@ renderer，不以请求参数冒充真实选择。本机诊断也可设置 `MACS
 按仓库所有者授权，CAD 阶段截图使用 GitHub 托管 runner 的主显示器全屏，
 以保留额外弹窗、遮挡和宿主退出后的桌面。观察到新组宿主时尝试截图，模式结束或失败时截图，长步骤
 每 300 秒追加一张；每模式最多 64 次尝试，预留结束和失败截图名额。
-只在已确认 daemon 独占宿主的公开 CAD test-sets 阶段启用，
+只在已确认 daemon 独占宿主的公开可见冒烟或 CAD test-sets 阶段启用，
 安装、许可、凭据设置不截图。截图工具限制 15 秒，适配层限制 20 秒；
 不可用或无屏幕权限只记录诊断缺口，不改变 CAD 原始结果、不交互请求权限。
 
@@ -170,7 +178,9 @@ JSON 文件且完整等于该清单，然后才比较所有目标 payload 的路
 离线回归用真实同步器与 CI 校验器复现并覆盖此接口漂移；修复本身不代表真实
 Toolbox 运行已通过，也不通过更新 SWCLI 指针绕过文件一致性检查。
 
-### 托管机器的时间预算
+### 托管机器的时间预算（历史连续门禁）
+
+以下描述 2026-10-10 的历史配置；当前两档的实际预算见上面的“有限预算与截图”。
 
 共享测试接受 `--request-timeout`（秒），默认仍为 120；MacSW CI 明确传入
 300，让托管软件渲染和慢 COM 调用有更多余量。CLI 和直接协议请求使用同一
@@ -369,7 +379,7 @@ OS errno，以及缺失/新增/变更数量和变更字段。样例路径仅保�
 
 ## 触发与验证边界
 
-本仓库 master 的相关源码/配置/工作流 push 自动执行完整验证；不相关文档改动不触发。
+本仓库 master 的相关源码/配置/工作流 push 自动执行轻量可见验证；不相关文档改动不触发。
 在 Actions 中选择该工作流，勾选 `verify_solidworks`，确认 Drive 介质与夹具路径。
 CLI 等效调用：
 
@@ -378,8 +388,9 @@ gh workflow run build-app.yml --repo YJBeetle/MacSW --ref master \
   -f verify_solidworks=true -f runtime_stage=install -f language=chinese-simplified
 ```
 
-将 `runtime_stage` 改为 `full`，并设置 `-f runtime_suite=full` 执行双模式完整验收；
-调试日常档可设置 `-f runtime_suite=core`，但结果不能用于签名发布。
+将 `runtime_stage` 改为 `full` 默认执行轻量可见冒烟，可作为同提交的签名构建输入。
+需要隐藏完整诊断时追加 `-f runtime_profile=hidden-full`，不运行可见完整组，
+也不影响其他轻量运行的签名／公证资格。需要软件渲染对照时追加 `-f runtime_renderer=software`。
 首次安装或排查安装回归时可追加 `-f force_fresh_install=true`。
 
 首轮 [run 37694344157](https://github.com/YJBeetle/MacSW/actions/runs/37694344157)

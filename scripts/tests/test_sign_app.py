@@ -187,15 +187,15 @@ class SigningInventoryTests(unittest.TestCase):
 
 
 class SigningProvenanceTests(unittest.TestCase):
-    def full_jobs(self):
+    def smoke_jobs(self):
         return [{"name": "Build & package", "conclusion": "success"},
             {"name": "SOLIDWORKS installation & runtime", "conclusion": "success",
-             "steps": [{"name": "Shared isolated functional test sets (full, visible+hidden)",
+             "steps": [{"name": "Lightweight visible SOLIDWORKS smoke",
                         "conclusion": "success"}]}]
 
     def test_corrupt_download_rejected_before_extracting(self):
         with tempfile.TemporaryDirectory() as directory:
-            jobs = self.full_jobs()
+            jobs = self.smoke_jobs()
             artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False, "digest": "sha256:" + "a" * 64}
             destination = Path(directory) / "download"
             def download(args, **kwargs):
@@ -246,8 +246,8 @@ class SigningProvenanceTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 source.validate_run(dict(record, **{field: value}), "a" * 40)
 
-    def test_full_gate_required_not_skipped_install_only(self):
-        jobs = self.full_jobs()
+    def test_visible_smoke_required_not_skipped_install_only(self):
+        jobs = self.smoke_jobs()
         source.validate_jobs(jobs)
         for conclusion in ("skipped", "failure", "cancelled", None):
             jobs[1]["steps"][0]["conclusion"] = conclusion
@@ -259,36 +259,48 @@ class SigningProvenanceTests(unittest.TestCase):
     def test_missing_failed_or_duplicate_mode_cannot_authorize_signing(self):
         for index in (1,):
             for conclusion in ("failure", "skipped", "cancelled", None):
-                jobs = self.full_jobs()
+                jobs = self.smoke_jobs()
                 jobs[index]["conclusion"] = conclusion
                 with self.subTest(index=index, conclusion=conclusion), self.assertRaises(RuntimeError):
                     source.validate_jobs(jobs)
-            jobs = self.full_jobs()
+            jobs = self.smoke_jobs()
             with self.assertRaises(RuntimeError):
                 source.validate_jobs(jobs[:index] + jobs[index + 1:])
             with self.assertRaises(RuntimeError):
                 source.validate_jobs(jobs + [jobs[index]])
 
-    def test_successful_jobs_still_require_matching_full_steps(self):
+    def test_successful_jobs_still_require_exact_smoke_step(self):
         for index in (1,):
-            jobs = self.full_jobs()
-            jobs[index]["steps"][0]["name"] = jobs[index]["steps"][0]["name"].replace("(full,", "(core,")
+            jobs = self.smoke_jobs()
+            jobs[index]["steps"][0]["name"] = "Diagnostic hidden full CAD tests (not a signing gate)"
             with self.subTest(index=index), self.assertRaises(RuntimeError):
                 source.validate_jobs(jobs)
-            jobs = self.full_jobs()
+            jobs = self.smoke_jobs()
             jobs[index]["steps"] *= 2
             with self.assertRaises(RuntimeError):
                 source.validate_jobs(jobs)
 
-    def test_core_or_single_mode_cannot_authorize_signing(self):
+    def test_legacy_or_diagnostic_steps_cannot_replace_visible_smoke(self):
         for name in ("Shared modeling, driving dimensions and Toolbox on one host (core, visible)",
                      "Shared modeling, driving dimensions and Toolbox on one host (full, visible)",
-                     "Shared modeling, driving dimensions and Toolbox on one host"):
+                     "Shared modeling, driving dimensions and Toolbox on one host",
+                     "Shared isolated functional test sets (full, visible+hidden)",
+                     "Diagnostic hidden full CAD tests (not a signing gate)"):
             jobs = [{"name": "Build & package", "conclusion": "success"},
                     {"name": "SOLIDWORKS installation & runtime", "conclusion": "success",
                      "steps": [{"name": name, "conclusion": "success"}]}]
-            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, "full visible/hidden"):
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, "visible smoke"):
                 source.validate_jobs(jobs)
+
+    def test_hidden_diagnostic_result_is_not_consulted(self):
+        jobs = self.smoke_jobs()
+        jobs[1]["steps"].append({"name": "Diagnostic hidden full CAD tests (not a signing gate)",
+                                 "conclusion": "skipped"})
+        source.validate_jobs(jobs)
+        # A separate diagnostic run (including failure) is not fetched by this
+        # helper. The selected lightweight build must still succeed as a run.
+        record = self.run_record()
+        source.validate_run(record, record["head_sha"])
 
     def test_exact_unexpired_artifact_requires_sha256(self):
         artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False, "digest": "sha256:" + "a" * 64}

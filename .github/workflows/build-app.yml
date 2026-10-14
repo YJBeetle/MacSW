@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       verify_solidworks:
-        description: 'Fresh install and real MacSW Wine/SOLIDWORKS runtime gates'
+        description: 'Install/restore SOLIDWORKS and run the selected runtime tests'
         type: boolean
         default: false
       runtime_stage:
-        description: 'Installation only, or installation plus shared runtime gates'
+        description: 'Installation only, or installation plus runtime tests'
         type: choice
         options:
           - install
@@ -18,11 +18,11 @@ on:
         description: 'Ignore the clean installed-base cache and exercise installation again'
         type: boolean
         default: false
-      runtime_suite:
-        description: 'Core daily regression or full pre-release CAD coverage'
+      runtime_profile:
+        description: 'Visible smoke (default), or hidden full diagnostics independent of signing'
         type: choice
-        options: [core, full]
-        default: full
+        options: [visible-smoke, hidden-full]
+        default: visible-smoke
       runtime_renderer:
         description: 'Default hardware-first policy or explicit software-renderer diagnostics'
         type: choice
@@ -81,7 +81,7 @@ jobs:
     permissions:
       contents: write # Existing tag release upload; runtime fixtures are never released.
     concurrency:
-      group: macsw-build-${{ github.ref }}
+      group: macsw-build-${{ github.ref }}-${{ inputs.runtime_profile || 'visible-smoke' }}
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
@@ -249,7 +249,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: macsw-solidworks-runtime
+      group: macsw-solidworks-runtime-${{ inputs.runtime_profile || 'visible-smoke' }}
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
@@ -267,12 +267,13 @@ jobs:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
           MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage || 'full' }}
+          MACSW_RUNTIME_PROFILE: ${{ inputs.runtime_profile || 'visible-smoke' }}
         run: |
           test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
           test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
           test "$(uname -m)" = arm64
           if test "$MACSW_RUNTIME_STAGE" = full; then
-            python3 scripts/ci/verify-runtime.py --check-shared-gates
+            python3 scripts/ci/verify-runtime.py --check-shared-gates --profile "$MACSW_RUNTIME_PROFILE"
           fi
           # Only accessed ISO ranges are fetched through the read-only NFS mount.
           # Local bottle is about 8.3 GiB; leave room for VFS blocks and fixtures.
@@ -399,14 +400,25 @@ jobs:
           export MACSW_CI_ASSETS="$RUNNER_TEMP/MacSW-runtime/private/assets"
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
-      - name: Shared isolated functional test sets (${{ inputs.runtime_suite || 'core' }}, ${{ inputs.runtime_suite == 'full' && 'visible+hidden' || 'visible' }})
-        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full'
-        timeout-minutes: ${{ inputs.runtime_suite == 'full' && 330 || 240 }}
+      - name: Lightweight visible SOLIDWORKS smoke
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && (inputs.runtime_profile || 'visible-smoke') == 'visible-smoke'
+        timeout-minutes: 30
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
             --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
-            --suite '${{ inputs.runtime_suite || 'core' }}' \
+            --profile visible-smoke \
+            --renderer '${{ inputs.runtime_renderer || 'auto' }}'
+
+      # A separate manual run/queue, never a prerequisite of signing or pushes.
+      - name: Diagnostic hidden full CAD tests (not a signing gate)
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && github.event_name == 'workflow_dispatch' && (inputs.runtime_stage || 'full') == 'full' && inputs.runtime_profile == 'hidden-full'
+        timeout-minutes: 330
+        run: |
+          .venv/bin/python scripts/ci/verify-runtime.py \
+            --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
+            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
+            --profile hidden-full \
             --renderer '${{ inputs.runtime_renderer || 'auto' }}'
 
       - name: Stop isolated runtime test bottle

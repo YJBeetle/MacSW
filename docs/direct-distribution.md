@@ -31,10 +31,14 @@ Developer 角色即可，账户需开启双重认证后生成 App 专用密码�
 配置 Environment 保护后再存入 Secrets，导出私钥须由账号持有人确认。
 参考 [GitHub 临时钥匙串流程](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)。
 
-首次运行：同一个 master 提交先完成 Build & Package 的完整运行门禁，
-选择 `verify_solidworks=true`、`runtime_stage=full`、`runtime_suite=full`，
-必须通过一个 runtime job 内的 `full, visible+hidden` 共享测试组步骤；
-缺失、失败、跳过或重复的 job／步骤均拒绝。普通 push 的 core 日常档不能作为签名输入。
+首次运行：同一个 master 提交先完成 Build & Package 的轻量可见冒烟，
+普通 master push 默认执行；手动选择 `verify_solidworks=true`、
+`runtime_stage=full`、`runtime_profile=visible-smoke` 也可。
+必须通过 runtime job 的 `Lightweight visible SOLIDWORKS smoke` 步骤；
+缺失、失败、跳过或重复的 job／步骤均拒绝。只构建或只安装成功不算通过。
+`runtime_profile=hidden-full` 是独立手动诊断，结果不作为签名／公证的前置条件，
+也不能拿该运行的构建产物替代轻量构建输入。签名仍检查选定轻量 run 成功、
+同一提交、可信来源及产物哈希；它不查询其他诊断 run。
 再手动运行 Developer ID Direct Distribution，传入该 build run ID。
 不接受其他提交、fork、PR、失败构建、仅安装验证或过期产物；核对服务端
 artifact SHA-256 后才解开 App ZIP。仍未配置凭据时流程应失败，不退化为
