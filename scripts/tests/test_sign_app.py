@@ -172,6 +172,25 @@ class SigningInventoryTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 signing.sign(self.app, identity, team, Path("unused"), PROJECT / "resources/signing")
 
+    def test_resolved_certificate_fingerprint_is_used_without_relaxing_policy(self):
+        calls = []
+        with patch.object(signing, "command", side_effect=lambda args: calls.append(args) or b""), \
+                patch.object(signing, "verify_payload"), patch.object(signing, "refresh_signed_hashes"), \
+                patch.object(signing, "verify") as verify, contextlib.redirect_stdout(io.StringIO()):
+            signing.sign(self.app, "Developer ID Application: Fixture", "ABCDEFGHIJ", Path("private.keychain-db"),
+                         PROJECT / "resources/signing", identity_sha1="a" * 40)
+        for args in calls:
+            self.assertEqual(args[args.index("--sign") + 1], "a" * 40)
+            self.assertIn("--timestamp", args)
+            self.assertIn("runtime", args)
+            self.assertNotIn("--deep", args)
+        verify.assert_called_once_with(self.app, "ABCDEFGHIJ")
+        with patch.object(signing, "command") as command:
+            with self.assertRaisesRegex(RuntimeError, "fingerprint"):
+                signing.sign(self.app, "Developer ID Application: Fixture", "ABCDEFGHIJ", Path("private"),
+                             PROJECT / "resources/signing", identity_sha1="not-a-certificate")
+            command.assert_not_called()
+
     def test_signature_checks_team_developer_id_timestamp_runtime(self):
         good = b"Authority=Developer ID Application: Fixture\nTeamIdentifier=ABCDEFGHIJ\nTimestamp=Oct 11\nCodeDirectory v=20500 flags=0x10000(runtime)\n"
         signing.validate_details(good, "ABCDEFGHIJ")
@@ -456,6 +475,7 @@ class CredentialTests(unittest.TestCase):
                     patch.object(notary, "cleanup") as cleanup, \
                     patch.object(notary.sign_app, "inventory"), patch.object(notary.sign_app, "verify_payload"), \
                     patch.object(notary.sign_app, "sign", return_value=[]), patch.object(notary.sign_app, "verify"), \
+                    patch.object(notary, "inspect_signing_identity", return_value="a" * 40), \
                     patch.object(notary, "run", side_effect=command), \
                     patch.object(notary.subprocess, "run", return_value=SimpleNamespace(
                         returncode=1, stdout=json.dumps({"id": "fixture-id", "status": "Invalid"}).encode())):
@@ -533,17 +553,55 @@ class CredentialTests(unittest.TestCase):
         record = ('  1) ' + 'A' * 40 + ' "' + public_name + '"\n 1 valid identities found\n').encode()
         output = io.StringIO()
         with patch.object(notary, "run", return_value=record) as run, contextlib.redirect_stdout(output):
-            notary.inspect_signing_identity(Path("/private/credential-directory/keychain"), public_name)
+            fingerprint = notary.inspect_signing_identity(Path("/private/credential-directory/keychain"), public_name)
+        self.assertEqual(fingerprint, "a" * 40)
         run.assert_called_once_with(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning",
                                      Path("/private/credential-directory/keychain")])
         self.assertEqual(json.loads(output.getvalue()), {"event": "macsw.signing-identities",
-                         "valid_identity_count": 1, "selected_identity_present": True})
+                         "valid_identity_count": 1, "selected_identity_present": True, "selected_certificate_count": 1})
         self.assertNotIn(public_name, output.getvalue())
         self.assertNotIn("credential-directory", output.getvalue())
         with patch.object(notary, "run", return_value=b"0 valid identities found"), \
                 contextlib.redirect_stdout(output := io.StringIO()):
-            notary.inspect_signing_identity(Path("private"), public_name)
+            with self.assertRaisesRegex(RuntimeError, "Exactly one"):
+                notary.inspect_signing_identity(Path("private"), public_name)
         self.assertFalse(json.loads(output.getvalue())["selected_identity_present"])
+
+    def test_ambiguous_configured_identity_fails_without_guessing(self):
+        identity = "Developer ID Application: Fixture"
+        record = ('1) ' + 'a' * 40 + ' "' + identity + '"\n2) ' + 'b' * 40 + ' "' + identity + '"').encode()
+        output = io.StringIO()
+        with patch.object(notary, "run", return_value=record), contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "Exactly one"):
+                notary.inspect_signing_identity(Path("private"), identity)
+        self.assertEqual(json.loads(output.getvalue())["selected_certificate_count"], 2)
+        self.assertNotIn(identity, output.getvalue())
+
+    def test_cleanup_accepts_only_this_keychains_native_lock(self):
+        self.assertEqual(notary.keychain_lock_name("signing.keychain-db"), ".flD3051040")
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):
+            directory = Path(temporary) / "macsw-signing-credentials"
+            directory.mkdir()
+            keychain = directory / "signing.keychain-db"
+            keychain.write_text("private")
+            lock = directory / ".flD3051040"
+            lock.write_text("private")
+            with patch.object(notary.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                notary.cleanup(directory)
+            run.assert_called_once_with(["/usr/bin/security", "delete-keychain", str(keychain)],
+                                        capture_output=True, timeout=30)
+            self.assertFalse(directory.exists())
+            for name, symlink in ((".fl12345678", False), (".flD3051040", True)):
+                directory.mkdir()
+                path = directory / name
+                path.symlink_to("/missing/private") if symlink else path.write_text("preserve")
+                with patch.object(notary.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(RuntimeError, "Unexpected entry"):
+                        notary.cleanup(directory)
+                run.assert_not_called()
+                path.unlink()
+                directory.rmdir()
 
     def test_cleanup_reports_sidecar_type_without_widening_deletion_allowlist(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):

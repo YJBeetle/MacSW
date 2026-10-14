@@ -160,7 +160,8 @@ def codesign_errors(stderr):
     # credential-looking data. Unrecognized errors remain explicit gaps.
     text = (stderr.decode(errors="replace") if isinstance(stderr, bytes) else (stderr or "")).lower()
     patterns = {
-        "identity-not-found": ("no identity found", "specified item could not be found in the keychain"),
+        "identity-not-found": ("no identity found",),
+        "keychain-item-not-found": ("specified item could not be found in the keychain",),
         "identity-not-usable": ("this identity cannot be used for signing code",),
         "keychain-internal-error": ("errsecinternalcomponent",),
         "keychain-interaction-denied": ("user interaction is not allowed",),
@@ -223,11 +224,13 @@ def verify(app, team):
     return entries
 
 
-def sign(app, identity, team, keychain, entitlement_dir):
+def sign(app, identity, team, keychain, entitlement_dir, *, identity_sha1=None):
     if not re.fullmatch(r"[A-Z0-9]{10}", team):
         raise RuntimeError("Invalid Developer Team ID")
     if not identity.startswith("Developer ID Application:"):
         raise RuntimeError("Direct Distribution requires a Developer ID Application identity")
+    if identity_sha1 is not None and not re.fullmatch(r"[A-Fa-f0-9]{40}", identity_sha1):
+        raise RuntimeError("Invalid resolved signing certificate fingerprint")
     entries = inventory(app)
     verify_payload(app)  # Verify pre-signing provenance before changing hashes.
     for policy, expected in ENTITLEMENTS.items():
@@ -236,7 +239,7 @@ def sign(app, identity, team, keychain, entitlement_dir):
     def sign_one(target, policy):
         print(json.dumps({"event": "macsw.signing-target", "policy": policy,
                           "target": target.relative_to(app).as_posix() if target != app else "<outer-app>"}), flush=True)
-        command(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", keychain,
+        command(["/usr/bin/codesign", "--force", "--sign", identity_sha1 or identity, "--keychain", keychain,
                  "--options", "runtime", "--timestamp", "--entitlements",
                  entitlement_dir / (policy + ".plist"), target])
         print("signed " + str(target.relative_to(app)) if target != app else "signed outer App", flush=True)

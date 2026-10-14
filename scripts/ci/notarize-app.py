@@ -5,6 +5,7 @@ the App, output directory or logs. All secret command output is suppressed.
 """
 import argparse
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,18 +71,23 @@ def cleanup(directory):
         raise RuntimeError("Refusing cleanup outside the private signing directory")
     if not directory.exists():
         return
+    # Apple Security's AtomicFile names a local keychain lock from the first
+    # four SHA-1 bytes of the DB basename. Admit exactly our own lock, not a
+    # wildcard of arbitrary sidecars. delete-keychain normally removes it.
+    lock_name = keychain_lock_name("signing.keychain-db")
+    allowed_names = ("certificate.p12", "AuthKey.p8", "signing.keychain-db", lock_name)
     paths = list(directory.iterdir())
     inventory = []
     for path in sorted(paths):
         mode = path.lstat().st_mode  # Diagnostics must not follow links.
-        known_name = path.name in ("certificate.p12", "AuthKey.p8", "signing.keychain-db")
+        known_name = path.name in allowed_names
         keychain_name = re.fullmatch(r"signing\.keychain(?:-db)?(?:[.-][A-Za-z0-9_-]{1,80})*", path.name)
         inventory.append({"name": path.name if known_name or keychain_name else "<unrecognized>",
                           "kind": "symlink" if stat.S_ISLNK(mode) else "file" if stat.S_ISREG(mode)
                                   else "directory" if stat.S_ISDIR(mode) else "other"})
     print(json.dumps({"event": "macsw.credential-cleanup-inventory", "entries": inventory}), flush=True)
     for path in paths:
-        if (path.name not in ("certificate.p12", "AuthKey.p8", "signing.keychain-db")
+        if (path.name not in allowed_names
                 or path.is_symlink() or not path.is_file()):
             raise RuntimeError("Unexpected entry in signing credentials directory")
     keychain = directory / "signing.keychain-db"
@@ -95,6 +101,11 @@ def cleanup(directory):
         if path.exists():
             path.unlink()
     directory.rmdir()
+
+
+def keychain_lock_name(basename):
+    # https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_filedb/lib/AtomicFile.cpp
+    return ".fl" + hashlib.sha1(basename.encode("utf-8")).hexdigest()[:8].upper()
 
 
 def prepare(directory, values):
@@ -120,9 +131,13 @@ def prepare(directory, values):
 
 def inspect_signing_identity(keychain, identity):
     output = run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning", keychain])
-    names = re.findall(r'^\s*\d+\)\s+[A-Fa-f0-9]{40}\s+"([^"\r\n]+)"', output.decode(errors="replace"), re.M)
-    print(json.dumps({"event": "macsw.signing-identities", "valid_identity_count": len(names),
-                      "selected_identity_present": identity in names}), flush=True)
+    entries = re.findall(r'^\s*\d+\)\s+([A-Fa-f0-9]{40})\s+"([^"\r\n]+)"', output.decode(errors="replace"), re.M)
+    selected = {fingerprint.lower() for fingerprint, name in entries if name == identity}
+    print(json.dumps({"event": "macsw.signing-identities", "valid_identity_count": len(entries),
+                      "selected_identity_present": bool(selected), "selected_certificate_count": len(selected)}), flush=True)
+    if len(selected) != 1:
+        raise RuntimeError("Exactly one valid configured Developer ID identity is required")
+    return selected.pop()
 
 
 def notarize(app, output, team, identity, key_id="", issuer=""):
@@ -141,8 +156,9 @@ def notarize(app, output, team, identity, key_id="", issuer=""):
         auth = store_profile(mode, keychain, key, values, team, key_id, issuer)
         values.clear()
         print("Notarization authentication validated: " + mode, flush=True)
-        inspect_signing_identity(keychain, identity)
-        entries = sign_app.sign(app, identity, team, keychain, PROJECT / "resources/signing")
+        fingerprint = inspect_signing_identity(keychain, identity)
+        entries = sign_app.sign(app, identity, team, keychain, PROJECT / "resources/signing",
+                                identity_sha1=fingerprint)
         (output / "signing-inventory.json").write_text(json.dumps(entries, indent=2) + "\n")
         # Check actual native Python imports and a libffi callback, with no
         # user-site / bytecode writes inside the now sealed bundle.
