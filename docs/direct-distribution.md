@@ -50,7 +50,10 @@ ad-hoc 签名，不跳过公证。
 按实际 Mach-O 头识别 Wine `.so`、Python 扩展、dylib 和通用二进制；Windows
 PE、脚本、普通资源由外层签名封装，不做苹果代码签名。内部相对符号链接
 不会重复签；外部、绝对、损坏的链接以及未知可执行文件/嵌套代码包会拒绝。
-目录布局不变，新增本机可执行程序必须先审查签名策略。
+`sw-cli` 脚本存放在 `Contents/Resources/sw-cli`，原命令入口
+`Contents/MacOS/sw-cli` 是指向它的包内相对符号链接。两处入口的运行时路径
+解析保持一致；不单独给脚本签名或依赖扩展属性保存其签名。签名前 inventory
+拒绝 MacOS 代码目录里的普通非 Mach-O 文件，新增本机可执行程序仍须审查策略。
 
 1. 所有原生库和 Python 扩展先签名，再签辅助可执行程序。
 2. 更新 BuildManifest 的 `WineMacModuleSHA256`、`WineInputModuleSHA256`、

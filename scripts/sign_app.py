@@ -101,7 +101,9 @@ def inventory(app):
             continue
         kind = macho_type(path)
         if kind is None:
-            continue  # Windows PE, scripts and data are sealed by the outer App.
+            if relative.startswith("Contents/MacOS/"):
+                raise RuntimeError("Non-Mach-O file in native code directory; move it to Resources: " + relative)
+            continue  # Scripts in Resources and other data are sealed by the outer App.
         if kind == 2 and relative in EXECUTABLES:
             policy = EXECUTABLES[relative]
         elif kind in (6, 8) and any(relative.startswith(root) for root in LIBRARY_ROOTS):

@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import struct
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -54,12 +56,24 @@ class SigningInventoryTests(unittest.TestCase):
     def test_actual_headers_not_extensions_and_order(self):
         module = "Contents/Frameworks/wine/lib/wine/x86_64-unix/winemac.so"
         self.file(module, thin(6))
-        self.file("Contents/MacOS/sw-cli", b"#!/bin/sh\n")
+        self.file("Contents/Resources/sw-cli", b"#!/bin/sh\n")
+        (self.app / "Contents/MacOS/sw-cli").symlink_to("../Resources/sw-cli")
         self.file("Contents/Frameworks/wine/lib/native-looking.dll", b"MZPE")
         entries = signing.inventory(self.app)
         self.assertEqual(entries[0]["path"], module)
         self.assertEqual(len(entries), len(signing.EXECUTABLES) + 1)
         self.assertEqual(sum(item["policy"] == "wine" for item in entries), 2)
+
+    def test_non_macho_in_macos_directory_is_rejected_before_signing(self):
+        for name, data in (("sw-cli", b"#!/bin/sh\n"), ("data.txt", b"data"), ("helper.exe", b"MZPE")):
+            with self.subTest(name=name):
+                path = self.file("Contents/MacOS/" + name, data)
+                with self.assertRaisesRegex(RuntimeError, "move it to Resources"), \
+                        patch.object(signing, "command") as command:
+                    signing.sign(self.app, "Developer ID Application: Fixture", "ABCDEFGHIJ",
+                                 Path("private"), PROJECT / "resources/signing")
+                command.assert_not_called()
+                path.unlink()
 
     def test_universal_32_and_64_endian_headers(self):
         for endian in ("<", ">"):
@@ -204,6 +218,85 @@ class SigningInventoryTests(unittest.TestCase):
         with patch.object(signing, "command", side_effect=[b"", good, plistlib.dumps({"unexpected": True})]):
             with self.assertRaisesRegex(RuntimeError, "Unexpected entitlements"):
                 signing.verify_signature(self.app, "app", "ABCDEFGHIJ")
+
+
+@unittest.skipUnless(sys.platform == "darwin", "Requires macOS codesign and ditto")
+class NativeBundleLayoutTests(unittest.TestCase):
+    def test_resource_script_alias_survives_signing_and_zip_round_trip(self):
+        with tempfile.TemporaryDirectory(prefix="macsw signing layout ") as temporary:
+            root = Path(temporary)
+            app = root / "Probe.app"
+            contents = app / "Contents"
+            (contents / "MacOS").mkdir(parents=True)
+            (contents / "Resources").mkdir()
+            (contents / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "MacSW", "CFBundleIdentifier": "org.macsw.signing-layout-probe",
+                "CFBundlePackageType": "APPL", "CFBundleVersion": "1"}))
+            subprocess.run(["xcrun", "clang", str(PROJECT / "native/signing_probe.c"),
+                            "-o", str(contents / "MacOS/MacSW")], check=True, capture_output=True, timeout=60)
+            launcher = contents / "MacOS/sw-cli"
+            launcher.write_bytes((PROJECT / "scripts/swcli/sw-cli").read_bytes())
+            launcher.chmod(0o755)
+            # Reproduce the actual outer-App failure without a private key.
+            command = ["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime", str(app)]
+            rejected = subprocess.run(command, capture_output=True, timeout=60)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(b"code object is not signed at all", rejected.stderr)
+            self.assertIn(b"Contents/MacOS/sw-cli", rejected.stderr)
+            launcher.rename(contents / "Resources/sw-cli")
+            launcher.symlink_to("../Resources/sw-cli")
+            subprocess.run(command, check=True, capture_output=True, timeout=60)
+            verify = ["/usr/bin/codesign", "--verify", "--strict", "--deep", str(app)]
+            subprocess.run(verify, check=True, capture_output=True, timeout=60)
+            archive = root / "Probe.zip"
+            subprocess.run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                            str(app), str(archive)], check=True, capture_output=True, timeout=60)
+            restored = root / "restored"
+            subprocess.run(["/usr/bin/ditto", "-x", "-k", str(archive), str(restored)],
+                           check=True, capture_output=True, timeout=60)
+            restored_app = restored / app.name
+            link = restored_app / "Contents/MacOS/sw-cli"
+            self.assertEqual(os.readlink(link), "../Resources/sw-cli")
+            self.assertTrue(os.access(link, os.X_OK))
+            self.assertEqual(link.read_bytes(), (PROJECT / "scripts/swcli/sw-cli").read_bytes())
+            subprocess.run([*verify[:-1], str(restored_app)], check=True, capture_output=True, timeout=60)
+
+    def test_both_cli_entry_paths_resolve_the_same_runtime_without_starting_wine(self):
+        with tempfile.TemporaryDirectory(prefix="macsw CLI layout ") as temporary:
+            contents = Path(temporary).resolve() / "Probe.app/Contents"
+            resource = contents / "Resources/sw-cli"
+            resource.parent.mkdir(parents=True)
+            shutil.copyfile(PROJECT / "scripts/swcli/sw-cli", resource)
+            resource.chmod(0o755)
+            launcher = contents / "MacOS/sw-cli"
+            launcher.parent.mkdir()
+            launcher.symlink_to("../Resources/sw-cli")
+            # Only the launcher's native CLI branch executes. Fake Wine files
+            # satisfy its presence check but fail if accidentally launched.
+            for relative in ("Frameworks/wine/bin/wineloader", "Frameworks/wine/bin/wineserver",
+                             "Resources/SWCLI/bin/swcli-path"):
+                path = contents / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("#!/bin/sh\nexit 99\n")
+                path.chmod(0o755)
+            runtime = contents / "Resources/SWCLI/runtime/PythonNative"
+            (runtime / "bin").mkdir(parents=True)
+            (runtime / "bin/python3").symlink_to(sys.executable)
+            modules = runtime / "lib/python3.11/site-packages"
+            modules.mkdir(parents=True)
+            (modules / "swcli.py").write_text(
+                "import json, os, sys\n"
+                "print(json.dumps({'args': sys.argv[1:], 'loader': os.environ['WINELOADER'], "
+                "'server': os.environ['WINESERVER'], 'path_helper': os.environ['SWCLI_PATH_TRANSLATE_CMD']}))\n")
+            expected = {"args": ["version", "--json"],
+                        "loader": str(contents / "Frameworks/wine/bin/wineloader"),
+                        "server": str(contents / "Frameworks/wine/bin/wineserver"),
+                        "path_helper": str(contents / "Resources/SWCLI/bin/swcli-path")}
+            for entry in (launcher, resource):
+                with self.subTest(entry=entry.relative_to(contents)):
+                    result = subprocess.run([str(entry), "version", "--json"], capture_output=True,
+                                            check=True, timeout=30)
+                    self.assertEqual(json.loads(result.stdout), expected)
 
 
 class SigningDiagnosticTests(unittest.TestCase):

@@ -95,8 +95,12 @@ mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
 ln -sf 7zz "${MAC_OS_DIR}/7z"
-cp -p "${SWCLI_LAUNCHER}" "${MAC_OS_DIR}/sw-cli"
-chmod +x "${MAC_OS_DIR}/sw-cli"
+# Non-Mach-O scripts belong in Resources, not a nested-code directory.
+# Keep the public CLI path; both entry locations are direct Contents children,
+# so the launcher's existing Contents-relative runtime lookup is unchanged.
+cp -p "${SWCLI_LAUNCHER}" "${RESOURCES_DIR}/sw-cli"
+chmod +x "${RESOURCES_DIR}/sw-cli"
+ln -s ../Resources/sw-cli "${MAC_OS_DIR}/sw-cli"
 SWCLI_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/Python311"
 SWCLI_SITE_PACKAGES="${SWCLI_RUNTIME}/Lib/site-packages"
 SWCLI_NATIVE_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/PythonNative"
