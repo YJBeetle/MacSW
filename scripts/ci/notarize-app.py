@@ -12,9 +12,11 @@ from pathlib import Path
 import plistlib
 import re
 import secrets
+import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "scripts"))
@@ -23,6 +25,7 @@ import sign_app
 SECRET_NAMES = ("SIGNING_CERTIFICATE_P12_BASE64", "SIGNING_CERTIFICATE_PASSWORD",
                 "NOTARY_API_KEY_BASE64", "NOTARY_APPLE_ID", "NOTARY_APP_PASSWORD")
 PROFILE = "macsw-ci-notary"
+SEARCH_LIST_RECEIPT = "keychain-search-list.json"
 
 
 def authentication_mode(values, key_id, issuer):
@@ -63,6 +66,50 @@ def private_file(path, data):
         stream.write(data)
 
 
+def validate_search_list(paths):
+    if (not isinstance(paths, list) or len(paths) > 256
+            or any(not isinstance(path, str) or not Path(path).is_absolute()
+                   or any(char in path for char in "\x00\r\n") for path in paths)):
+        raise RuntimeError("Invalid keychain search list")
+    return paths
+
+
+def keychain_search_list():
+    output = run(["/usr/bin/security", "list-keychains", "-d", "user"])
+    try:
+        return validate_search_list(shlex.split(output.decode("utf-8")))
+    except (ValueError, UnicodeError):
+        raise RuntimeError("Unable to read keychain search list") from None
+
+
+def set_keychain_search_list(paths):
+    run(["/usr/bin/security", "list-keychains", "-d", "user", "-s", *validate_search_list(paths)])
+    if keychain_search_list() != paths:
+        raise RuntimeError("Keychain search list did not match requested state")
+
+
+def restore_keychain_search_list(directory):
+    receipt = directory / SEARCH_LIST_RECEIPT
+    if not receipt.exists():
+        return
+    # The separate always() cleanup process must also be able to restore the
+    # original list after cancellation/failure. Never follow a receipt link or
+    # turn unvalidated receipt contents into security command arguments.
+    mode = receipt.lstat().st_mode
+    if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o600 or receipt.stat().st_size > 131072:
+        raise RuntimeError("Invalid keychain search list receipt")
+    try:
+        state = json.loads(receipt.read_bytes())
+    except (ValueError, UnicodeError):
+        raise RuntimeError("Invalid keychain search list receipt") from None
+    if not isinstance(state, dict) or set(state) != {"version", "paths"} or state["version"] != 1:
+        raise RuntimeError("Invalid keychain search list receipt")
+    paths = validate_search_list(state["paths"])
+    set_keychain_search_list(paths)
+    print(json.dumps({"event": "macsw.keychain-search-list", "stage": "restored",
+                      "entry_count": len(paths)}), flush=True)
+
+
 def cleanup(directory):
     # Only the fixed credential directory under RUNNER_TEMP is eligible.
     runner = Path(os.environ["RUNNER_TEMP"]).resolve()
@@ -75,7 +122,7 @@ def cleanup(directory):
     # four SHA-1 bytes of the DB basename. Admit exactly our own lock, not a
     # wildcard of arbitrary sidecars. delete-keychain normally removes it.
     lock_name = keychain_lock_name("signing.keychain-db")
-    allowed_names = ("certificate.p12", "AuthKey.p8", "signing.keychain-db", lock_name)
+    allowed_names = ("certificate.p12", "AuthKey.p8", "signing.keychain-db", lock_name, SEARCH_LIST_RECEIPT)
     paths = list(directory.iterdir())
     inventory = []
     for path in sorted(paths):
@@ -91,6 +138,9 @@ def cleanup(directory):
                 or path.is_symlink() or not path.is_file()):
             raise RuntimeError("Unexpected entry in signing credentials directory")
     keychain = directory / "signing.keychain-db"
+    # If restoration fails, retain the receipt and keychain for always() to
+    # retry; do not silently discard the only record of the original list.
+    restore_keychain_search_list(directory)
     if keychain.exists():
         result = subprocess.run(["/usr/bin/security", "delete-keychain", str(keychain)],
                                 capture_output=True, timeout=30)
@@ -117,6 +167,9 @@ def prepare(directory, values):
     if values.get("NOTARY_API_KEY_BASE64"):
         key = directory / "AuthKey.p8"
         private_file(key, base64.b64decode(values["NOTARY_API_KEY_BASE64"], validate=True))
+    original_search_list = keychain_search_list()
+    private_file(directory / SEARCH_LIST_RECEIPT,
+                 json.dumps({"version": 1, "paths": original_search_list}).encode("utf-8"))
     password = secrets.token_urlsafe(32)
     run(["/usr/bin/security", "create-keychain", "-p", password, keychain])
     run(["/usr/bin/security", "set-keychain-settings", "-lut", "21600", keychain])
@@ -125,8 +178,34 @@ def prepare(directory, values):
          "-k", keychain, "-t", "cert", "-f", "pkcs12", "-T", "/usr/bin/codesign"])
     run(["/usr/bin/security", "set-key-partition-list", "-S", "apple-tool:,apple:",
          "-s", "-k", password, keychain])
+    # --keychain limits identity lookup but certificate-chain construction
+    # still consults the user's search list. Keep every original entry.
+    set_keychain_search_list([str(keychain), *[path for path in original_search_list if path != str(keychain)]])
+    print(json.dumps({"event": "macsw.keychain-search-list", "stage": "prepared",
+                      "original_entry_count": len(original_search_list)}), flush=True)
     certificate.unlink()
     return keychain, key
+
+
+def signing_probe(keychain, fingerprint, team):
+    # Exercise the same private-key access, timestamp and runtime policy on a
+    # tiny native executable before modifying any App payload. Nothing here
+    # is copied into the sealed App or uploaded as an artifact.
+    def progress(stage):
+        print(json.dumps({"event": "macsw.signing-probe", "stage": stage}), flush=True)
+    with tempfile.TemporaryDirectory(prefix="macsw-signing-probe-", dir=os.environ["RUNNER_TEMP"]) as temporary:
+        executable = Path(temporary) / "signing-probe"
+        progress("build")
+        run(["xcrun", "clang", PROJECT / "native/signing_probe.c", "-o", executable])
+        progress("sign")
+        sign_app.command(["/usr/bin/codesign", "--force", "--sign", fingerprint,
+                          "--keychain", keychain, "--options", "runtime", "--timestamp",
+                          "--entitlements", PROJECT / "resources/signing/default.plist", executable])
+        progress("verify")
+        sign_app.verify_signature(executable, "default", team)
+        progress("execute")
+        run([executable])
+    progress("passed")
 
 
 def inspect_signing_identity(keychain, identity):
@@ -157,6 +236,7 @@ def notarize(app, output, team, identity, key_id="", issuer=""):
         values.clear()
         print("Notarization authentication validated: " + mode, flush=True)
         fingerprint = inspect_signing_identity(keychain, identity)
+        signing_probe(keychain, fingerprint, team)
         entries = sign_app.sign(app, identity, team, keychain, PROJECT / "resources/signing",
                                 identity_sha1=fingerprint)
         (output / "signing-inventory.json").write_text(json.dumps(entries, indent=2) + "\n")

@@ -428,7 +428,9 @@ class CredentialTests(unittest.TestCase):
                 self.assertNotIn("--apple-id", command)
 
     def test_account_preparation_does_not_create_p8(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.object(notary, "run"):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(notary, "run"), \
+                patch.object(notary, "keychain_search_list", return_value=[]), \
+                patch.object(notary, "set_keychain_search_list"):
             directory = Path(temporary) / "private"
             values = {"SIGNING_CERTIFICATE_P12_BASE64": base64.b64encode(b"fixture-p12").decode(),
                       "SIGNING_CERTIFICATE_PASSWORD": "fixture", "NOTARY_API_KEY_BASE64": ""}
@@ -475,6 +477,7 @@ class CredentialTests(unittest.TestCase):
                     patch.object(notary, "cleanup") as cleanup, \
                     patch.object(notary.sign_app, "inventory"), patch.object(notary.sign_app, "verify_payload"), \
                     patch.object(notary.sign_app, "sign", return_value=[]), patch.object(notary.sign_app, "verify"), \
+                    patch.object(notary, "signing_probe"), \
                     patch.object(notary, "inspect_signing_identity", return_value="a" * 40), \
                     patch.object(notary, "run", side_effect=command), \
                     patch.object(notary.subprocess, "run", return_value=SimpleNamespace(
@@ -504,7 +507,10 @@ class CredentialTests(unittest.TestCase):
 
     def test_credential_commands_suppressed_and_no_allow_all_import(self):
         calls = []
-        with tempfile.TemporaryDirectory() as directory, patch.object(notary, "run", side_effect=lambda cmd: calls.append(cmd)):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(notary, "run", side_effect=lambda cmd: calls.append(cmd)), \
+                patch.object(notary, "keychain_search_list", return_value=[]), \
+                patch.object(notary, "set_keychain_search_list"):
             root = Path(directory) / "private"
             values = {notary.SECRET_NAMES[0]: base64.b64encode(b"fixture-p12").decode(),
                       notary.SECRET_NAMES[1]: "never-log-this-password",
@@ -631,6 +637,25 @@ class CredentialTests(unittest.TestCase):
                 notary.prepare(Path(temporary) / "private", values)
             run.assert_not_called()
 
+    def test_probe_failure_stops_before_app_signing_or_submission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env = {"RUNNER_TEMP": temporary, **{name: "fixture-secret" for name in notary.SECRET_NAMES}}
+            with patch.dict(os.environ, env), \
+                    patch.object(notary, "prepare", return_value=(root / "keychain", root / "key")), \
+                    patch.object(notary, "cleanup") as cleanup, patch.object(notary, "store_profile"), \
+                    patch.object(notary.sign_app, "inventory"), patch.object(notary.sign_app, "verify_payload"), \
+                    patch.object(notary.sign_app, "sign") as sign, \
+                    patch.object(notary, "inspect_signing_identity", return_value="a" * 40), \
+                    patch.object(notary, "signing_probe", side_effect=RuntimeError("Probe failed")), \
+                    patch.object(notary.subprocess, "run") as run:
+                with self.assertRaisesRegex(RuntimeError, "Probe failed"):
+                    notary.notarize(root / "MacSW.app", root / "output", "ABCDEFGHIJ",
+                                    "Developer ID Application: Fixture", "KEY", "ISSUER")
+                sign.assert_not_called()
+                run.assert_not_called()
+                cleanup.assert_called_once()
+
     def test_signing_workflow_is_manual_protected_and_no_release(self):
         workflow = (PROJECT / ".github/workflows/sign-app.yml").read_text()
         self.assertIn("workflow_dispatch:", workflow)
@@ -654,6 +679,183 @@ class CredentialTests(unittest.TestCase):
             self.assertNotIn("macsw-signing-credentials", upload)
             self.assertNotIn("notary-submission.zip", upload)
             self.assertNotIn("native-probes", upload)
+
+
+class KeychainLifecycleTests(unittest.TestCase):
+    """Mock every Security call; never touch the developer's actual keychains."""
+
+    def fixture(self, original):
+        self.state = list(original)
+        self.commands = []
+        def command(arguments, **kwargs):
+            arguments = list(map(str, arguments))
+            self.commands.append(arguments)
+            if arguments[1:5] == ["list-keychains", "-d", "user", "-s"]:
+                self.state = arguments[5:]
+            elif arguments[1:] == ["list-keychains", "-d", "user"]:
+                return "\n".join(json.dumps(path, ensure_ascii=False) for path in self.state).encode()
+            return b""
+        return command
+
+    def values(self):
+        return {notary.SECRET_NAMES[0]: base64.b64encode(b"fixture-p12").decode(),
+                notary.SECRET_NAMES[1]: "never-log-password"}
+
+    def test_prepare_preserves_search_entries_and_separate_cleanup_restores_before_delete(self):
+        original = ["/Users/fixture/Library/Keychains/login.keychain-db", "/Library/Keychains/System.keychain",
+                    '/private/keychain with spaces and "quotes".keychain-db']
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):
+            directory = Path(temporary) / "macsw-signing-credentials"
+            with patch.object(notary, "run", side_effect=self.fixture(original)), contextlib.redirect_stdout(output):
+                keychain, _ = notary.prepare(directory, self.values())
+                receipt = directory / notary.SEARCH_LIST_RECEIPT
+                self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(json.loads(receipt.read_bytes()), {"version": 1, "paths": original})
+                self.assertEqual(self.state, [str(keychain), *original])
+                self.assertLess(next(i for i, cmd in enumerate(self.commands) if cmd[1] == "list-keychains"),
+                                next(i for i, cmd in enumerate(self.commands) if cmd[1] == "create-keychain"))
+                keychain.write_bytes(b"fixture-keychain")
+                def delete(arguments, **kwargs):
+                    self.assertEqual(self.state, original)
+                    self.assertEqual(arguments, ["/usr/bin/security", "delete-keychain", str(keychain)])
+                    return SimpleNamespace(returncode=0)
+                with patch.object(notary.subprocess, "run", side_effect=delete) as run:
+                    notary.cleanup(directory)
+                    notary.cleanup(directory)  # always() after finally is idempotent.
+                    run.assert_called_once()
+                self.assertFalse(directory.exists())
+                self.assertEqual(self.state, original)
+        for private in (*original, temporary, "never-log-password"):
+            self.assertNotIn(private, output.getvalue())
+        self.assertFalse(any("default-keychain" in cmd or "-A" in cmd for cmd in self.commands))
+
+    def test_import_failure_keeps_receipt_and_cleanup_restores_original_list(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):
+            directory = Path(temporary) / "macsw-signing-credentials"
+            command = self.fixture(["/private/original.keychain-db"])
+            def fail_import(arguments, **kwargs):
+                if arguments[1] == "import":
+                    self.assertTrue((directory / notary.SEARCH_LIST_RECEIPT).exists())
+                    raise RuntimeError("Import failed")
+                return command(arguments, **kwargs)
+            with patch.object(notary, "run", side_effect=fail_import), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "Import failed"):
+                    notary.prepare(directory, self.values())
+                notary.cleanup(directory)
+            self.assertEqual(self.state, ["/private/original.keychain-db"])
+            self.assertFalse(directory.exists())
+
+    def test_failed_restoration_retains_keychain_and_receipt_for_retry(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, RUNNER_TEMP=temporary):
+            directory = Path(temporary) / "macsw-signing-credentials"
+            directory.mkdir()
+            keychain = directory / "signing.keychain-db"
+            keychain.write_bytes(b"fixture")
+            receipt = directory / notary.SEARCH_LIST_RECEIPT
+            notary.private_file(receipt, b'{"version":1,"paths":[]}')
+            with patch.object(notary, "run", side_effect=RuntimeError("Restore failed")), \
+                    patch.object(notary.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "Restore failed"):
+                    notary.cleanup(directory)
+                run.assert_not_called()
+                self.assertTrue(keychain.exists())
+                self.assertTrue(receipt.exists())
+            with patch.object(notary, "run", side_effect=self.fixture([])), \
+                    patch.object(notary.subprocess, "run", return_value=SimpleNamespace(returncode=0)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                notary.cleanup(directory)
+            self.assertFalse(directory.exists())
+
+    def test_bad_receipt_is_rejected_without_security_calls_or_deletion(self):
+        fixtures = (b"not-json", b"[]", b'{"version":2,"paths":[]}',
+                    b'{"version":1,"paths":["-s"]}', b'{"version":1,"paths":null}',
+                    b'{"version":1,"paths":["/private/unsafe\\npath"]}')
+        for contents in fixtures:
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary, \
+                    patch.dict(os.environ, RUNNER_TEMP=temporary):
+                directory = Path(temporary) / "macsw-signing-credentials"
+                directory.mkdir()
+                receipt = directory / notary.SEARCH_LIST_RECEIPT
+                notary.private_file(receipt, contents)
+                with patch.object(notary, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(RuntimeError):
+                        notary.cleanup(directory)
+                    run.assert_not_called()
+                self.assertEqual(receipt.read_bytes(), contents)
+
+    def test_receipt_symlink_and_public_permissions_are_rejected(self):
+        for symlink in (True, False):
+            with self.subTest(symlink=symlink), tempfile.TemporaryDirectory() as temporary, \
+                    patch.dict(os.environ, RUNNER_TEMP=temporary):
+                directory = Path(temporary) / "macsw-signing-credentials"
+                directory.mkdir()
+                receipt = directory / notary.SEARCH_LIST_RECEIPT
+                if symlink:
+                    receipt.symlink_to("/missing/do-not-follow")
+                else:
+                    notary.private_file(receipt, b'{"version":1,"paths":[]}')
+                    receipt.chmod(0o644)
+                with patch.object(notary, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaises(RuntimeError):
+                        notary.cleanup(directory)
+                    run.assert_not_called()
+
+    def test_search_list_must_be_absolute_parseable_and_round_trip(self):
+        for data in (b'"unterminated', b'"relative.keychain-db"', b"\xff"):
+            with self.subTest(data=data), patch.object(notary, "run", return_value=data):
+                with self.assertRaises(RuntimeError):
+                    notary.keychain_search_list()
+        with patch.object(notary, "run", return_value=b'"/private/different.keychain-db"'):
+            with self.assertRaisesRegex(RuntimeError, "did not match"):
+                notary.set_keychain_search_list(["/private/expected.keychain-db"])
+
+
+class SigningProbeTests(unittest.TestCase):
+    def test_probe_signs_verifies_and_executes_before_removing_its_private_directory(self):
+        for failure in (None, "build", "sign", "verify", "execute"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary, \
+                    patch.dict(os.environ, RUNNER_TEMP=temporary):
+                stages = []
+                binaries = []
+                def stage(name):
+                    stages.append(name)
+                    if name == failure:
+                        raise RuntimeError("Probe " + name + " failed")
+                def command(arguments, **kwargs):
+                    if arguments[0] == "xcrun":
+                        stage("build")
+                        self.assertEqual(arguments[:2], ["xcrun", "clang"])
+                        self.assertEqual(arguments[2], PROJECT / "native/signing_probe.c")
+                        binaries.append(arguments[-1])
+                        arguments[-1].write_bytes(b"fixture-executable")
+                    else:
+                        stage("execute")
+                        self.assertEqual(arguments, [binaries[0]])
+                def codesign(arguments):
+                    stage("sign")
+                    self.assertEqual(arguments, ["/usr/bin/codesign", "--force", "--sign", "a" * 40,
+                                     "--keychain", Path("fixture.keychain-db"), "--options", "runtime",
+                                     "--timestamp", "--entitlements", PROJECT / "resources/signing/default.plist",
+                                     binaries[0]])
+                def verify(path, policy, team):
+                    stage("verify")
+                    self.assertEqual((path, policy, team), (binaries[0], "default", "ABCDEFGHIJ"))
+                output = io.StringIO()
+                with patch.object(notary, "run", side_effect=command), \
+                        patch.object(notary.sign_app, "command", side_effect=codesign), \
+                        patch.object(notary.sign_app, "verify_signature", side_effect=verify), \
+                        contextlib.redirect_stdout(output):
+                    if failure:
+                        with self.assertRaisesRegex(RuntimeError, "Probe .* failed"):
+                            notary.signing_probe(Path("fixture.keychain-db"), "a" * 40, "ABCDEFGHIJ")
+                    else:
+                        notary.signing_probe(Path("fixture.keychain-db"), "a" * 40, "ABCDEFGHIJ")
+                expected = ["build", "sign", "verify", "execute"]
+                self.assertEqual(stages, expected[:expected.index(failure) + 1] if failure else expected)
+                self.assertEqual(list(Path(temporary).iterdir()), [])
+                self.assertEqual("passed" in output.getvalue(), failure is None)
+                self.assertNotIn(temporary, output.getvalue())
 
 
 if __name__ == "__main__":
