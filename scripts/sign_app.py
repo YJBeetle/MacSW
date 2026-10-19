@@ -19,15 +19,17 @@ import wine_runtime
 import swcli_runtime
 
 # Each new executable requires review, rather than inheriting Wine exceptions.
+WINE_ROOT = "Contents/Resources/Wine"
+WINE_ALIAS = "Contents/Frameworks/wine"
 EXECUTABLES = {
     "Contents/MacOS/MacSW": "app",
     "Contents/MacOS/7zz": "default",
-    "Contents/Frameworks/wine/bin/wine": "wine",
-    "Contents/Frameworks/wine/bin/wineserver": "default",
-    "Contents/Frameworks/wine/lib/wine/x86_64-unix/MacSW": "wine",
+    WINE_ROOT + "/bin/wine": "wine",
+    WINE_ROOT + "/bin/wineserver": "default",
+    WINE_ROOT + "/lib/wine/x86_64-unix/MacSW": "wine",
     "Contents/Resources/SWCLI/runtime/PythonNative/bin/python3.11": "default",
 }
-LIBRARY_ROOTS = ("Contents/Frameworks/wine/lib/",
+LIBRARY_ROOTS = (WINE_ROOT + "/lib/",
                  "Contents/Resources/SWCLI/runtime/PythonNative/lib/")
 ENTITLEMENTS = {
     "default": {},
@@ -88,6 +90,12 @@ def inventory(app):
     if app.is_symlink() or app.suffix != ".app" or not app.is_dir():
         raise RuntimeError("Expected a real .app staging directory")
     app = app.resolve()
+    # rglob deliberately does not recurse through directory symlinks. Walk the
+    # real resource tree and sign each Mach-O there, not the compatibility alias.
+    if ((app / WINE_ROOT).is_symlink() or not (app / WINE_ROOT).is_dir()
+            or not (app / WINE_ALIAS).is_symlink()
+            or os.readlink(app / WINE_ALIAS) != "../Resources/Wine"):
+        raise RuntimeError("Wine must be stored in Resources with its reviewed compatibility alias")
     result = []
     for path in sorted(app.rglob("*")):
         relative = path.relative_to(app).as_posix()
@@ -98,6 +106,8 @@ def inventory(app):
         if path.is_dir():
             if path.suffix in (".app", ".framework", ".xpc", ".bundle"):
                 raise RuntimeError("Nested code bundle needs an explicit signing policy: " + relative)
+            if relative.startswith("Contents/Frameworks/") and "." in path.name:
+                raise RuntimeError("Dotted data directory in native code location: " + relative)
             continue
         kind = macho_type(path)
         if kind is None:
@@ -136,7 +146,7 @@ def refresh_signed_hashes(app):
         if key not in values:
             raise RuntimeError("Missing signed module identity: " + key)
         relative = wine_runtime.MODULES[key].format(**values)
-        values[key] = digest(app / "Contents/Frameworks/wine" / relative)
+        values[key] = digest(app / WINE_ALIAS / relative)
     # Everything else, including PE/Mono/source digests, remains unchanged.
     path.write_bytes(plistlib.dumps(values, sort_keys=False))
 

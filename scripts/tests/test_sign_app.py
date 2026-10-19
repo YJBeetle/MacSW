@@ -46,6 +46,8 @@ class SigningInventoryTests(unittest.TestCase):
         self.app.mkdir()
         for relative in signing.EXECUTABLES:
             self.file(relative, thin(2))
+        (self.app / "Contents/Frameworks").mkdir()
+        (self.app / signing.WINE_ALIAS).symlink_to("../Resources/Wine")
 
     def file(self, relative, data):
         path = self.app / relative
@@ -54,11 +56,11 @@ class SigningInventoryTests(unittest.TestCase):
         return path
 
     def test_actual_headers_not_extensions_and_order(self):
-        module = "Contents/Frameworks/wine/lib/wine/x86_64-unix/winemac.so"
+        module = signing.WINE_ROOT + "/lib/wine/x86_64-unix/winemac.so"
         self.file(module, thin(6))
         self.file("Contents/Resources/sw-cli", b"#!/bin/sh\n")
         (self.app / "Contents/MacOS/sw-cli").symlink_to("../Resources/sw-cli")
-        self.file("Contents/Frameworks/wine/lib/native-looking.dll", b"MZPE")
+        self.file(signing.WINE_ROOT + "/lib/native-looking.dll", b"MZPE")
         entries = signing.inventory(self.app)
         self.assertEqual(entries[0]["path"], module)
         self.assertEqual(len(entries), len(signing.EXECUTABLES) + 1)
@@ -107,6 +109,32 @@ class SigningInventoryTests(unittest.TestCase):
         path = self.app / "Contents/Frameworks/wine/bin/wineloader"
         path.symlink_to("wine")
         self.assertEqual(len(signing.inventory(self.app)), len(signing.EXECUTABLES))
+
+    def test_wine_resource_tree_is_inventoried_once_including_unknown_native_code(self):
+        module = self.file(signing.WINE_ROOT + "/lib/probe.so", thin(6))
+        entries = signing.inventory(self.app)
+        self.assertEqual(len(entries), len(signing.EXECUTABLES) + 1)
+        self.assertTrue(any(item["path"] == module.relative_to(self.app).as_posix() for item in entries))
+        self.assertFalse(any(item["path"].startswith(signing.WINE_ALIAS + "/") for item in entries))
+        unknown = self.file(signing.WINE_ROOT + "/share/hidden-native", thin(2))
+        with self.assertRaisesRegex(RuntimeError, "Unreviewed native"):
+            signing.inventory(self.app)
+        unknown.unlink()
+        (self.app / "Contents/Frameworks/data.d").mkdir()
+        with self.assertRaisesRegex(RuntimeError, "Dotted data directory"):
+            signing.inventory(self.app)
+
+    def test_missing_or_unreviewed_wine_alias_fails_before_credentials(self):
+        alias = self.app / signing.WINE_ALIAS
+        alias.unlink()
+        for target in (None, "../Resources", str(self.app / signing.WINE_ROOT)):
+            with self.subTest(target=target):
+                if target is not None:
+                    alias.symlink_to(target)
+                with self.assertRaisesRegex(RuntimeError, "compatibility alias"):
+                    signing.inventory(self.app)
+                if alias.is_symlink():
+                    alias.unlink()
 
     def test_external_absolute_and_broken_links_rejected(self):
         link = self.app / "bad-link"
@@ -160,6 +188,16 @@ class SigningInventoryTests(unittest.TestCase):
         for key in signing.SIGNED_MODULES:
             self.assertEqual(new[key], signing.digest(self.app / "Contents/Frameworks/wine" /
                                                      signing.wine_runtime.MODULES[key]))
+
+    def test_verification_checks_each_resource_macho_before_outer_app(self):
+        self.file(signing.WINE_ROOT + "/lib/probe.so", thin(6))
+        entries = signing.inventory(self.app)
+        with patch.object(signing, "verify_payload"), patch.object(signing, "verify_signature") as verify:
+            self.assertEqual(signing.verify(self.app, "ABCDEFGHIJ"), entries)
+        self.assertEqual(verify.call_count, len(entries))
+        checked = {call.args[0] for call in verify.call_args_list[:-1]}
+        self.assertEqual(checked, {self.app / item["path"] for item in entries if item["policy"] != "app"})
+        verify.assert_called_with(self.app, "app", "ABCDEFGHIJ", outer=True)
 
     def test_sign_order_no_deep_and_payload_checked_before_rehash(self):
         calls = []
@@ -222,6 +260,73 @@ class SigningInventoryTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "darwin", "Requires macOS codesign and ditto")
 class NativeBundleLayoutTests(unittest.TestCase):
+    def test_mixed_wine_resource_tree_signatures_and_alias_survive_zip_round_trip(self):
+        with tempfile.TemporaryDirectory(prefix="macsw Wine layout ") as temporary:
+            root = Path(temporary)
+            app = root / "Probe.app"
+            contents = app / "Contents"
+            (contents / "Resources").mkdir(parents=True)
+            (contents / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleExecutable": "MacSW", "CFBundleIdentifier": "org.macsw.wine-layout-probe",
+                "CFBundlePackageType": "APPL", "CFBundleVersion": "1"}))
+            executable = root / "probe"
+            subprocess.run(["xcrun", "clang", str(PROJECT / "native/signing_probe.c"), "-o", str(executable)],
+                           check=True, capture_output=True, timeout=60)
+            legacy = app / signing.WINE_ALIAS
+            targets = []
+            for relative, policy in signing.EXECUTABLES.items():
+                path = app / relative.replace(signing.WINE_ROOT, signing.WINE_ALIAS)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(executable, path)
+                path.chmod(0o755)
+                if policy != "app":
+                    targets.append((path, policy))
+            library = legacy / "lib/probe.dylib"
+            subprocess.run(["xcrun", "clang", "-dynamiclib", str(PROJECT / "native/signing_probe.c"),
+                            "-o", str(library)], check=True, capture_output=True, timeout=60)
+            targets.append((library, "default"))
+            for relative in ("lib/wine/x86_64-unix/vulkan/icd.d/MoltenVK_icd.json",
+                             "share/wine/mono/wine-mono-11.3.0/lib/mono/4.5/mscorlib.dll",
+                             "share/wine/gecko/wine-gecko-2.47.4-x86_64/data"):
+                path = legacy / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"fixture-data")
+            for path, policy in targets:
+                subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime",
+                                "--entitlements", str(PROJECT / "resources/signing" / (policy + ".plist")),
+                                str(path)], check=True, capture_output=True, timeout=60)
+            command = ["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime", str(app)]
+            rejected = subprocess.run(command, capture_output=True, timeout=60)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(b"bundle format unrecognized", rejected.stderr)
+            legacy.rename(app / signing.WINE_ROOT)
+            legacy.symlink_to("../Resources/Wine")
+            entries = signing.inventory(app)
+            self.assertEqual(len(entries), len(signing.EXECUTABLES) + 1)
+            self.assertEqual(sum(item["policy"] == "wine" for item in entries), 2)
+            subprocess.run(command, check=True, capture_output=True, timeout=60)
+            archive = root / "Probe.zip"
+            subprocess.run(["/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                            str(app), str(archive)], check=True, capture_output=True, timeout=60)
+            restored = root / "restored"
+            subprocess.run(["/usr/bin/ditto", "-x", "-k", str(archive), str(restored)],
+                           check=True, capture_output=True, timeout=60)
+            restored_app = restored / app.name
+            self.assertEqual(os.readlink(restored_app / signing.WINE_ALIAS), "../Resources/Wine")
+            self.assertEqual(signing.inventory(restored_app), entries)
+            # --deep alone does not cover the Mach-O files inside Resources.
+            for item in entries:
+                if item["policy"] != "app":
+                    subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(restored_app / item["path"])],
+                                   check=True, capture_output=True, timeout=60)
+            subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "--deep", str(restored_app)],
+                           check=True, capture_output=True, timeout=60)
+            changed = restored_app / signing.WINE_ROOT / "share/wine/gecko/wine-gecko-2.47.4-x86_64/data"
+            changed.write_bytes(b"tampered")
+            rejected = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "--deep", str(restored_app)],
+                                      capture_output=True, timeout=60)
+            self.assertNotEqual(rejected.returncode, 0)
+
     def test_resource_script_alias_survives_signing_and_zip_round_trip(self):
         with tempfile.TemporaryDirectory(prefix="macsw signing layout ") as temporary:
             root = Path(temporary)
@@ -271,6 +376,9 @@ class NativeBundleLayoutTests(unittest.TestCase):
             launcher = contents / "MacOS/sw-cli"
             launcher.parent.mkdir()
             launcher.symlink_to("../Resources/sw-cli")
+            (contents / "Resources/Wine").mkdir()
+            (contents / "Frameworks").mkdir()
+            (contents / "Frameworks/wine").symlink_to("../Resources/Wine")
             # Only the launcher's native CLI branch executes. Fake Wine files
             # satisfy its presence check but fail if accidentally launched.
             for relative in ("Frameworks/wine/bin/wineloader", "Frameworks/wine/bin/wineserver",

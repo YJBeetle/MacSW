@@ -408,6 +408,22 @@ class RuntimeAdapterTests(unittest.TestCase):
             ])
         self.assertEqual(ci.wine_process_metrics(output, self.app), [])
 
+    def test_process_metrics_recognize_wineserver_through_resource_alias(self):
+        runtime = self.app / "Contents/Resources/Wine"
+        server = runtime / "bin/wineserver"
+        server.parent.mkdir(parents=True)
+        server.write_bytes(b"fixture")
+        alias = self.app / "Contents/Frameworks/wine"
+        alias.parent.mkdir(parents=True)
+        alias.symlink_to("../Resources/Wine")
+        commands = [str(alias / "bin/wineserver"), str(server.resolve()),
+                    str(self.root / "unrelated/Contents/Resources/Wine/bin/wineserver")]
+        output = "\n".join(str(i) + " 1.5 0:01 512 S " + command for i, command in enumerate(commands, 41))
+        result = ci.wine_process_metrics(output, self.app)
+        self.assertEqual([row["unix_pid"] for row in result], [41, 42])
+        self.assertEqual([row["name"] for row in result], ["wineserver", "wineserver"])
+        self.assertNotIn(str(self.app), json.dumps(result))
+
     def test_host_metrics_capture_without_com_or_forwarded_secrets(self):
         gate = self.gate()
         gate.record["phase"] = "visible.modeling"

@@ -186,7 +186,8 @@ def runtime_record(path, label):
 def wine_process_metrics(output, app):
     """Keep numeric metrics of known Wine processes, never their arguments."""
     processes = []
-    server = str(app / "Contents/Frameworks/wine/bin/wineserver")
+    server = app / "Contents/Frameworks/wine/bin/wineserver"
+    server_paths = {str(server), str(server.resolve())}
     for line in output.splitlines():
         fields = line.split(None, 5)
         if len(fields) != 6:
@@ -195,7 +196,7 @@ def wine_process_metrics(output, app):
         # On this fresh, isolated CI VM these Windows paths are our Wine host.
         # Unix Python/runner processes and arbitrary command lines are excluded.
         name = command.rsplit("\\", 1)[-1].lower()
-        if command == server:
+        if command in server_paths:
             name = "wineserver"
         elif not (len(command) > 3 and command[1:3] == ":\\"
                   and name in ("sldworks.exe", "python.exe", "pythonw.exe")):

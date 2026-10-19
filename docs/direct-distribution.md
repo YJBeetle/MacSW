@@ -55,6 +55,14 @@ PE、脚本、普通资源由外层签名封装，不做苹果代码签名。内
 解析保持一致；不单独给脚本签名或依赖扩展属性保存其签名。签名前 inventory
 拒绝 MacOS 代码目录里的普通非 Mach-O 文件，新增本机可执行程序仍须审查策略。
 
+Wine 混合运行时存放在 `Contents/Resources/Wine`，`Contents/Frameworks/wine`
+保留为指向它的包内相对链接。Wine 内部目录、Mono/Gecko 版本名及 Vulkan
+配置文件的相对位置不变，App、CLI、模块哈希和容器升级仍可使用原入口。
+这避免 `icd.d` 等带点的数据目录在 Frameworks 中被误当作代码包。
+inventory 扫描真实 Resources 目录，逐个签名并验证其中的 Mach-O；不跟随
+目录链接重复签名，不放宽未知本机代码或库的允许范围。资源封装也覆盖
+Windows PE 与数据；外层 `--deep` 校验不能替代上述逐个原生签名检查。
+
 1. 所有原生库和 Python 扩展先签名，再签辅助可执行程序。
 2. 更新 BuildManifest 的 `WineMacModuleSHA256`、`WineInputModuleSHA256`、
    `WineNtdllModuleSHA256`、`WineLoaderSHA256` 四个签名后实际文件哈希。

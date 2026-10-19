@@ -64,6 +64,19 @@ class WineUpgradeTests(unittest.TestCase):
     def test_identity_ignores_swcli_commit(self):
         self.assertNotIn("SWCLISourceCommit", RUNTIME.identity(self.contents))
 
+    def test_resource_layout_preserves_identity_and_hash_checks_through_compatibility_alias(self):
+        values = RUNTIME.identity(self.new)
+        alias = self.new / "Frameworks/wine"
+        resource = self.new / "Resources/Wine"
+        alias.rename(resource)
+        alias.symlink_to("../Resources/Wine")
+        self.assertEqual(RUNTIME.identity(self.new), values)
+        RUNTIME.verify_app(self.new, values)
+        module = resource / RUNTIME.MODULES["WineLoaderSHA256"]
+        module.write_bytes(b"corrupt")
+        with self.assertRaisesRegex(RuntimeError, "WineLoaderSHA256"):
+            RUNTIME.verify_app(self.new, values)
+
     def msxml_modules(self, contents):
         values = RUNTIME.identity(contents)
         for key, relative in RUNTIME.MSXML_MODULES.items():

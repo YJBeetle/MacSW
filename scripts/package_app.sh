@@ -171,7 +171,11 @@ sed \
 WINE_UNPACK="${STAGING_ROOT}/runtime"
 mkdir -p "${WINE_UNPACK}"
 tar -xf "${WINE_ARCHIVE}" -C "${WINE_UNPACK}"
-mv "${WINE_UNPACK}/Wine Devel.app/Contents/Resources/wine" "${FRAMEWORKS_DIR}/wine"
+# Wine is a mixed native/PE/data tree, not an Apple framework. Dotted data
+# directories (icd.d, wine-mono-11.3.0, etc.) must not be parsed as nested
+# code bundles. Keep the original public runtime path as a relative alias.
+mv "${WINE_UNPACK}/Wine Devel.app/Contents/Resources/wine" "${RESOURCES_DIR}/Wine"
+ln -s ../Resources/Wine "${FRAMEWORKS_DIR}/wine"
 ln -sf wine "${FRAMEWORKS_DIR}/wine/bin/wineloader"
 
 WINEMAC_TARGET="${FRAMEWORKS_DIR}/wine/lib/wine/x86_64-unix/winemac.so"
