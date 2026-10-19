@@ -606,7 +606,7 @@ class RuntimeGate:
                        "coverage": ({"visible": "read-only-open-inspect-close"}
                                     if profile == "visible-smoke" else {mode: suite for mode in self.modes}),
                        "renderer_request": renderer,
-                       "budgets_seconds": {"request": None if profile == "visible-smoke" else REQUEST_TIMEOUT_SECONDS,
+                       "budgets_seconds": {"request": REQUEST_TIMEOUT_SECONDS,
                                            "startup": STARTUP_TIMEOUT_SECONDS,
                                            "startup_outer": STARTUP_TIMEOUT_SECONDS + 30,
                                            "shared_gates": {} if profile == "visible-smoke" else dict(self.timeouts),
@@ -983,10 +983,12 @@ class RuntimeGate:
                 self.capture_sw_window("visible", "start")
                 self.command([sys.executable, script, "--output-dir", output,
                               "--sample-part", self.windows_path(sample), "--cli-command", self.cli,
-                              "--endpoint", self.env["SWCLI_ENDPOINT"]], timeout=VISIBLE_TIMEOUT_SECONDS)
+                              "--endpoint", self.env["SWCLI_ENDPOINT"],
+                              "--request-timeout", str(REQUEST_TIMEOUT_SECONDS)], timeout=VISIBLE_TIMEOUT_SECONDS)
             proof = runtime_record(output / "visible.json", "Shared visible smoke")
             if (proof.get("state") != "completed" or proof.get("success") is not True
                     or proof.get("profile") != "visible-open" or proof.get("cleanup_errors") != []
+                    or proof.get("request_timeout_seconds") != REQUEST_TIMEOUT_SECONDS
                     or not all(isinstance(proof.get(key), dict)
                                and proof[key].get("process_id") == host["process_id"]
                                and proof[key].get("platform") == "macos-wine"
@@ -996,8 +998,8 @@ class RuntimeGate:
                                for key in ("host", "host_after"))):
                 raise RuntimeError("Shared visible smoke evidence did not pass")
             self.record["visible_smoke"] = proof
-            # The standalone gate owns its request defaults; do not report the
-            # hidden CAD adapter's 600-second limit for this independent path.
+            # Record the effective shared-gate budget, verified above, rather
+            # than claiming a limit that was not actually forwarded.
             self.record["budgets_seconds"]["request"] = proof.get("request_timeout_seconds")
             self.finish_visible_daemon()
             self.capture_sw_window("visible", "end")

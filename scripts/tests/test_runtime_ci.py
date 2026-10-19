@@ -1000,13 +1000,14 @@ class RuntimeAdapterTests(unittest.TestCase):
         def command(args, **kwargs):
             self.assertEqual(Path(args[1]).name, ci.VISIBLE_GATE)
             self.assertEqual(kwargs["timeout"], ci.VISIBLE_TIMEOUT_SECONDS)
+            self.assertEqual(args[args.index("--request-timeout") + 1], str(ci.REQUEST_TIMEOUT_SECONDS))
             self.assertEqual(args[args.index("--sample-part") + 1], "Q:\\part")
             self.assertNotIn("--suite", args)
             self.assertNotIn("--sample-assembly", args)
             output = Path(args[args.index("--output-dir") + 1])
             (output / "visible.json").write_text(json.dumps({
                 "state": "completed", "success": True, "profile": "visible-open",
-                "request_timeout_seconds": 120,
+                "request_timeout_seconds": ci.REQUEST_TIMEOUT_SECONDS,
                 "cleanup_errors": [], "host": host, "host_after": host}))
         with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "start", return_value=host) as start, \
                 patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command) as calls, \
@@ -1023,7 +1024,8 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(gate.record["completed"])
         self.assertEqual(gate.record["coverage"], {"visible": "read-only-open-inspect-close"})
         self.assertIsNone(gate.record["suite"])
-        self.assertEqual(gate.record["budgets_seconds"]["request"], 120)
+        self.assertEqual(gate.record["budgets_seconds"]["request"], 600)
+        self.assertEqual(gate.record["budgets_seconds"]["visible_smoke"], 900)
         self.assertEqual(gate.record["budgets_seconds"]["shared_gates"], {})
         self.assertNotIn("functional_sets", gate.record)
 
@@ -1031,9 +1033,11 @@ class RuntimeAdapterTests(unittest.TestCase):
         host = {"process_id": 123, "platform": "macos-wine", "visible": True,
                 "owned_by_daemon": True, "shared_interactive": False}
         good = {"state": "completed", "success": True, "profile": "visible-open",
+                "request_timeout_seconds": ci.REQUEST_TIMEOUT_SECONDS,
                 "cleanup_errors": [], "host": host, "host_after": host}
         cases = [{"success": False}, {"state": "running"}, {"profile": "other"},
                  {"cleanup_errors": ["failure"]}, {"host": None},
+                 {"request_timeout_seconds": None}, {"request_timeout_seconds": 120},
                  *[{"host_after": dict(host, **change)} for change in (
                      {"process_id": 124}, {"visible": False}, {"owned_by_daemon": False},
                      {"shared_interactive": True}, {"platform": "windows"})]]

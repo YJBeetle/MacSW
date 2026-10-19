@@ -36,6 +36,8 @@ Developer 角色即可，账户需开启双重认证后生成 App 专用密码�
 `runtime_stage=full`、`runtime_profile=visible-smoke` 也可。
 必须通过 runtime job 的 `Lightweight visible SOLIDWORKS smoke` 步骤；
 缺失、失败、跳过或重复的 job／步骤均拒绝。只构建或只安装成功不算通过。
+Mac 轻量冒烟显式给共享门禁传入 600 秒单请求预算（共享默认仍为 120 秒），
+保留 900 秒整轮保护、原始断言和失败即停止；证据必须确认实际使用了该预算。
 `runtime_profile=hidden-full` 是独立手动诊断，结果不作为签名／公证的前置条件，
 也不能拿该运行的构建产物替代轻量构建输入。签名仍检查选定轻量 run 成功、
 同一提交、可信来源及产物哈希；它不查询其他诊断 run。
