@@ -78,6 +78,15 @@ validation，也不给所有程序套同一份宽松权限。MacSW 主程序只�
 所需的 Apple Events 权限。wineserver、7zz、原生 Python 默认无例外权限。
 具体适配仍以正式签名后的实测为准，不能把候选策略当成已验证结论。
 
+macOS 15 上，允许匿名可执行内存不代表允许直接把未签名 PE 文件页设为
+可执行。v0.1.0 初始正式包（build 1）可在全新容器中复现 `wineboot` 返回 53；详细日志是
+`wineboot.exe` / `ntdll.dll` 的 `.text` 页执行权限设置失败，而非缺少目录。
+`0015-ntdll-probe-executable-file-mappings.patch` 在 macOS 映射可执行 PE
+节时提前请求执行权限，使 `mmap` 的 EACCES/EPERM 进入既有读取回退；私有
+代码页改用匿名内存，保留最终节权限及共享可写映射语义。无需新增 JIT、
+关闭代码页保护或关闭库验证权限。补丁、重编译的 `ntdll.so` 均纳入构建缓存、
+打包及 BuildManifest 校验，不能只修改开发机上的运行时。
+
 ## 公证与最终 ZIP
 
 使用临时钥匙串与 0600 的凭据文件，错误输出不打印密码或私钥。显式限定
@@ -106,10 +115,19 @@ Base64 继续要求单行，不增加多行兼容。
 
 签名后验证 native Python 导入/libffi callback、7zz、隔离 Wine prefix 中
 CCW、MSXML 和 x64 BTLS 原语。原语沿用现有测试，不包含延后的 x86 BTLS 调查。
+Wine 初始化使用与安装器一致的 `interp` 环境及绝对路径
+`C:\windows\system32\wineboot.exe -u`，要求全新容器中部署有效的系统 PE
+文件，再实际执行 x64 / x86 `cmd.exe` 并匹配完成标记。初始化单项限时 240 秒，
+其他原语仍是 120 秒；不能用裸命令经 Shell 回退的零退出码代替初始化成功。
 再次验签，确认测试没有改动密封 App。公证只接受 `Accepted`，保存公证结果
 和日志，给 App staple 票据、validate、验签、Gatekeeper assess，再重新打
 最终 ZIP 和 SHA-256。ZIP 本身不 staple。
 参考 [Apple 自定义公证流程](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)。
+
+签发后另在 `macos-15` runner 下载同一工作流产生的最终签名 ZIP，校验
+SHA-256、Developer ID / Team / 权限及公证票据，执行上述 `--bootstrap-only`
+回归后再验签。该 job 不接触签名或公证凭据，不安装 SOLIDWORKS，不修改密封包；
+失败将使整个签发工作流失败。签发 runner 上的原语通过不替代跨系统初始化验证。
 
 ## 验证边界与后续
 
@@ -119,8 +137,9 @@ SOLIDWORKS GUI/CAD 门禁。当前完整 CAD CI 在原始 ad-hoc 构建上运行
 后，仍需在不改密封包的条件下验证签名 App 启动、实际 SW、终端权限和
 Toolbox/装配体保存重开，然后再接自动 Release 发布。
 
-原 `build-app.yml` 的 tag 发布仍属于旧的未公证打包路径；切换正式发布前
-必须撤掉旧路径，并让自动发布只消费通过签发和真实运行验收的最终产物。
-本阶段没有改变它，不能把普通 build artifact 称作正式签名包。
+`build-app.yml` 不再响应 tag 或写入 Release，已移除旧的未公证 ZIP 自动发布
+路径。普通 build artifact 不能称作正式签名包。发布仅消费签发工作流全部
+成功后的最终 ZIP；覆盖既有版本时也必须同步标签、校验和、公证日志及来源
+记录，不能混用旧 ZIP 与新清单。v0.1.0 修订包使用 build 2 区分初始包。
 公开发布时还要同时保留对应 Wine/Mono source archives，不能因为换了签名
 ZIP 就丢掉现有开源运行时的源码分发。

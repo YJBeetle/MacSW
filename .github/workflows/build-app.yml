@@ -56,8 +56,6 @@ on:
       - '.gitmodules'
       - 'Dependencies/SWCLI'
       - '.github/workflows/build-app.yml'
-    tags:
-      - 'v*'
 
 permissions:
   contents: read
@@ -78,8 +76,6 @@ jobs:
       app_archive: ${{ steps.build-config.outputs.app_archive }}
       app_sha256: ${{ steps.artifact-digests.outputs.app_sha256 }}
       helpers_sha256: ${{ steps.artifact-digests.outputs.helpers_sha256 }}
-    permissions:
-      contents: write # Existing tag release upload; runtime fixtures are never released.
     concurrency:
       group: macsw-build-${{ github.ref }}-${{ inputs.runtime_profile || 'visible-smoke' }}
       cancel-in-progress: false
@@ -221,19 +217,6 @@ jobs:
           path: build/ci/MacSW-CI-Helpers.tar.gz
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish Release Assets (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            build/archive/MacSW-*-macOS.zip
-            dist/${{ steps.build-config.outputs.wine_source_asset }}
-            dist/${{ steps.build-config.outputs.mono_source_asset }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   runtime-test:
     name: SOLIDWORKS installation & runtime

@@ -85,7 +85,10 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request", self.workflow)
         self.assertIn("contents: read", guard)
         self.assertNotIn("contents: write", guard)
-        self.assertIn("Publish Release Assets (on tag)", self.build)
+        self.assertNotIn("Publish Release Assets", self.build)
+        self.assertNotIn("softprops/action-gh-release", self.workflow)
+        self.assertNotIn("contents: write", self.workflow)
+        self.assertNotIn("\n    tags:", self.workflow)
         self.assertNotIn("Publish Release Assets", self.runtime)
 
     def test_download_assets_cache_uses_dependency_identity_not_swcli_source_pin(self):
