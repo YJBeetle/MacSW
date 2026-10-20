@@ -874,7 +874,9 @@ class CredentialTests(unittest.TestCase):
         self.assertIn("NOTARY_API_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}", workflow)
         self.assertIn("NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}", workflow)
         self.assertIn("NOTARY_ISSUER_ID: ${{ vars.NOTARY_ISSUER_ID }}", workflow)
-        uploads = workflow.split("uses: actions/upload-artifact@v7")[1:]
+        signing_job = workflow.split("  verify-signed-bootstrap:", 1)[0]
+        self.assertEqual(workflow.count("uses: actions/upload-artifact@v7"), 3)
+        uploads = signing_job.split("uses: actions/upload-artifact@v7")[1:]
         self.assertEqual(len(uploads), 2)
         for upload in uploads:
             self.assertNotIn("macsw-signing-credentials", upload)

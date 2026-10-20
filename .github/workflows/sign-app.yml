@@ -24,6 +24,8 @@ jobs:
     concurrency:
       group: macsw-developer-id
       cancel-in-progress: false
+    outputs:
+      signing_team_id: ${{ steps.distribution.outputs.signing_team_id }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
@@ -50,6 +52,7 @@ jobs:
           sudo softwareupdate --install-rosetta --agree-to-license
 
       - name: Sign, validate, notarize and staple the staging App
+        id: distribution
         env:
           SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.SIGNING_CERTIFICATE_P12_BASE64 }}
           SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
@@ -65,6 +68,7 @@ jobs:
             --app "$RUNNER_TEMP/macsw-signing-app/MacSW.app" \
             --output "$RUNNER_TEMP/macsw-distribution"
           cp "$RUNNER_TEMP/macsw-signing-input/provenance.json" "$RUNNER_TEMP/macsw-distribution/"
+          printf 'signing_team_id=%s\n' "$SIGNING_TEAM_ID" >> "$GITHUB_OUTPUT"
 
       - name: Always remove temporary signing credentials
         if: always()
@@ -94,4 +98,47 @@ jobs:
           path: |
             ${{ runner.temp }}/macsw-distribution/signing-inventory.json
             ${{ runner.temp }}/macsw-distribution/notary-*.json
+          retention-days: 14
+
+  verify-signed-bootstrap:
+    needs: sign-and-notarize
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      SIGNING_TEAM_ID: ${{ needs.sign-and-notarize.outputs.signing_team_id }}
+    steps:
+      - name: Checkout the exact signing commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the accepted signed candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: MacSW-Developer-ID-candidate
+          path: ${{ runner.temp }}/macsw-signed-bootstrap-input
+
+      - name: Validate final ZIP and initialize a fresh prefix on macOS 15
+        run: |
+          if [ "$(uname -m)" = arm64 ]; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          cd "$RUNNER_TEMP/macsw-signed-bootstrap-input"
+          shasum -a 256 -c MacSW-*-macOS-signed.zip.sha256
+          mkdir "$RUNNER_TEMP/macsw-signed-bootstrap-app"
+          ditto -x -k MacSW-*-macOS-signed.zip "$RUNNER_TEMP/macsw-signed-bootstrap-app"
+          app="$RUNNER_TEMP/macsw-signed-bootstrap-app/MacSW.app"
+          python3 -B "$GITHUB_WORKSPACE/scripts/sign_app.py" verify --app "$app" --team "$SIGNING_TEAM_ID"
+          xcrun stapler validate "$app"
+          python3 -B "$GITHUB_WORKSPACE/scripts/ci/verify-toolbox-native.py" \
+            --app "$app" --bootstrap-only --evidence "$RUNNER_TEMP/macsw-signed-bootstrap-evidence"
+          python3 -B "$GITHUB_WORKSPACE/scripts/sign_app.py" verify --app "$app" --team "$SIGNING_TEAM_ID"
+
+      - name: Upload signed bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-signed-bootstrap-macos-15
+          path: ${{ runner.temp }}/macsw-signed-bootstrap-evidence/
+          if-no-files-found: ignore
           retention-days: 14
