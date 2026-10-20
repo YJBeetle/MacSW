@@ -18,9 +18,11 @@ PRINTWINDOW_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0011-win32u-printwin
 FONTLINK_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0012-win32u-preserve-custom-font-links.patch"
 SCREEN_READBACK_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0013-winemac-screen-readback.patch"
 MSXML_SCHEMA_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0014-msxml-schema-cache-namespace.patch"
+PE_MAPPING_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0015-ntdll-probe-executable-file-mappings.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
+NTDLL_OUTPUT="${OUTPUT_DIR}/ntdll.so"
 WINE_LOADER_OUTPUT="${OUTPUT_DIR}/MacSW"
 COMBASE_OUTPUT="${OUTPUT_DIR}/combase.dll"
 COMCTL32_V6_OUTPUT="${OUTPUT_DIR}/comctl32_v6.dll"
@@ -72,9 +74,10 @@ PRINTWINDOW_PATCH_SHA256="$(shasum -a 256 "${PRINTWINDOW_PATCH}" | awk '{print $
 FONTLINK_PATCH_SHA256="$(shasum -a 256 "${FONTLINK_PATCH}" | awk '{print $1}')"
 SCREEN_READBACK_PATCH_SHA256="$(shasum -a 256 "${SCREEN_READBACK_PATCH}" | awk '{print $1}')"
 MSXML_SCHEMA_PATCH_SHA256="$(shasum -a 256 "${MSXML_SCHEMA_PATCH}" | awk '{print $1}')"
+PE_MAPPING_PATCH_SHA256="$(shasum -a 256 "${PE_MAPPING_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${TREEVIEW_PATCH_SHA256}:${PRINTWINDOW_PATCH_SHA256}:${FONTLINK_PATCH_SHA256}:${SCREEN_READBACK_PATCH_SHA256}:${MSXML_SCHEMA_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
-if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${COMCTL32_V6_OUTPUT}" ] && [ -f "${MSXML3_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${TREEVIEW_PATCH_SHA256}:${PRINTWINDOW_PATCH_SHA256}:${FONTLINK_PATCH_SHA256}:${SCREEN_READBACK_PATCH_SHA256}:${MSXML_SCHEMA_PATCH_SHA256}:${PE_MAPPING_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
+if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${NTDLL_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${COMCTL32_V6_OUTPUT}" ] && [ -f "${MSXML3_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
    [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
     exit 0
@@ -116,6 +119,8 @@ git -C "${SOURCE_DIR}" apply --check "${SCREEN_READBACK_PATCH}"
 git -C "${SOURCE_DIR}" apply "${SCREEN_READBACK_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${MSXML_SCHEMA_PATCH}"
 git -C "${SOURCE_DIR}" apply "${MSXML_SCHEMA_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${PE_MAPPING_PATCH}"
+git -C "${SOURCE_DIR}" apply "${PE_MAPPING_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
@@ -171,6 +176,7 @@ MAKE_JOBS="${MAKE_JOBS:-$(sysctl -n hw.logicalcpu 2>/dev/null || printf '4')}"
 make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
     dlls/winemac.drv/winemac.so \
     dlls/win32u/win32u.so \
+    dlls/ntdll/ntdll.so \
     dlls/combase/x86_64-windows/combase.dll \
     dlls/comctl32_v6/x86_64-windows/comctl32_v6.dll \
     dlls/msxml3/x86_64-windows/msxml3.dll \
@@ -179,6 +185,7 @@ make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
 mkdir -p "${OUTPUT_DIR}"
 cp "${BUILD_DIR}/dlls/winemac.drv/winemac.so" "${WINEMAC_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/win32u/win32u.so" "${WIN32U_OUTPUT}.new"
+cp "${BUILD_DIR}/dlls/ntdll/ntdll.so" "${NTDLL_OUTPUT}.new"
 cp "${BUILD_DIR}/loader/wine" "${WINE_LOADER_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/combase/x86_64-windows/combase.dll" "${COMBASE_OUTPUT}.new"
 cp "${BUILD_DIR}/dlls/comctl32_v6/x86_64-windows/comctl32_v6.dll" "${COMCTL32_V6_OUTPUT}.new"
@@ -189,8 +196,9 @@ file "${COMCTL32_V6_OUTPUT}.new" | grep -q 'PE32+ executable.*x86-64'
 file "${MSXML3_OUTPUT}.new" | grep -q 'PE32+ executable.*x86-64'
 install_name_tool -id winemac.so "${WINEMAC_OUTPUT}.new"
 install_name_tool -id win32u.so "${WIN32U_OUTPUT}.new"
+install_name_tool -id ntdll.so "${NTDLL_OUTPUT}.new"
 install_name_tool -add_rpath '@loader_path/../../' "${WIN32U_OUTPUT}.new"
-for MODULE in "${WINEMAC_OUTPUT}.new" "${WIN32U_OUTPUT}.new" "${WINE_LOADER_OUTPUT}.new"; do
+for MODULE in "${WINEMAC_OUTPUT}.new" "${WIN32U_OUTPUT}.new" "${NTDLL_OUTPUT}.new" "${WINE_LOADER_OUTPUT}.new"; do
     codesign --force --sign - "${MODULE}"
     file "${MODULE}" | grep -q 'x86_64'
     codesign --verify --verbose=2 "${MODULE}"
@@ -198,10 +206,11 @@ done
 unset MODULE
 mv "${WINEMAC_OUTPUT}.new" "${WINEMAC_OUTPUT}"
 mv "${WIN32U_OUTPUT}.new" "${WIN32U_OUTPUT}"
+mv "${NTDLL_OUTPUT}.new" "${NTDLL_OUTPUT}"
 mv "${WINE_LOADER_OUTPUT}.new" "${WINE_LOADER_OUTPUT}"
 mv "${COMBASE_OUTPUT}.new" "${COMBASE_OUTPUT}"
 mv "${COMCTL32_V6_OUTPUT}.new" "${COMCTL32_V6_OUTPUT}"
 mv "${MSXML3_OUTPUT}.new" "${MSXML3_OUTPUT}"
 printf '%s' "${BUILD_KEY}" > "${STAMP_FILE}"
 
-echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${WINE_LOADER_OUTPUT}, ${COMBASE_OUTPUT}, ${COMCTL32_V6_OUTPUT}, ${MSXML3_OUTPUT}"
+echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${NTDLL_OUTPUT}, ${WINE_LOADER_OUTPUT}, ${COMBASE_OUTPUT}, ${COMCTL32_V6_OUTPUT}, ${MSXML3_OUTPUT}"

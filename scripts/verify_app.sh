@@ -123,6 +123,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WinePrintWindowPatchSHA256' "${BUILD_
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineFontLinkPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0012-win32u-preserve-custom-font-links.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineScreenReadbackPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0013-winemac-screen-readback.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMSXMLSchemaPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0014-msxml-schema-cache-namespace.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WinePEMappingPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0015-ntdll-probe-executable-file-mappings.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMSXML3ModuleSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${MSXML3_MODULE}" | awk '{print $1}')"
 cmp "${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/msxml3.dll" "${MSXML3_MODULE}"
 file "${MSXML3_MODULE}" | grep -q 'PE32+ executable.*x86-64'
