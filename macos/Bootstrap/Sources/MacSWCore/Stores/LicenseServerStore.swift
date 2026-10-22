@@ -297,6 +297,7 @@ public final class LicenseServerStore: ObservableObject {
         }
         state = .starting
         statusMessage = "正在启动 FlexNet…"
+        try service.prepareForLaunch()
         let executable = paths.managedFlexNet.appendingPathComponent("lmgrd.exe")
         let license = paths.managedFlexNet.appendingPathComponent(installation.licenseFile)
         let process = wine.makeProcess(arguments: [

@@ -161,6 +161,7 @@ public final class FlexNetService: @unchecked Sendable {
                     continue
                 }
             }
+            try prepareLicenseCopy(at: staging.appendingPathComponent(metadata.licenseFile))
             let data = try JSONEncoder().encode(metadata)
             try data.write(to: staging.appendingPathComponent(Self.manifestName), options: .atomic)
             _ = try inspect(directory: staging)
@@ -194,6 +195,19 @@ public final class FlexNetService: @unchecked Sendable {
             throw error
         }
         return metadata
+    }
+
+    /// Also repairs copies installed by earlier versions, without touching the
+    /// source package, macOS computer name, hostid or remote-server settings.
+    func prepareForLaunch() throws {
+        guard let installation = installed else { throw failure("尚未安装有效的托管 FlexNet。") }
+        try prepareLicenseCopy(at: paths.managedFlexNet.appendingPathComponent(installation.licenseFile))
+    }
+
+    private func prepareLicenseCopy(at url: URL) throws {
+        let original = try Data(contentsOf: url)
+        let prepared = try ManagedFlexNetLicense.loopbackCopy(of: original)
+        if prepared != original { try prepared.write(to: url, options: .atomic) }
     }
 
     /// 卸载即清空列表：托管时它就是唯一一条地址，没有"保留其他地址"这回事。
