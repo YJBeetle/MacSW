@@ -11,13 +11,8 @@ public final class ToolboxService: @unchecked Sendable {
     public func install(media: URL, paths: AppPaths) async throws -> Int {
         let rootPath = try Self.configuredDataPath(prefix: paths.bottle)
         let mapping = wine.makeProcess(arguments: ["winepath", "-u", rootPath], prefix: paths.bottle)
-        let (mappingStatus, output) = try await wine.captureCancellable(mapping)
-        let hostPath = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard mappingStatus == 0, hostPath.hasPrefix("/"), !hostPath.contains("\n"),
-              !hostPath.contains("\u{FFFD}") else {
-            throw Self.failure("无法解析已配置的 Toolbox 数据目录。")
-        }
-        let root = URL(fileURLWithPath: hostPath)
+        let root = try await resolveDataDirectory(using: mapping,
+            log: paths.logs.appendingPathComponent("toolbox-path.log"))
         let selected = try Self.selectedStandards(in: root)
         guard FileManager.default.fileExists(atPath: root.appendingPathComponent("lang/english/swbrowser.sldedb").path) else {
             throw Self.failure("Toolbox 数据库缺失，不能仅凭 MSI 成功继续安装。")
@@ -39,6 +34,28 @@ public final class ToolboxService: @unchecked Sendable {
             throw Self.failure("Toolbox 标准件部署失败（\(code)），请查看 toolbox-install.log；未标记安装成功。")
         }
         return try await Task.detached { try Self.validate(root: root, standards: selected) }.value
+    }
+
+    /// winepath's stdout is a machine-readable path, not a combined transcript.
+    /// Keep stderr for diagnosis without treating it as part of the directory.
+    func resolveDataDirectory(using process: Process, log: URL) async throws -> URL {
+        let result = try await wine.capturePairCancellable(process)
+        let diagnostic: [String: Any] = [
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "exit_code": result.status,
+            "stdout": result.standardOutput,
+            "stderr": result.standardError
+        ]
+        try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
+            .write(to: log, options: .atomic)
+        let path = result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.status == 0, path.hasPrefix("/"),
+              !path.contains("\n"), !path.contains("\r"), !path.contains("\0"),
+              !path.contains("\u{FFFD}") else {
+            throw Self.failure("无法解析已配置的 Toolbox 数据目录（退出码 \(result.status)），请查看 toolbox-path.log。")
+        }
+        return URL(fileURLWithPath: path)
     }
 
     func makeUpdater(executable: URL, dataPath: String, archivesPath: String, prefix: URL) -> Process {

@@ -76,13 +76,13 @@ def prerequisite_diagnostics(root):
 
 
 def collect_installation_logs(root):
-    """Collect only official prerequisite/MSI logs; publication redacts secrets."""
+    """Collect whitelisted installation logs; publication redacts secrets."""
     logs = root / "app-support/logs"
     if logs.is_symlink() or not logs.is_dir():
         return
     allowed = {"wineboot.log", "vcredist-wine.log", "login-manager-install.log",
                "login-manager-wine.log", "install_msi.log", "installer-wine.log",
-               "language-install.log", "language-wine.log"}
+               "language-install.log", "language-wine.log", "toolbox-path.log", "toolbox-install.log"}
     evidence = root / "evidence/installer-logs"
     evidence.mkdir(parents=True, exist_ok=True)
     vc_index = 0
