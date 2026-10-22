@@ -110,4 +110,35 @@ final class FlexNetServiceTests: XCTestCase {
         try makePackage(license: "SERVER this_host ANY 25734\nVENDOR OTHERD")
         XCTAssertThrowsError(try service.inspect(directory: root))
     }
+
+    func testLaunchPreparationRepairsOnlyPreviouslyInstalledManagedCopy() throws {
+        let original = "SERVER 𐌂𐌏ⵍ𐌔𐌕𐌀ⵍ𐌔𐌄 001122aabbcc 25734\r\nVENDOR SW_D\r\n# keep original\r\n"
+        try makePackage(license: original)
+        let metadata = try service.inspect(directory: root)
+        let paths = AppPaths(appSupportDirectory: root.appendingPathComponent("support"))
+        try fileManager.createDirectory(at: paths.managedFlexNet, withIntermediateDirectories: true)
+        for name in ["lmgrd.exe", "SW_D.exe", "license.lic"] {
+            try fileManager.copyItem(at: root.appendingPathComponent(name),
+                                     to: paths.managedFlexNet.appendingPathComponent(name))
+        }
+        let manifest = try JSONEncoder().encode(metadata)
+        try manifest.write(to: paths.managedFlexNet.appendingPathComponent(FlexNetService.manifestName))
+        let managed = paths.managedFlexNet.appendingPathComponent("license.lic")
+        XCTAssertEqual(service.installed, metadata)
+        try service.prepareForLaunch()
+        XCTAssertEqual(try Data(contentsOf: managed),
+                       Data(original.replacingOccurrences(of: "𐌂𐌏ⵍ𐌔𐌕𐌀ⵍ𐌔𐌄", with: "127.0.0.1").utf8))
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("license.lic")), Data(original.utf8))
+        XCTAssertEqual(try Data(contentsOf: paths.managedFlexNet.appendingPathComponent(FlexNetService.manifestName)), manifest)
+        XCTAssertEqual(service.installed, metadata)
+        try service.prepareForLaunch()
+        XCTAssertEqual(service.installed, metadata)
+    }
+
+    func testLaunchPreparationRequiresAValidManagedInstallation() throws {
+        try makePackage()
+        XCTAssertThrowsError(try service.prepareForLaunch())
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("license.lic")),
+                       "SERVER this_host ANY 25734\nVENDOR SW_D")
+    }
 }
