@@ -1452,13 +1452,19 @@ class RuntimeAdapterTests(unittest.TestCase):
         logs = self.root / "app-support/logs"
         logs.mkdir()
         (logs / "install_msi.log").write_text("MSI failure: fake serial")
+        mapping = {"exit_code": 0, "stdout": "/tmp/SWData\n", "stderr": "Wine diagnostic\n"}
+        (logs / "toolbox-path.log").write_text(json.dumps(mapping))
+        (logs / "toolbox-install.log").write_text("Official Toolbox updater output")
         (logs / "vcredist-x64_000_vcRuntimeMinimum_x64.log").write_bytes("Error 0x80070656".encode("utf-16"))
         (logs / "rclone.log").write_text("credential")
         (logs / "license.dat").write_text("private license")
         (logs / "language-wine.log").symlink_to(logs / "rclone.log")
         media.collect_installation_logs(self.root)
         evidence = self.root / "evidence/installer-logs"
-        self.assertEqual({path.name for path in evidence.iterdir()}, {"install_msi.log", "vc-installer-0.log"})
+        self.assertEqual({path.name for path in evidence.iterdir()},
+                         {"install_msi.log", "vc-installer-0.log", "toolbox-path.log", "toolbox-install.log"})
+        self.assertEqual(json.loads((evidence / "toolbox-path.log").read_text()), mapping)
+        self.assertEqual((evidence / "toolbox-install.log").read_text(), "Official Toolbox updater output")
         self.assertEqual((evidence / "vc-installer-0.log").read_text(), "Error 0x80070656")
         self.assertEqual(privacy.redact((evidence / "install_msi.log").read_text(),
                                        privacy.sensitive_values({"SW_SERIAL_SOLIDWORKS": "fake serial"})),

@@ -16,6 +16,68 @@ final class ToolboxTests: XCTestCase {
         try Data(value.utf8).write(to: file)
     }
 
+    private func mapping(stdout: String, stderr: String = "", status: Int = 0) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Arguments, not interpolated shell syntax: paths may contain quotes or spaces.
+        process.arguments = ["-c", #"printf '%s' "$1"; printf '%s' "$2" >&2; exit "$3""#,
+                             "toolbox-path-test", stdout, stderr, String(status)]
+        process.environment = [:]
+        return process
+    }
+
+    func testPathMappingIgnoresStderrButRecordsBothStreams() async throws {
+        let directory = try root()
+        let path = directory.appendingPathComponent("用户 𐌂/Toolbox Data").path
+        let warning = "wineserver: sock_get_ntstatus() can't map error: Host is down\n"
+        let log = directory.appendingPathComponent("logs/toolbox-path.log")
+        let resolved = try await ToolboxService().resolveDataDirectory(
+            using: mapping(stdout: path + "\r\n", stderr: warning), log: log)
+        XCTAssertEqual(resolved.path, path)
+        let diagnostic = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: log)) as? [String: Any])
+        XCTAssertEqual(diagnostic["exit_code"] as? Int, 0)
+        XCTAssertEqual(diagnostic["stdout"] as? String, path + "\r\n")
+        XCTAssertEqual(diagnostic["stderr"] as? String, warning)
+        XCTAssertNotNil(diagnostic["timestamp"] as? String)
+    }
+
+    func testPathMappingRejectsNonzeroExitEvenWithValidStdout() async throws {
+        let log = try root().appendingPathComponent("toolbox-path.log")
+        do {
+            _ = try await ToolboxService().resolveDataDirectory(
+                using: mapping(stdout: "/tmp/SWData\n", stderr: "failure", status: 53), log: log)
+            XCTFail("A valid-looking path cannot override a failed command")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("53"))
+            XCTAssertTrue(error.localizedDescription.contains("toolbox-path.log"))
+        }
+        let diagnostic = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: log)) as? [String: Any])
+        XCTAssertEqual(diagnostic["exit_code"] as? Int, 53)
+        XCTAssertEqual(diagnostic["stderr"] as? String, "failure")
+    }
+
+    func testPathMappingRejectsMissingOrMalformedStdout() async throws {
+        let log = try root().appendingPathComponent("toolbox-path.log")
+        for output in ["", " \n", #"C:\SWData"#, "/tmp/one\n/tmp/two", "/tmp/one\rtwo", "/tmp/\u{FFFD}"] {
+            do {
+                _ = try await ToolboxService().resolveDataDirectory(
+                    using: mapping(stdout: output, stderr: "/tmp/not-stdout\n"), log: log)
+                XCTFail("Invalid stdout was accepted: \(output.debugDescription)")
+            } catch {
+                XCTAssertEqual((error as NSError).domain, "MacSW.Toolbox")
+            }
+        }
+        // NUL cannot be passed as an argv value; make the child emit the actual byte.
+        let process = mapping(stdout: "")
+        process.arguments = ["-c", #"printf '/tmp/one\000two\n'"#]
+        do {
+            _ = try await ToolboxService().resolveDataDirectory(using: process, log: log)
+            XCTFail("NUL in a path must be rejected")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "MacSW.Toolbox")
+        }
+    }
+
     func testOfficialUpdaterUsesDefaultMonoWithoutChangingInstallerEnvironment() {
         let prefix = URL(fileURLWithPath: "/tmp/toolbox-test")
         let process = ToolboxService().makeUpdater(executable: URL(fileURLWithPath: "/sw/sldtoolboxupdater.exe"),
