@@ -23,6 +23,11 @@ on:
         type: choice
         options: [visible-smoke, hidden-full]
         default: visible-smoke
+      diagnostic_test_set:
+        description: 'Manual hidden-full diagnosis only; selected sets do not count as full acceptance'
+        type: choice
+        options: [all, drawing-save, drawing-save-as, drawings]
+        default: all
       runtime_renderer:
         description: 'Default hardware-first policy or explicit software-renderer diagnostics'
         type: choice
@@ -397,12 +402,19 @@ jobs:
       - name: Diagnostic hidden full CAD tests (not a signing gate)
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && github.event_name == 'workflow_dispatch' && (inputs.runtime_stage || 'full') == 'full' && inputs.runtime_profile == 'hidden-full'
         timeout-minutes: 330
+        env:
+          MACSW_DIAGNOSTIC_SET: ${{ inputs.diagnostic_test_set || 'all' }}
         run: |
+          diagnostic_args=()
+          if test "$MACSW_DIAGNOSTIC_SET" != all; then
+            diagnostic_args=(--diagnostic-set "$MACSW_DIAGNOSTIC_SET")
+          fi
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
             --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
             --profile hidden-full \
-            --renderer '${{ inputs.runtime_renderer || 'auto' }}'
+            --renderer '${{ inputs.runtime_renderer || 'auto' }}' \
+            ${diagnostic_args[@]+"${diagnostic_args[@]}"}
 
       - name: Stop isolated runtime test bottle
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true'

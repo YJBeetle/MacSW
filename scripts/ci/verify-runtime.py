@@ -573,12 +573,16 @@ class SharedGateProgress:
 
 class RuntimeGate:
     def __init__(self, app, evidence, suite="full", renderer="auto", mode=None,
-                 profile="visible-smoke"):
+                 profile="visible-smoke", diagnostic_set=None):
         # Retain the explicit suite/mode library interface for existing callers.
         # CLI/workflows expose only the two named profiles below.
         if profile not in (None, "visible-smoke", "hidden-full"):
             raise ValueError("Unknown runtime profile")
         self.profile = profile
+        if diagnostic_set and (profile != "hidden-full" or diagnostic_set not in
+                               {"drawing-save", "drawing-save-as", "drawings"}):
+            raise ValueError("Diagnostic set requires hidden-full and a supported drawing set")
+        self.diagnostic_set = diagnostic_set
         if profile is not None:
             selected_mode = "hidden" if profile == "hidden-full" else "visible"
             if mode is not None and mode != selected_mode:
@@ -617,6 +621,8 @@ class RuntimeGate:
                        "host_observations": [], "host_acquisitions": [], "swcli_deployments": [],
                        "screenshots": [],
                        "profile": profile,
+                       "diagnostic_set": diagnostic_set,
+                       "full_acceptance_eligible": diagnostic_set is None and profile == "hidden-full",
                        "suite": None if profile == "visible-smoke" else suite,
                        "coverage": ({"visible": "read-only-open-inspect-close"}
                                     if profile == "visible-smoke" else {mode: suite for mode in self.modes}),
@@ -1043,7 +1049,12 @@ class RuntimeGate:
         self.record["budgets_seconds"]["functional_suite"] = SETS_TIMEOUT_SECONDS[self.suite]
         self.record["budgets_seconds"]["test_set"] = 1800
         deadline = time.monotonic() + SETS_TIMEOUT_SECONDS[self.suite]
-        expected = [item.name for item in shared_plan(self.suite)]
+        plan = shared_plan(self.suite)
+        if self.diagnostic_set:
+            plan = [item for item in plan if item.name == self.diagnostic_set]
+            if len(plan) != 1:
+                raise RuntimeError("Pinned SWCLI does not expose the diagnostic set")
+        expected = [item.name for item in plan]
         for mode in self.modes:
             self.phase(mode + ".test-sets")
             output = self.cwd / mode / "runtime-sets"
@@ -1060,6 +1071,8 @@ class RuntimeGate:
                          "--fixture-work-dir", work, "--host-fixture-work-dir", self.windows_path(work),
                          "--wine-prefix", self.prefix, "--daemon-log", self.evidence / (mode + "-daemon.log"),
                          *template_arguments]
+            if self.diagnostic_set:
+                arguments += ["--diagnostic-set", self.diagnostic_set]
             try:
                 with HostMetrics(self, mode):
                     remaining = deadline - time.monotonic()
@@ -1070,13 +1083,15 @@ class RuntimeGate:
                 if (proof.get("completed") is not True or proof.get("success") is not True
                         or proof.get("suite") != self.suite or proof.get("mode") != mode
                         or proof.get("session_policy") != "fresh-per-test-set"
+                        or proof.get("diagnostic_set") != self.diagnostic_set
+                        or (self.diagnostic_set and proof.get("coverage_scope") != "selected-set")
                         or proof.get("expected_sets") != expected
                         or [item.get("name") for item in proof.get("sets", [])] != proof["expected_sets"]
                         or not all(item.get("success") is True and item.get("cleanup_errors") == []
                                    and item.get("server_exit_code") == 0
                                    and [step.get("script") for step in item.get("steps", [])]
                                        == [step.script for step in planned.steps]
-                                   for item, planned in zip(proof["sets"], shared_plan(self.suite)))):
+                                   for item, planned in zip(proof["sets"], plan))):
                     raise RuntimeError("Shared functional test-set coverage did not pass")
                 self.record["functional_sets"][mode] = proof
                 self.record["hosts"] += [{"mode": mode, "test_set": item["name"], "host": item["host"]}
@@ -1135,6 +1150,8 @@ def main():
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--profile", choices=("visible-smoke", "hidden-full"), default="visible-smoke")
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
+    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings"),
+                        help="Focused manual diagnosis only; never full acceptance")
     parser.add_argument("--cleanup-private", action="store_true")
     parser.add_argument("--check-shared-gates", action="store_true")
     args = parser.parse_args()
@@ -1154,7 +1171,8 @@ def main():
         return
     if args.app is None or args.evidence is None:
         raise RuntimeError("--app and --evidence are required")
-    gate = RuntimeGate(args.app, args.evidence, profile=args.profile, renderer=args.renderer)
+    gate = RuntimeGate(args.app, args.evidence, profile=args.profile, renderer=args.renderer,
+                       diagnostic_set=args.diagnostic_set)
     try:
         gate.run()
     except Exception as error:

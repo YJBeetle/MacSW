@@ -17,8 +17,18 @@ push 使用默认介质、夹具、简体中文和 `full` 阶段，运行轻量�
   CLI／SW 会话，只读打开官方 Part、inspect、关闭并确认空文档，正常停止 daemon，
   然后确认 SW 进程消失。不创建模型、不重建、不保存、不导出、不运行尺寸或 Toolbox。
 - `hidden-full`（仅手动）：共享 `verify-runtime-sets.py --suite full --mode hidden`，
-  只跑隐藏完整 17 组。每组启动新的 CLI／SW，会核对归属、不同 PID 和文档清场，
+  默认跑隐藏完整 19 组。每组启动新的 CLI／SW，会核对归属、进程退出和文档清场，
   组内不重启；失败续用→Front 直径保留同一宿主。
+
+手动 `hidden-full` 可额外选择 `diagnostic_test_set=drawing-save|drawing-save-as|drawings`，
+仅聚焦一组现有断言，不调整超时或重试原生调用。默认 `all` 保持完整计划。
+子集记录 `diagnostic_set` 和 `full_acceptance_eligible: false`；共享记录还标记
+`coverage_scope: selected-set`。子集成功不等于完整 CAD 验收，也不能代替它；
+完整模式拒绝带有子集标记的记录。此选项只作用于手动隐藏诊断，不改变 push 或签名门禁。
+
+`39993956744` 的完整诊断在旧 `drawing-save` 组打开可写图纸副本时触发 600 秒
+`WorkerTimeout`。原生跟踪停在 `SldWorks.OpenDoc6`，尚未运行新增 `drawings` 组。
+已保留原始记录和线程采样；仅凭这些证据不能归因于渲染器或 Wine 源码缺陷。
 
 两类运行复用构建、安装基底缓存和证据清理，但采用不同并发队列；
 不重复两模式 CAD 全套，也不复制安装脚本。隐藏档是诊断测试，

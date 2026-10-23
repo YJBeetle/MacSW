@@ -981,7 +981,21 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assert_shared_sequence("full")
 
     def test_hidden_diagnostics_prepare_once_and_run_full_only_hidden(self):
-        gate = self.gate(profile="hidden-full")
+        self.assert_hidden_plan()
+
+    def test_focused_drawing_diagnostic_has_no_full_acceptance_claim(self):
+        self.assert_hidden_plan(diagnostic_set="drawing-save")
+
+    def test_full_acceptance_refuses_a_selected_set_receipt(self):
+        self.assert_hidden_plan(forged=True)
+
+    def test_visible_profile_cannot_select_a_diagnostic_set(self):
+        with self.assertRaisesRegex(ValueError, "requires hidden-full"):
+            ci.RuntimeGate(self.app, self.root / "evidence", diagnostic_set="drawing-save")
+
+    def assert_hidden_plan(self, diagnostic_set=None, forged=False):
+        gate = ci.RuntimeGate(self.app, self.root / "evidence", profile="hidden-full",
+                              diagnostic_set=diagnostic_set)
         self.install_modeling_samples(gate.prefix)
         _, assembly = ci.modeling_samples(gate.prefix)
         assembly.with_suffix(".slddrw").write_bytes(b"drawing fixture")
@@ -992,7 +1006,14 @@ class RuntimeAdapterTests(unittest.TestCase):
             mode = args[args.index("--mode") + 1]
             output = Path(args[args.index("--output-dir") + 1])
             plan = ci.shared_plan("full")
+            if diagnostic_set:
+                self.assertEqual(args[args.index("--diagnostic-set") + 1], diagnostic_set)
+                plan = [item for item in plan if item.name == diagnostic_set]
+            else:
+                self.assertNotIn("--diagnostic-set", args)
             proof = {"completed": True, "success": True, "suite": "full", "mode": mode,
+                "diagnostic_set": diagnostic_set or ("drawing-save" if forged else None),
+                "coverage_scope": "selected-set" if diagnostic_set or forged else "full-plan",
                 "session_policy": "fresh-per-test-set", "expected_sets": [item.name for item in plan],
                 "sets": [{"name": item.name, "success": True, "cleanup_errors": [], "server_exit_code": 0,
                           "host": {"process_id": 100 + index},
@@ -1005,6 +1026,10 @@ class RuntimeAdapterTests(unittest.TestCase):
                 patch.object(gate, "windows_path", return_value="Q:\\mapped"), \
                 patch.object(gate, "capture_sw_window"), patch.object(gate, "collect_startup_evidence"), \
                 patch.object(gate, "collect_evidence") as collect:
+            if forged:
+                with self.assertRaisesRegex(RuntimeError, "coverage did not pass"):
+                    gate.run()
+                return
             gate.run()
         prepare.assert_called_once_with("hidden")
         self.assertEqual(calls.call_count, 1)
@@ -1013,6 +1038,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(set(gate.record["functional_sets"]), {"hidden"})
         self.assertEqual(gate.record["profile"], "hidden-full")
         self.assertEqual(gate.record["session_policy"], "fresh-per-test-set")
+        self.assertEqual(gate.record["full_acceptance_eligible"], diagnostic_set is None)
 
     def test_visible_smoke_is_the_default_and_needs_only_a_part(self):
         gate = ci.RuntimeGate(self.app, self.root / "evidence")
