@@ -191,6 +191,24 @@ class RuntimeAdapterTests(unittest.TestCase):
     def gate(self, suite="full", profile=None):
         return ci.RuntimeGate(self.app, self.root / "evidence", suite=suite, profile=profile)
 
+    def test_installed_base_gb_template_is_explicit_and_ambiguity_fails(self):
+        prefix = self.root / "app-support/bottle"
+        script = PROJECT / "Dependencies/SWCLI/scripts/ci/verify-runtime-sets.py"
+        with patch.dict(os.environ, {"SWCLI_DRAWING_TEMPLATE": ""}):
+            with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+                ci.installed_drawing_template(script, prefix)
+            template = prefix / "drive_c/Program Files/SOLIDWORKS/data/templates/gb.drwdot"
+            template.parent.mkdir(parents=True)
+            template.write_bytes(b"official base template")
+            self.assertEqual(ci.installed_drawing_template(script, prefix), template.resolve())
+            other = prefix / "drive_c/Program Files/OtherSW/data/templates/gb.drwdot"
+            other.parent.mkdir(parents=True)
+            other.write_bytes(b"another base template")
+            with self.assertRaisesRegex(RuntimeError, "missing or ambiguous"):
+                ci.installed_drawing_template(script, prefix)
+            with patch.dict(os.environ, {"SWCLI_DRAWING_TEMPLATE": str(other)}):
+                self.assertEqual(ci.installed_drawing_template(script, prefix), other.resolve())
+
     def test_log_snapshot_is_bounded_and_preserves_inherited_write_offset(self):
         native_pread = os.pread
         with tempfile.TemporaryFile() as log:

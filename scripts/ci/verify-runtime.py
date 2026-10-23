@@ -37,7 +37,16 @@ def shared_plan(suite):
 def installed_drawing_template(script, prefix):
     sys.path.insert(0, str(script.parent))
     from gate_support.drawing_template import drawing_template
-    return drawing_template(prefix / "drive_c/ProgramData", os.environ.get("SWCLI_DRAWING_TEMPLATE"))
+    explicit = os.environ.get("SWCLI_DRAWING_TEMPLATE")
+    if not explicit:
+        # Wine has the official base GB template, not Windows' first-run gb_a4 copy.
+        matches = [path for path in prefix.glob("drive_c/Program Files/*/data/templates/gb.drwdot")
+                   if path.is_file() and not path.is_symlink()
+                   and path.resolve().is_relative_to(prefix.resolve())]
+        if len(matches) != 1:
+            raise RuntimeError("Installed GB drawing template is missing or ambiguous; set SWCLI_DRAWING_TEMPLATE")
+        explicit = matches[0]
+    return drawing_template(prefix / "drive_c/ProgramData", explicit)
 
 
 def modeling_samples(prefix, *, part_only=False):
