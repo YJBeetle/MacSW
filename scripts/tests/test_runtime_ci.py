@@ -562,6 +562,41 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(all(row["reason"] == "stalled" for row in (first, second, third)))
         self.assertFalse(gate.record["completed"])
 
+    def test_native_sample_keeps_boundary_when_wine_noise_pushes_it_out_of_tail(self):
+        _, metrics, event, path, targets = self.stall_metrics()
+        with patch.object(ci.time, "monotonic", side_effect=[10, 40, 100]), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+            with path.open("a") as stream:
+                stream.write("Wine diagnostic noise\n" * 10000)
+            result = metrics.sample_stalled_host(targets)
+            self.assertEqual(result["boundary_source"], "cached-observation")
+            self.assertEqual(result["request_id"], event["request_id"])
+            event.update(stage="operation", phase="end")
+            with path.open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+            self.assertIsNone(metrics.sample_stalled_host(targets))
+        run.assert_called_once()
+
+    def test_native_sample_drops_cached_boundary_on_log_truncation_or_replacement(self):
+        gate, _, event, path, targets = self.stall_metrics()
+        for replace in (False, True):
+            with self.subTest(replace=replace):
+                path.write_text(json.dumps(event) + "\n")
+                with patch.object(ci.time, "monotonic", return_value=10), \
+                        patch.object(ci.subprocess, "run") as run:
+                    metrics = ci.HostMetrics(gate, "visible")
+                    self.assertIsNone(metrics.sample_stalled_host(targets))
+                    if replace:
+                        replacement = path.with_suffix(".replacement")
+                        replacement.write_text("Wine diagnostics\n" * 10000)
+                        replacement.replace(path)
+                    else:
+                        path.write_text("Wine diagnostics\n")
+                    self.assertIsNone(metrics.sample_stalled_host(targets))
+                    self.assertIsNone(metrics.last_native_payload)
+                run.assert_not_called()
+
     def test_native_periodic_samples_capture_progressing_calls_but_not_idle_ends(self):
         _, metrics, event, path, targets = self.stall_metrics()
         metrics.started_at = 0

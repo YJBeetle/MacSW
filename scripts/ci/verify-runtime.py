@@ -247,6 +247,9 @@ class HostMetrics:
         self.started = False
         self.last_progress_seconds = None
         self.last_native_event = None
+        self.last_native_payload = None
+        self.native_log_identity = None
+        self.native_log_size = 0
         self.last_native_change = time.monotonic()
         self.last_system_metrics_seconds = None
         self.last_screenshot_seconds = 0
@@ -264,10 +267,28 @@ class HostMetrics:
         try:
             # Do not consume/move the daemon's writer offset or copy huge logs.
             with path.open("rb") as source:
-                source.seek(max(0, os.fstat(source.fileno()).st_size - 128 * 1024))
+                stat = os.fstat(source.fileno())
+                identity = (stat.st_dev, stat.st_ino)
+                if identity != self.native_log_identity or stat.st_size < self.native_log_size:
+                    self.last_native_payload = None
+                    self.last_native_event = None
+                self.native_log_identity, self.native_log_size = identity, stat.st_size
+                source.seek(max(0, stat.st_size - 128 * 1024))
                 lines = source.read().decode("utf-8", errors="replace").splitlines()
-            event = next(json.loads(line) for line in reversed(lines)
-                         if line.startswith('{"event": "swcli.native-call"'))
+            event = next((json.loads(line) for line in reversed(lines)
+                          if line.startswith('{"event": "swcli.native-call"')), None)
+            boundary_source = "log-tail"
+            if event is None:
+                # Wine diagnostics can push a blocked call out of the bounded
+                # tail. Absence of a new boundary does not mean completion.
+                # Retain the last observation only for this same growing log;
+                # it is diagnostic context, never a health/gate decision.
+                event = self.last_native_payload
+                boundary_source = "cached-observation"
+            else:
+                self.last_native_payload = event
+            if event is None:
+                return None
             if event["phase"] not in ("begin", "end"):
                 return None
             if event["stage"] == "operation" and event["phase"] == "end":
@@ -297,6 +318,7 @@ class HostMetrics:
             observation = {"request_id": event["request_id"], "operation": event["operation"],
                            "call": event["call"], "stage": event["stage"], "sequence": event["sequence"],
                            "boundary_phase": event["phase"], "reason": "stalled" if stalled else "periodic",
+                           "boundary_source": boundary_source,
                            "observed_utc_time": datetime.now(timezone.utc).isoformat(),
                            "phase": self.gate.record["phase"], "sample_index": self.sample_state["count"],
                            "unix_pid": targets[0]["unix_pid"], "evidence": output.name,
