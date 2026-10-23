@@ -595,7 +595,7 @@ class SharedGateProgress:
 
 class RuntimeGate:
     def __init__(self, app, evidence, suite="full", renderer="auto", mode=None,
-                 profile="visible-smoke", diagnostic_set=None):
+                 profile="visible-smoke", diagnostic_set=None, diagnostic_visible=False):
         # Retain the explicit suite/mode library interface for existing callers.
         # CLI/workflows expose only the two named profiles below.
         if profile not in (None, "visible-smoke", "hidden-full"):
@@ -605,8 +605,10 @@ class RuntimeGate:
                                {"drawing-save", "drawing-save-as", "drawings"}):
             raise ValueError("Diagnostic set requires hidden-full and a supported drawing set")
         self.diagnostic_set = diagnostic_set
+        if diagnostic_visible and not diagnostic_set:
+            raise ValueError("Visible diagnostic requires a selected diagnostic set")
         if profile is not None:
-            selected_mode = "hidden" if profile == "hidden-full" else "visible"
+            selected_mode = "hidden" if profile == "hidden-full" and not diagnostic_visible else "visible"
             if mode is not None and mode != selected_mode:
                 raise ValueError("Mode is not supported by the selected profile")
             suite = "full" if profile == "hidden-full" else "core"
@@ -644,6 +646,7 @@ class RuntimeGate:
                        "screenshots": [],
                        "profile": profile,
                        "diagnostic_set": diagnostic_set,
+                       "diagnostic_visible": diagnostic_visible,
                        "full_acceptance_eligible": diagnostic_set is None and profile == "hidden-full",
                        "suite": None if profile == "visible-smoke" else suite,
                        "coverage": ({"visible": "read-only-open-inspect-close"}
@@ -1174,6 +1177,8 @@ def main():
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
     parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings"),
                         help="Focused manual diagnosis only; never full acceptance")
+    parser.add_argument("--diagnostic-visible", action="store_true",
+                        help="Visible-host comparison for a selected diagnostic set only")
     parser.add_argument("--cleanup-private", action="store_true")
     parser.add_argument("--check-shared-gates", action="store_true")
     args = parser.parse_args()
@@ -1194,7 +1199,7 @@ def main():
     if args.app is None or args.evidence is None:
         raise RuntimeError("--app and --evidence are required")
     gate = RuntimeGate(args.app, args.evidence, profile=args.profile, renderer=args.renderer,
-                       diagnostic_set=args.diagnostic_set)
+                       diagnostic_set=args.diagnostic_set, diagnostic_visible=args.diagnostic_visible)
     try:
         gate.run()
     except Exception as error:

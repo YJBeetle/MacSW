@@ -152,13 +152,15 @@ class RuntimeWorkflowTests(unittest.TestCase):
 
     def test_default_smoke_and_manual_hidden_diagnostics_are_disjoint(self):
         step = self.runtime.split("- name: Lightweight visible SOLIDWORKS smoke", 1)[1].split("- name:", 1)[0]
-        diagnostic = self.runtime.split("- name: Diagnostic hidden full CAD tests", 1)[1].split("- name:", 1)[0]
+        diagnostic = self.runtime.split("- name: Diagnostic CAD tests", 1)[1].split("- name:", 1)[0]
         self.assertIn("(inputs.runtime_profile || 'visible-smoke') == 'visible-smoke'", step)
         self.assertIn("--profile visible-smoke", step)
         self.assertIn("timeout-minutes: 30", step)
         self.assertIn("github.event_name == 'workflow_dispatch'", diagnostic)
         self.assertIn("inputs.runtime_profile == 'hidden-full'", diagnostic)
         self.assertIn("--profile hidden-full", diagnostic)
+        self.assertIn("diagnostic_args+=(--diagnostic-visible)", diagnostic)
+        self.assertIn("Visible comparison requires a selected diagnostic set", diagnostic)
         self.assertIn("timeout-minutes: 330", diagnostic)
         self.assertNotIn("runtime_suite", self.workflow)
         self.assertNotIn("visible+hidden", self.workflow)
@@ -1021,6 +1023,14 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_focused_drawing_diagnostic_has_no_full_acceptance_claim(self):
         self.assert_hidden_plan(diagnostic_set="drawing-save")
 
+    def test_focused_visible_drawing_comparison_keeps_shared_assertions_and_no_full_claim(self):
+        self.assert_hidden_plan(diagnostic_set="drawing-save", diagnostic_visible=True)
+
+    def test_visible_comparison_cannot_change_default_full_plan(self):
+        with self.assertRaisesRegex(ValueError, "requires a selected"):
+            ci.RuntimeGate(self.app, self.root / "evidence", profile="hidden-full",
+                           diagnostic_visible=True)
+
     def test_full_acceptance_refuses_a_selected_set_receipt(self):
         self.assert_hidden_plan(forged=True)
 
@@ -1028,9 +1038,10 @@ class RuntimeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires hidden-full"):
             ci.RuntimeGate(self.app, self.root / "evidence", diagnostic_set="drawing-save")
 
-    def assert_hidden_plan(self, diagnostic_set=None, forged=False):
+    def assert_hidden_plan(self, diagnostic_set=None, forged=False, diagnostic_visible=False):
         gate = ci.RuntimeGate(self.app, self.root / "evidence", profile="hidden-full",
-                              diagnostic_set=diagnostic_set)
+                              diagnostic_set=diagnostic_set, diagnostic_visible=diagnostic_visible)
+        expected_mode = "visible" if diagnostic_visible else "hidden"
         self.install_modeling_samples(gate.prefix)
         _, assembly = ci.modeling_samples(gate.prefix)
         assembly.with_suffix(".slddrw").write_bytes(b"drawing fixture")
@@ -1039,6 +1050,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertIn("--fixture-work-dir", args)
             self.assertEqual(args[args.index("--drawing-template") + 1], "Q:\\mapped")
             mode = args[args.index("--mode") + 1]
+            self.assertEqual(mode, expected_mode)
             output = Path(args[args.index("--output-dir") + 1])
             plan = ci.shared_plan("full")
             if diagnostic_set:
@@ -1066,11 +1078,12 @@ class RuntimeAdapterTests(unittest.TestCase):
                     gate.run()
                 return
             gate.run()
-        prepare.assert_called_once_with("hidden")
+        prepare.assert_called_once_with(expected_mode)
         self.assertEqual(calls.call_count, 1)
-        self.assertEqual([call.args for call in collect.call_args_list], [("hidden",)])
+        self.assertEqual([call.args for call in collect.call_args_list], [(expected_mode,)])
         self.assertTrue(gate.record["completed"])
-        self.assertEqual(set(gate.record["functional_sets"]), {"hidden"})
+        self.assertEqual(set(gate.record["functional_sets"]), {expected_mode})
+        self.assertEqual(gate.record["diagnostic_visible"], diagnostic_visible)
         self.assertEqual(gate.record["profile"], "hidden-full")
         self.assertEqual(gate.record["session_policy"], "fresh-per-test-set")
         self.assertEqual(gate.record["full_acceptance_eligible"], diagnostic_set is None)

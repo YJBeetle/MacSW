@@ -28,6 +28,10 @@ on:
         type: choice
         options: [all, drawing-save, drawing-save-as, drawings]
         default: all
+      diagnostic_visible:
+        description: 'Single-set visibility comparison only; requires diagnostic_test_set other than all'
+        type: boolean
+        default: false
       runtime_renderer:
         description: 'Default hardware-first policy or explicit software-renderer diagnostics'
         type: choice
@@ -399,15 +403,23 @@ jobs:
             --renderer '${{ inputs.runtime_renderer || 'auto' }}'
 
       # A separate manual run/queue, never a prerequisite of signing or pushes.
-      - name: Diagnostic hidden full CAD tests (not a signing gate)
+      - name: Diagnostic CAD tests (not a signing gate)
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && github.event_name == 'workflow_dispatch' && (inputs.runtime_stage || 'full') == 'full' && inputs.runtime_profile == 'hidden-full'
         timeout-minutes: 330
         env:
           MACSW_DIAGNOSTIC_SET: ${{ inputs.diagnostic_test_set || 'all' }}
+          MACSW_DIAGNOSTIC_VISIBLE: ${{ inputs.diagnostic_visible && 'true' || 'false' }}
         run: |
           diagnostic_args=()
           if test "$MACSW_DIAGNOSTIC_SET" != all; then
             diagnostic_args=(--diagnostic-set "$MACSW_DIAGNOSTIC_SET")
+          fi
+          if test "$MACSW_DIAGNOSTIC_VISIBLE" = true; then
+            if test "$MACSW_DIAGNOSTIC_SET" = all; then
+              echo 'Visible comparison requires a selected diagnostic set' >&2
+              exit 2
+            fi
+            diagnostic_args+=(--diagnostic-visible)
           fi
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
