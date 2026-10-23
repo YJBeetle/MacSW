@@ -970,6 +970,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         def command(args, **kwargs):
             self.assertEqual(Path(args[1]).name, ci.SETS_GATE)
             self.assertIn("--fixture-work-dir", args)
+            self.assertEqual(args[args.index("--drawing-template") + 1], "Q:\\mapped")
             mode = args[args.index("--mode") + 1]
             output = Path(args[args.index("--output-dir") + 1])
             plan = ci.shared_plan("full")
@@ -980,7 +981,8 @@ class RuntimeAdapterTests(unittest.TestCase):
                           "steps": [{"script": step.script} for step in item.steps]}
                          for index, item in enumerate(plan)]}
             (output / "runtime-sets.json").write_text(json.dumps(proof))
-        with patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "prepare") as prepare, \
+        with patch.object(ci, "installed_drawing_template", return_value=Path("template.drwdot")), \
+                patch.object(gate, "verify_bitmap_driver"), patch.object(gate, "prepare") as prepare, \
                 patch.object(ci, "HostMetrics"), patch.object(gate, "command", side_effect=command) as calls, \
                 patch.object(gate, "windows_path", return_value="Q:\\mapped"), \
                 patch.object(gate, "capture_sw_window"), patch.object(gate, "collect_startup_evidence"), \

@@ -34,6 +34,12 @@ def shared_plan(suite):
     return runtime_plan(suite)
 
 
+def installed_drawing_template(script, prefix):
+    sys.path.insert(0, str(script.parent))
+    from gate_support.drawing_template import drawing_template
+    return drawing_template(prefix / "drive_c/ProgramData", os.environ.get("SWCLI_DRAWING_TEMPLATE"))
+
+
 def modeling_samples(prefix, *, part_only=False):
     """Locate installed host fixtures; CAD assertions remain in SWCLI."""
     patterns = (
@@ -1013,6 +1019,10 @@ class RuntimeGate:
 
     def run_sets(self):
         script = shared_sets_gate()
+        template_arguments = []
+        if self.suite == "full":
+            template = installed_drawing_template(script, self.prefix)
+            template_arguments = ["--drawing-template", self.windows_path(template)]
         sample_part, sample_assembly = modeling_samples(self.prefix)
         sample_drawing = sample_assembly.with_suffix(".slddrw")
         if not sample_drawing.is_file() or sample_drawing.is_symlink():
@@ -1039,7 +1049,8 @@ class RuntimeGate:
                          "--sample-assembly", self.windows_path(sample_assembly),
                          "--sample-drawing", self.windows_path(sample_drawing), "--sample-drawing-local", sample_drawing,
                          "--fixture-work-dir", work, "--host-fixture-work-dir", self.windows_path(work),
-                         "--wine-prefix", self.prefix, "--daemon-log", self.evidence / (mode + "-daemon.log")]
+                         "--wine-prefix", self.prefix, "--daemon-log", self.evidence / (mode + "-daemon.log"),
+                         *template_arguments]
             try:
                 with HostMetrics(self, mode):
                     remaining = deadline - time.monotonic()
