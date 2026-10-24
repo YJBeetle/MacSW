@@ -66,6 +66,18 @@ push 使用默认介质、夹具、简体中文和 `full` 阶段，运行轻量�
 及哈希检查。证据明确 `structure_inspected=false`；它不验证结构、保存或完整验收，
 不改变现有完整断言、600 秒请求上限和组内宿主策略。
 
+无结构遍历对照 `40061926742` 仍在同路径第二次 OpenDoc6 超时，说明结构遍历
+也不是必要触发因素，不能据此归因具体 Wine／COM 实现。
+`drawing-native-reopen` 是独立的 CI-only 原生 COM 对照：由固定 SWCLI 共享脚本
+在原生 Windows Python 中持有一个 STA、一个自有新宿主，直接打开私有副本、释放
+返回引用、关闭、确认空目录、同路径再次打开关闭。不经过 daemon、SWCLI 文档目录
+或逐请求 CommandInProgress 范围，不保存、不遍历结构、不重试或中途重启。
+宿主只提供隔离安装、路径和与 sw-cli 一致的 Wine 环境，并复用现有启动租约检查。
+共享监督进程保留逐调用 600 秒、启动 300 秒预算，超时只终止其已确认自有 PID；
+未知宿主不被采用。证据位于 `hidden/native-control/native-com.json`，明确
+`coverage_scope=direct-native-control`、`full_acceptance_eligible=false`；不证明结构、
+保存重开或完整 19 组验收，也不改变产品默认 COM 策略。
+
 两类运行复用构建、安装基底缓存和证据清理，但采用不同并发队列；
 不重复两模式 CAD 全套，也不复制安装脚本。隐藏档是诊断测试，
 不作为签名／公证前置条件；失败不重试、不静默忽略。

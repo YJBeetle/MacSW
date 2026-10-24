@@ -16,7 +16,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PROJECT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("macsw_runtime_ci", PROJECT / "scripts/ci/verify-runtime.py")
@@ -1031,6 +1031,64 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     def test_no_inspect_control_cannot_claim_structure_or_full_acceptance(self):
         self.assert_hidden_plan(diagnostic_set="drawing-reopen-no-inspect")
+
+    def test_direct_native_control_uses_private_prefix_and_shared_script_not_daemon(self):
+        self.assert_native_control()
+
+    def test_direct_native_failure_preserves_receipt_and_never_claims_completion(self):
+        self.assert_native_control(failed=True)
+
+    def test_direct_native_forged_full_acceptance_receipt_is_rejected(self):
+        self.assert_native_control(forged=True)
+
+    def assert_native_control(self, failed=False, forged=False):
+        gate = ci.RuntimeGate(self.app, self.root / "evidence", profile="hidden-full",
+                              diagnostic_set="drawing-native-reopen")
+        gates = self.directory / "Dependencies/SWCLI/scripts/ci"
+        gates.mkdir(parents=True)
+        script = gates / ci.NATIVE_DRAWING_GATE
+        script.write_text("# pinned shared native control\n")
+        assembly = gate.prefix / "drive_c/Program Files/SOLIDWORKS/Mold/bezel moldbase.sldasm"
+        assembly.parent.mkdir(parents=True)
+        drawing = assembly.with_suffix(".slddrw")
+        drawing.write_bytes(b"official")
+        gate.windows_path = lambda path: "WIN:" + str(path)
+        gate.verify_bitmap_driver = Mock()
+        gate.prepare = Mock()
+        def command(arguments, **kwargs):
+            self.assertEqual(kwargs["timeout"], 1800)
+            self.assertIn("launch", arguments)
+            self.assertIn("--prefix", arguments)
+            self.assertEqual(arguments[arguments.index("--prefix") + 1], gate.prefix)
+            self.assertIn(r"C:\MacSW\Python311\python.exe", arguments)
+            self.assertIn("WIN:" + str(gate.cwd / ci.NATIVE_DRAWING_GATE), arguments)
+            self.assertNotIn(gate.cli, arguments)
+            self.assertNotIn("daemon", arguments)
+            self.assertEqual(arguments[arguments.index("--request-timeout") + 1], "600")
+            wrapper = (PROJECT / "scripts/swcli/sw-cli").read_text()
+            self.assertIn('WINEDLLOVERRIDES="' + gate.env["WINEDLLOVERRIDES"] + '"', wrapper)
+            self.assertEqual((gate.cwd / ci.NATIVE_DRAWING_GATE).read_bytes(), script.read_bytes())
+            proof = {"completed": True, "success": not failed, "diagnostic_case": "drawing-native-reopen",
+                     "coverage_scope": "direct-native-control", "full_acceptance_eligible": forged,
+                     "cleanup_errors": []}
+            (gate.cwd / "hidden/native-control/native-com.json").write_text(json.dumps(proof))
+            if failed:
+                raise RuntimeError("first native failure")
+        gate.command = Mock(side_effect=command)
+        with patch.object(ci, "PROJECT", self.directory), patch.object(ci, "modeling_samples", return_value=(None, assembly)), patch.object(ci, "HostMetrics"), patch.object(gate, "run_sets", side_effect=AssertionError("No daemon coordinator")):
+            if failed or forged:
+                with self.assertRaisesRegex(RuntimeError, "first native failure" if failed else "receipt did not pass"):
+                    gate.run()
+                self.assertFalse(gate.record["completed"])
+            else:
+                gate.run()
+                self.assertTrue(gate.record["completed"])
+        gate.command.assert_called_once()
+        gate.prepare.assert_called_once_with("hidden")
+        self.assertEqual(gate.record["coverage"], {"hidden": "direct-native-control"})
+        self.assertFalse(gate.record["full_acceptance_eligible"])
+        self.assertNotIn("functional_sets", gate.record)
+        self.assertTrue((gate.evidence / "hidden/native-control/native-com.json").is_file())
 
     def test_focused_visible_drawing_comparison_keeps_shared_assertions_and_no_full_claim(self):
         self.assert_hidden_plan(diagnostic_set="drawing-save", diagnostic_visible=True)

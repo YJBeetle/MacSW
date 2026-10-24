@@ -24,6 +24,7 @@ PROJECT = Path(__file__).resolve().parents[2]
 SHARED_GATES = ("verify-modeling.py", "verify-driving-dimensions.py", "verify-toolbox.py")
 SETS_GATE = "verify-runtime-sets.py"
 VISIBLE_GATE = "verify-visible.py"
+NATIVE_DRAWING_GATE = "diagnose-native-drawing.py"
 VISIBLE_TIMEOUT_SECONDS = 900
 SETS_TIMEOUT_SECONDS = {"core": 13800, "full": 19200}
 
@@ -602,7 +603,7 @@ class RuntimeGate:
             raise ValueError("Unknown runtime profile")
         self.profile = profile
         if diagnostic_set and (profile != "hidden-full" or diagnostic_set not in
-                               {"drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen", "drawing-reopen-no-inspect"}):
+                               {"drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen", "drawing-reopen-no-inspect", "drawing-native-reopen"}):
             raise ValueError("Diagnostic set requires hidden-full and a supported drawing set")
         self.diagnostic_set = diagnostic_set
         if diagnostic_visible and not diagnostic_set:
@@ -984,8 +985,63 @@ class RuntimeGate:
     def run(self):
         if self.profile == "visible-smoke":
             self.run_visible()
+        elif self.diagnostic_set == "drawing-native-reopen":
+            self.run_native_drawing()
         else:
             self.run_sets()
+
+    def run_native_drawing(self):
+        """CI-only transport for the shared standalone COM control, not full19."""
+        script = PROJECT / "Dependencies/SWCLI/scripts/ci" / NATIVE_DRAWING_GATE
+        if not script.is_file() or script.is_symlink():
+            raise RuntimeError("Pinned SWCLI lacks the direct native drawing control")
+        _, assembly = modeling_samples(self.prefix)
+        drawing = assembly.with_suffix(".slddrw")
+        if not drawing.is_file() or drawing.is_symlink():
+            raise RuntimeError("Installed official drawing fixture is missing")
+        mode = self.modes[0]
+        self.verify_bitmap_driver()
+        self.prepare(mode)
+        self.record["coverage"] = {mode: "direct-native-control"}
+        self.record["session_policy"] = "single-probe-owned-native-host"
+        self.record["native_probe_source_sha256"] = hashlib.sha256(script.read_bytes()).hexdigest()
+        output = self.cwd / mode / "native-control"
+        output.mkdir(parents=True, exist_ok=False)
+        staged = self.cwd / NATIVE_DRAWING_GATE
+        if staged.exists():
+            raise RuntimeError("Refusing to replace a staged native control")
+        shutil.copyfile(script, staged)
+        contents = self.app / "Contents"
+        resources = contents / "Resources/SWCLI"
+        loader = contents / "Frameworks/wine/bin/wineloader"
+        self.env.update(WINELOADER=str(loader), WINESERVER=str(loader.with_name("wineserver")),
+                        LANG="zh_CN.UTF-8", LC_ALL="zh_CN.UTF-8", WINE_MONO_AOT="none",
+                        WINEDLLOVERRIDES="atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b")
+        arguments = [resources / "runtime/PythonNative/bin/python3", "-I", resources / "bin/wine_runtime.py",
+                     "launch", "--contents", contents, "--prefix", self.prefix, "--", loader,
+                     r"C:\MacSW\Python311\python.exe", self.windows_path(staged),
+                     "--source", self.windows_path(drawing), "--output-dir", self.windows_path(output),
+                     "--work-dir", self.windows_path(self.cwd / "private-native-drawing"),
+                     "--request-timeout", str(REQUEST_TIMEOUT_SECONDS), "--startup-timeout", str(STARTUP_TIMEOUT_SECONDS)]
+        if mode == "visible":
+            arguments += ["--visible"]
+        self.phase(mode + ".native-control")
+        try:
+            with HostMetrics(self, mode):
+                self.command(arguments, timeout=1800)
+            proof = runtime_record(output / "native-com.json", "Direct native control")
+            if (proof.get("completed") is not True or proof.get("success") is not True
+                    or proof.get("diagnostic_case") != self.diagnostic_set
+                    or proof.get("coverage_scope") != "direct-native-control"
+                    or proof.get("full_acceptance_eligible") is not False
+                    or proof.get("cleanup_errors") != []):
+                raise RuntimeError("Direct native control receipt did not pass")
+            self.record["native_control"] = proof
+        finally:
+            # Preserve the first native failure receipt even on a nonzero launcher exit.
+            self.collect_evidence(mode)
+        self.record["completed"] = True
+        self.phase("completed")
 
     def finish_visible_daemon(self):
         # The shared entrypoint already requested public daemon stop. Its
@@ -1171,7 +1227,7 @@ def main():
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--profile", choices=("visible-smoke", "hidden-full"), default="visible-smoke")
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
-    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen", "drawing-reopen-no-inspect"),
+    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen", "drawing-reopen-no-inspect", "drawing-native-reopen"),
                         help="Focused manual diagnosis only; never full acceptance")
     parser.add_argument("--diagnostic-visible", action="store_true",
                         help="Visible-host comparison for a selected diagnostic set only")
