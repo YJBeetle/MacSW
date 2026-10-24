@@ -4,6 +4,7 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static weak var updater: AppUpdater?
+    static weak var fileOpener: FileOpenController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.updater?.start()
         let shell = AppShell.shared
@@ -12,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !shell.solidWorksInstalled {
             shell.showBootstrapWindow()
         }
+        Self.fileOpener?.start()
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Self.fileOpener?.open(urls)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -32,6 +38,7 @@ struct MacSWApplication: App {
     @StateObject private var keyboardShortcuts: WineKeyboardShortcutStore
     @StateObject private var runtime: RuntimeStore
     @StateObject private var updater: AppUpdater
+    @StateObject private var fileOpener: FileOpenController
 
     init() {
         let paths = AppPaths.live()
@@ -48,6 +55,9 @@ struct MacSWApplication: App {
         let updater = AppUpdater(runtime: runtime, bootstrap: bootstrap, licensing: licenseServer)
         _updater = StateObject(wrappedValue: updater)
         AppDelegate.updater = updater
+        let fileOpener = FileOpenController(runtime: runtime, bootstrap: bootstrap, updater: updater)
+        _fileOpener = StateObject(wrappedValue: fileOpener)
+        AppDelegate.fileOpener = fileOpener
         AppShell.shared.configure {
             AnyView(UpdateGuardedBootstrap(store: bootstrap, runtime: runtime, updater: updater))
         }
@@ -62,7 +72,7 @@ struct MacSWApplication: App {
     var body: some Scene {
         MenuBarExtra("MacSW", systemImage: "cube.fill") {
             MenuBarPanelView(runtime: runtime, licenseServer: licenseServer, updater: updater)
-                .disabled(updater.preparingInstallation)
+                .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
         }
         .menuBarExtraStyle(.window)
 
@@ -74,7 +84,7 @@ struct MacSWApplication: App {
                 keyboardShortcuts: keyboardShortcuts
             )
             .environmentObject(updater)
-            .disabled(updater.preparingInstallation)
+            .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
         }
     }
 }
@@ -85,6 +95,7 @@ private struct UpdateGuardedBootstrap: View {
     @ObservedObject var updater: AppUpdater
 
     var body: some View {
-        BootstrapSceneRoot(store: store, runtime: runtime).disabled(updater.preparingInstallation)
+        BootstrapSceneRoot(store: store, runtime: runtime)
+            .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
     }
 }

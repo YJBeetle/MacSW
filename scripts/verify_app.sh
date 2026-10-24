@@ -105,6 +105,7 @@ test -x "${SWCLI_NATIVE_PATH_HELPER}"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py" "${SWCLI_DIR}/bin/swcli_path.py"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_runtime.py" "${SWCLI_DIR}/bin/swcli_runtime.py"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/wine_runtime.py" "${SWCLI_DIR}/bin/wine_runtime.py"
+cmp "${WORKSPACE_ROOT}/scripts/swcli/open_document.py" "${SWCLI_DIR}/bin/open_document.py"
 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -I "${SWCLI_DIR}/bin/swcli_runtime.py" \
     --contents "${CONTENTS_DIR}" --verify
 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -c \

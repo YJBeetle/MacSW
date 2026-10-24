@@ -152,7 +152,7 @@ public final class WineService: @unchecked Sendable {
         )
         guard result.status == 0, let path = Self.parsedWindowsPath(result.standardOutput) else {
             throw NSError(domain: "MacSW.Wine", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "无法转换安装日志路径为当前 Wine 容器的 Windows 路径。"])
+                          userInfo: [NSLocalizedDescriptionKey: "无法将文件路径转换为当前 Wine 容器的 Windows 路径。"])
         }
         return path
     }

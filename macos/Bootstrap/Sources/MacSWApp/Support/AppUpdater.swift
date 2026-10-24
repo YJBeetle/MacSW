@@ -45,7 +45,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     private var maintenance: Bool {
         bootstrap.state.isActive || bootstrap.isInspectingMedia || runtime.isMigratingWine ||
-        licensing.isOperating || runtime.swcliDaemon.isOperating ||
+        licensing.isOperating || runtime.swcliDaemon.isOperating || runtime.isOpeningDocument ||
         runtime.state == .starting || runtime.state == .stopping || runtime.pendingWineTool != nil
     }
 

@@ -16,6 +16,72 @@
     <string>MacSW</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>SOLIDWORKS Part</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.yjbeetle.macsw.solidworks-part</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>SOLIDWORKS Assembly</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.yjbeetle.macsw.solidworks-assembly</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>SOLIDWORKS Drawing</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.yjbeetle.macsw.solidworks-drawing</string></array>
+        </dict>
+    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.yjbeetle.macsw.solidworks-part</string>
+            <key>UTTypeDescription</key>
+            <string>SOLIDWORKS Part</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict><key>public.filename-extension</key><array><string>sldprt</string></array></dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.yjbeetle.macsw.solidworks-assembly</string>
+            <key>UTTypeDescription</key>
+            <string>SOLIDWORKS Assembly</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict><key>public.filename-extension</key><array><string>sldasm</string></array></dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.yjbeetle.macsw.solidworks-drawing</string>
+            <key>UTTypeDescription</key>
+            <string>SOLIDWORKS Drawing</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict><key>public.filename-extension</key><array><string>slddrw</string></array></dict>
+        </dict>
+    </array>
     <key>CFBundleShortVersionString</key>
     <string>@APP_VERSION@</string>
     <key>CFBundleVersion</key>

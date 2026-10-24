@@ -59,6 +59,20 @@ See the [font documentation](docs/font-fallback.md).
 For theme diagnostics, `make theme-probe` builds a read-only Win32 controls and MDI
 gallery; see the [theme probe guide](docs/wine-theme-probe.md).
 
+### Open files from Finder
+
+MacSW registers as an alternative editor for `.sldprt` parts, `.sldasm` assemblies,
+and `.slddrw` drawings. Use Finder's **Open With → MacSW**. To make it the default,
+choose MacSW under **Get Info → Open with → Change All**; the App never sets the
+system default itself.
+
+Requests are queued in order. MacSW starts SW if needed, reuses the instance in
+its bottle, and only activates an already-open document—never reloads, saves, or
+closes it. Paths with spaces/Unicode use the bottle's actual drive mappings.
+Missing installations show setup; installation/maintenance blocks opening with
+a retry message. After a timeout or failure, inspect SW's dialogs and document
+state before trying again.
+
 ## SWCLI quick start
 
 The bundled `sw-cli` provides document and part automation. **Start the daemon
