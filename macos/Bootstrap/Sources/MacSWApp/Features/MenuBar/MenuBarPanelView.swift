@@ -7,6 +7,7 @@ import SwiftUI
 struct MenuBarPanelView: View {
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
+    @ObservedObject var updater: AppUpdater
     @ObservedObject private var swcliDaemon: SWCLIDaemonStore
     @State private var isRefreshing = false
     @State private var isQuitting = false
@@ -17,9 +18,10 @@ struct MenuBarPanelView: View {
 
     private static let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
-    init(runtime: RuntimeStore, licenseServer: LicenseServerStore) {
+    init(runtime: RuntimeStore, licenseServer: LicenseServerStore, updater: AppUpdater) {
         self.runtime = runtime
         self.licenseServer = licenseServer
+        self.updater = updater
         self.swcliDaemon = runtime.swcliDaemon
     }
 
@@ -129,6 +131,11 @@ struct MenuBarPanelView: View {
                 LogReveal.open(runtime.paths.logs)
                 dismissPanel()
             }
+            MenuBarActionRow(title: "检查更新…", systemImage: "arrow.triangle.2.circlepath") {
+                dismissPanel()
+                updater.check()
+            }
+            .disabled(!updater.canCheck)
             if !runtime.processes.isEmpty {
                 MenuBarActionRow(title: "强制停止全部进程", systemImage: "stop.fill", destructive: true) {
                     runtime.forceStop()

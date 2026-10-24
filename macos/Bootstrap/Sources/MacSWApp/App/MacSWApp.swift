@@ -3,7 +3,9 @@ import MacSWCore
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var updater: AppUpdater?
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.updater?.start()
         let shell = AppShell.shared
         NSApp.setActivationPolicy(shell.activationPolicyAtLaunch)
         // 未安装时引导安装是唯一入口；已安装时只保留菜单栏，需要时由菜单或设置打开。
@@ -15,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Self.updater?.shouldTerminate(sender) ?? .terminateNow
+    }
 }
 
 @main
@@ -25,6 +31,7 @@ struct MacSWApplication: App {
     @StateObject private var resourceMonitor: SolidWorksResourceMonitorStore
     @StateObject private var keyboardShortcuts: WineKeyboardShortcutStore
     @StateObject private var runtime: RuntimeStore
+    @StateObject private var updater: AppUpdater
 
     init() {
         let paths = AppPaths.live()
@@ -38,8 +45,11 @@ struct MacSWApplication: App {
         _resourceMonitor = StateObject(wrappedValue: resourceMonitor)
         _keyboardShortcuts = StateObject(wrappedValue: keyboardShortcuts)
         _runtime = StateObject(wrappedValue: runtime)
+        let updater = AppUpdater(runtime: runtime, bootstrap: bootstrap, licensing: licenseServer)
+        _updater = StateObject(wrappedValue: updater)
+        AppDelegate.updater = updater
         AppShell.shared.configure {
-            AnyView(BootstrapSceneRoot(store: bootstrap, runtime: runtime))
+            AnyView(UpdateGuardedBootstrap(store: bootstrap, runtime: runtime, updater: updater))
         }
         let autoLaunch = AppPreferences.autoLaunchSolidWorks()
         runtime.prepareFontLinkAtAppLaunch()
@@ -51,7 +61,8 @@ struct MacSWApplication: App {
 
     var body: some Scene {
         MenuBarExtra("MacSW", systemImage: "cube.fill") {
-            MenuBarPanelView(runtime: runtime, licenseServer: licenseServer)
+            MenuBarPanelView(runtime: runtime, licenseServer: licenseServer, updater: updater)
+                .disabled(updater.preparingInstallation)
         }
         .menuBarExtraStyle(.window)
 
@@ -62,6 +73,18 @@ struct MacSWApplication: App {
                 resourceMonitor: resourceMonitor,
                 keyboardShortcuts: keyboardShortcuts
             )
+            .environmentObject(updater)
+            .disabled(updater.preparingInstallation)
         }
+    }
+}
+
+private struct UpdateGuardedBootstrap: View {
+    @ObservedObject var store: BootstrapStore
+    @ObservedObject var runtime: RuntimeStore
+    @ObservedObject var updater: AppUpdater
+
+    var body: some View {
+        BootstrapSceneRoot(store: store, runtime: runtime).disabled(updater.preparingInstallation)
     }
 }

@@ -36,6 +36,11 @@ SWIFT_BIN_DIR="$(swift build \
     --configuration release \
     --show-bin-path)"
 cp "${SWIFT_BIN_DIR}/MacSW" "${OUTPUT_DIR}/MacSW"
+test -d "${SWIFT_BIN_DIR}/Sparkle.framework"
+# Keep the path to the actual resolved binary artifact. Packaging copies the
+# framework preserving its reviewed version links and executable modes.
+printf '%s\n' "${SWIFT_BIN_DIR}/Sparkle.framework" > "${OUTPUT_DIR}/sparkle-framework-path"
+cp "${SWIFT_BUILD_DIR}/artifacts/bootstrap/Sparkle/LICENSE" "${OUTPUT_DIR}/Sparkle-LICENSE"
 
 echo "==> [SUCCESS] 原生 Mach-O 二进制构建成功: ${OUTPUT_DIR}/MacSW"
 file "${OUTPUT_DIR}/MacSW"

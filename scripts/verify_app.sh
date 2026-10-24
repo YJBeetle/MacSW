@@ -48,6 +48,10 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :MacSWStdoleSHA256' "${INFO_PLIST}")" 
 test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${INFO_PLIST}")" = "${MACOS_DEPLOYMENT_TARGET}"
 
 test -x "${CONTENTS_DIR}/MacOS/MacSW"
+test -f "${CONTENTS_DIR}/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+test -x "${CONTENTS_DIR}/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${INFO_PLIST}")" = "https://github.com/YJBeetle/MacSW/releases/latest/download/appcast.xml"
+otool -L "${CONTENTS_DIR}/MacOS/MacSW" | grep -q '@rpath/Sparkle.framework/'
 test -x "${CONTENTS_DIR}/MacOS/7zz"
 test -x "${SWCLI_LAUNCHER}"
 test -L "${SWCLI_LAUNCHER}"

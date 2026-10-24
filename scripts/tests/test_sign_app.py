@@ -161,6 +161,27 @@ class SigningInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Required native"):
             signing.inventory(self.app)
 
+    def test_sparkle_nested_code_is_explicit_and_signed_inside_out(self):
+        for relative in signing.SPARKLE_TARGETS:
+            self.file(relative, thin(6 if relative.endswith('/Sparkle') else 2))
+        entries = signing.inventory(self.app)
+        sparkle = [item for item in entries if item['path'] in signing.SPARKLE_TARGETS]
+        self.assertEqual(len(sparkle), 5)
+        self.assertEqual(sparkle[-1]['target'], signing.SPARKLE_ROOT)
+        self.assertTrue(all(item['policy'] == 'default' for item in sparkle))
+        unknown = self.file(signing.SPARKLE_VERSION + '/new-helper', thin(2))
+        with self.assertRaisesRegex(RuntimeError, 'Unreviewed native'):
+            signing.inventory(self.app)
+        unknown.unlink()
+        (self.app / (signing.SPARKLE_VERSION + '/XPCServices/Unexpected.xpc')).mkdir()
+        with self.assertRaisesRegex(RuntimeError, 'Nested code bundle'):
+            signing.inventory(self.app)
+
+    def test_incomplete_sparkle_framework_fails_closed(self):
+        self.file(signing.SPARKLE_VERSION + '/Sparkle', thin(6))
+        with self.assertRaisesRegex(RuntimeError, 'Incomplete Sparkle'):
+            signing.inventory(self.app)
+
     def test_entitlement_files_exact_and_no_blanket_exceptions(self):
         for policy, expected in signing.ENTITLEMENTS.items():
             self.assertEqual(plistlib.loads((PROJECT / "resources/signing" / (policy + ".plist")).read_bytes()),

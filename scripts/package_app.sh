@@ -91,6 +91,9 @@ echo "==> Assembling ${APP_NAME}.app..."
 mkdir -p "${MAC_OS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 cp "${LAUNCHER_BIN}" "${MAC_OS_DIR}/MacSW"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
+python3 "${WORKSPACE_ROOT}/scripts/package_updater.py" --app "${APP_DIR}" \
+    --framework "$(cat "${BUILD_ROOT}/bootstrap/sparkle-framework-path")" \
+    --license "${BUILD_ROOT}/bootstrap/Sparkle-LICENSE"
 cp "${APP_ICON}" "${RESOURCES_DIR}/AppIcon.icns"
 mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"

@@ -36,14 +36,19 @@ let package = Package(
         .executable(name: "MacSWCIRuntime", targets: ["MacSWCIRuntime"])
     ],
     targets: [
+        // Official SPM artifact, pinned to the checksum in Sparkle's 2.10.0 manifest.
+        .binaryTarget(name: "Sparkle",
+            url: "https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-for-Swift-Package-Manager.zip",
+            checksum: "17e28312b8e18ab7cdbbe09a6fb28cc55a5479ec6c371dbc07cdecd2a14fd959"),
         .target(
             name: "MacSWCore",
             path: "Sources/MacSWCore"
         ),
         .executableTarget(
             name: "MacSWApp",
-            dependencies: ["MacSWCore"],
-            path: "Sources/MacSWApp"
+            dependencies: ["MacSWCore", "Sparkle"],
+            path: "Sources/MacSWApp",
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .executableTarget(
             name: "MacSWCI",

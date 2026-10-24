@@ -165,20 +165,30 @@ public enum ProcessInventory {
     /// 在后台执行器上跑 ps 并等待退出，避免非隔离 async 函数沿用主线程导致界面卡顿。
     public static func snapshot(bottlePath: String, wineRuntimePath: String) async -> [WineProcess] {
         await Task.detached(priority: .utility) {
-            collect(bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+            (try? collect(bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)) ?? []
         }.value
     }
 
-    private static func collect(bottlePath: String, wineRuntimePath: String) -> [WineProcess] {
+    /// Destructive/update decisions must not interpret a failed ps as no clients.
+    public static func snapshotForUpdate(bottlePath: String, wineRuntimePath: String) async throws -> [WineProcess] {
+        try await Task.detached(priority: .utility) {
+            try collect(bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+        }.value
+    }
+
+    private static func collect(bottlePath: String, wineRuntimePath: String) throws -> [WineProcess] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["axo", "pid=,rss=,etime=,command="]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return [] }
+        try process.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw MacSWError.make("无法确认容器进程状态，暂不允许安装更新。", domain: "MacSW.Update")
+        }
         let output = String(decoding: data, as: UTF8.self)
         // 只对原有启发式识别到的候选读取环境，不扫描其他应用的环境。
         let candidates = parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)

@@ -21,6 +21,17 @@ import swcli_runtime
 # Each new executable requires review, rather than inheriting Wine exceptions.
 WINE_ROOT = "Contents/Resources/Wine"
 WINE_ALIAS = "Contents/Frameworks/wine"
+SPARKLE_ROOT = "Contents/Frameworks/Sparkle.framework"
+SPARKLE_VERSION = SPARKLE_ROOT + "/Versions/B"
+SPARKLE_TARGETS = {
+    SPARKLE_VERSION + "/Sparkle": SPARKLE_ROOT,
+    SPARKLE_VERSION + "/Autoupdate": SPARKLE_VERSION + "/Autoupdate",
+    SPARKLE_VERSION + "/Updater.app/Contents/MacOS/Updater": SPARKLE_VERSION + "/Updater.app",
+    SPARKLE_VERSION + "/XPCServices/Installer.xpc/Contents/MacOS/Installer": SPARKLE_VERSION + "/XPCServices/Installer.xpc",
+    SPARKLE_VERSION + "/XPCServices/Downloader.xpc/Contents/MacOS/Downloader": SPARKLE_VERSION + "/XPCServices/Downloader.xpc",
+}
+SPARKLE_BUNDLES = {SPARKLE_ROOT, *(target for target in SPARKLE_TARGETS.values()
+                                 if target.endswith((".app", ".xpc")))}
 EXECUTABLES = {
     "Contents/MacOS/MacSW": "app",
     "Contents/MacOS/7zz": "default",
@@ -104,9 +115,9 @@ def inventory(app):
                 raise RuntimeError("External, absolute or broken bundle link: " + relative)
             continue
         if path.is_dir():
-            if path.suffix in (".app", ".framework", ".xpc", ".bundle"):
+            if path.suffix in (".app", ".framework", ".xpc", ".bundle") and relative not in SPARKLE_BUNDLES:
                 raise RuntimeError("Nested code bundle needs an explicit signing policy: " + relative)
-            if relative.startswith("Contents/Frameworks/") and "." in path.name:
+            if relative.startswith("Contents/Frameworks/") and not relative.startswith(SPARKLE_ROOT) and "." in path.name:
                 raise RuntimeError("Dotted data directory in native code location: " + relative)
             continue
         kind = macho_type(path)
@@ -114,6 +125,9 @@ def inventory(app):
             if relative.startswith("Contents/MacOS/"):
                 raise RuntimeError("Non-Mach-O file in native code directory; move it to Resources: " + relative)
             continue  # Scripts in Resources and other data are sealed by the outer App.
+        if relative in SPARKLE_TARGETS and kind == (6 if relative.endswith("/Sparkle") else 2):
+            result.append({"path": relative, "target": SPARKLE_TARGETS[relative], "type": kind, "policy": "default"})
+            continue
         if kind == 2 and relative in EXECUTABLES:
             policy = EXECUTABLES[relative]
         elif kind in (6, 8) and any(relative.startswith(root) for root in LIBRARY_ROOTS):
@@ -124,9 +138,12 @@ def inventory(app):
     found = {item["path"] for item in result}
     if not set(EXECUTABLES).issubset(found):
         raise RuntimeError("Required native executables are missing: " + ", ".join(sorted(set(EXECUTABLES) - found)))
+    if (app / SPARKLE_ROOT).exists() and not set(SPARKLE_TARGETS).issubset(found):
+        raise RuntimeError("Incomplete Sparkle framework or helper inventory")
     # All libraries/bundles first; standalone executables last. The App's main
     # executable is signed as part of the final outer bundle, not separately.
-    return sorted(result, key=lambda item: (item["type"] == 2, item["path"]))
+    return sorted(result, key=lambda item: (
+        3 if item.get("target") == SPARKLE_ROOT else 2 if "target" in item else int(item["type"] == 2), item["path"]))
 
 
 def digest(path):
@@ -137,6 +154,17 @@ def verify_payload(app):
     contents = app / "Contents"
     wine_runtime.verify_app(contents, wine_runtime.identity(contents))
     swcli_runtime.read_manifest(contents / "Resources/SWCLI")
+    if (app / SPARKLE_ROOT).exists():
+        import base64
+        info = plistlib.loads((contents / "Info.plist").read_bytes())
+        try:
+            key = base64.b64decode(info.get("SUPublicEDKey", ""), validate=True)
+        except ValueError:
+            key = b''
+        if len(key) != 32 or info.get("SUFeedURL") != 'https://github.com/YJBeetle/MacSW/releases/latest/download/appcast.xml':
+            raise RuntimeError("Distribution requires the reviewed Sparkle feed and a valid EdDSA public key")
+        if info.get('SUAllowsAutomaticUpdates') is not False:
+            raise RuntimeError("Unattended update installation is not allowed for the Wine runtime")
 
 
 def refresh_signed_hashes(app):
@@ -231,7 +259,7 @@ def verify(app, team):
     verify_payload(app)
     for item in entries:
         if item["policy"] != "app":
-            verify_signature(app / item["path"], item["policy"], team)
+            verify_signature(app / item.get("target", item["path"]), item["policy"], team)
     verify_signature(app, "app", team, outer=True)
     return entries
 
@@ -257,7 +285,7 @@ def sign(app, identity, team, keychain, entitlement_dir, *, identity_sha1=None):
         print("signed " + str(target.relative_to(app)) if target != app else "signed outer App", flush=True)
     for item in entries:
         if item["policy"] != "app":
-            sign_one(app / item["path"], item["policy"])
+            sign_one(app / item.get("target", item["path"]), item["policy"])
     refresh_signed_hashes(app)
     verify_payload(app)
     sign_one(app, "app")

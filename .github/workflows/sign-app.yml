@@ -70,6 +70,12 @@ jobs:
           cp "$RUNNER_TEMP/macsw-signing-input/provenance.json" "$RUNNER_TEMP/macsw-distribution/"
           printf 'signing_team_id=%s\n' "$SIGNING_TEAM_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Generate signed update feed from the final notarized ZIP
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          python3 -B scripts/ci/update-feed.py --output "$RUNNER_TEMP/macsw-distribution"
+
       - name: Always remove temporary signing credentials
         if: always()
         run: python3 scripts/ci/notarize-app.py --cleanup
@@ -86,6 +92,7 @@ jobs:
             ${{ runner.temp }}/macsw-distribution/provenance.json
             ${{ runner.temp }}/macsw-distribution/signing-inventory.json
             ${{ runner.temp }}/macsw-distribution/notary-*.json
+            ${{ runner.temp }}/macsw-distribution/appcast.xml
           retention-days: 14
 
       - name: Upload public signing diagnostics only

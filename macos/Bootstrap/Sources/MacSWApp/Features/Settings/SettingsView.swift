@@ -3,6 +3,7 @@ import MacSWCore
 import SwiftUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var updater: AppUpdater
     @ObservedObject var runtime: RuntimeStore
     @ObservedObject var licenseServer: LicenseServerStore
     @ObservedObject var resourceMonitor: SolidWorksResourceMonitorStore
@@ -63,6 +64,17 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         Form {
+            Section("MacSW 更新") {
+                HStack {
+                    Text("通过 GitHub Releases 获取正式版本")
+                    Spacer()
+                    Button("检查更新…") { updater.check() }.disabled(!updater.canCheck)
+                }
+                Toggle("自动检查更新", isOn: Binding(get: { updater.automaticChecks },
+                    set: { updater.setAutomaticChecks($0) }))
+                Text("安装前请保存并退出 SOLIDWORKS 和 SWCLI。仅替换 App，不删除容器或文档。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             personalizationSection
             licenseSection
         }

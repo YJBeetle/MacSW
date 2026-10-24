@@ -330,7 +330,7 @@ public final class RuntimeStore: ObservableObject {
 
     /// 托盘退出时只收尾当前容器；先停托管许可证进程，再结束 wineserver 和其余 Wine 客户进程。
     /// 未能确认进程全部退出时由调用方留在 App 中显示错误，避免假装已经清理完毕。
-    public func stopContainerForAppQuit() async throws {
+    public func stopContainerForAppQuit(forUpdate: Bool = false) async throws {
         guard !swcliDaemon.isOperating else { throw runtimeError("SWCLI 正在启动，请完成后再退出。") }
         guard !isMigratingWine else { throw runtimeError("Wine 迁移正在执行，请完成后再退出。") }
         refreshWineRuntime()
@@ -345,6 +345,16 @@ public final class RuntimeStore: ObservableObject {
         guard !snapshot.isEmpty else { return }
         await licenseServer.refreshInstallation()
         try await licenseServer.stopIfRunning()
+        if forUpdate {
+            // Refresh again after asynchronous service shutdown. A client may
+            // have appeared since the updater's first observation.
+            let current = try await ProcessInventory.snapshotForUpdate(
+                bottlePath: paths.bottle.path, wineRuntimePath: wine.runtimeURL.path)
+            if let reason = AppUpdatePolicy.blockingReason(maintenance: isMigratingWine ||
+                swcliDaemon.isOperating || wine.isInstalling(prefix: paths.bottle), processes: current) {
+                throw runtimeError(reason)
+            }
+        }
         guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
             throw runtimeError("未能停止 Wine 容器，MacSW 将继续运行。")
         }

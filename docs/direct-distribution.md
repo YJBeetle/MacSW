@@ -1,5 +1,64 @@
 # Developer ID Direct Distribution
 
+## GitHub 自动更新
+
+MacSW 使用固定校验和的 Sparkle 2.10.0 官方 SPM 二进制框架。菜单栏和设置页
+提供“检查更新”，默认定期检查、允许用户关闭；不启用无人值守安装或系统画像
+上传。稳定入口为 `https://github.com/YJBeetle/MacSW/releases/latest/download/appcast.xml`。
+草稿、预发布版不应设为 latest；每个今后的正式 Release 都必须携带此附件。
+
+第一次接入需手动安装含更新器的版本；已发布的 0.1.2 不会自动获得更新器。
+`CFBundleVersion` 必须逐次递增，不用公开版本字符串代替构建序号比较。
+
+### 一次性更新密钥
+
+更新 EdDSA 密钥与 Apple Developer ID 证书／公证凭据不同，不能互相替代。
+使用依赖解析后的官方工具生成专用密钥（会保存到本机登录钥匙串）：
+
+```sh
+build/swift/artifacts/bootstrap/Sparkle/bin/generate_keys --account MacSW
+build/swift/artifacts/bootstrap/Sparkle/bin/generate_keys --account MacSW -p
+```
+
+将输出的公开 Base64 公钥填入 `config/sparkle-public-key.txt` 并随源码提交。
+用同一工具 `--account MacSW -x <私有文件路径>` 导出私钥，仅将文件中的 Base64
+内容设置为 `macsw-release` Environment Secret `SPARKLE_PRIVATE_KEY`，然后安全
+保管或移除导出文件。不要再对导出的 Base64 文本进行一次 Base64 编码。
+CI 仅接受新格式的 32 字节 seed，旧密钥不可不经转换直接复用。不得把私钥
+贴到聊天、写入仓库、公开产物或日志；本机钥匙串保留恢复副本。
+
+空公钥仅供开发构建使用，更新器不启动；正式签名验证拒绝空公钥、未知 feed
+或无人值守安装策略。不能用占位公钥先发版，否则已安装版本无法验证将来的包。
+
+### 发布顺序及校验
+
+`sign-app.yml` 在生成最终签名、Accepted 公证并 staple 的 ZIP 后，执行
+`scripts/ci/update-feed.py`：从密封 App 读取公钥，用 CryptoKit 核对私钥对应的
+公钥，再使用校验和固定的 Sparkle `sign_update` 对最终 ZIP 签名。私钥通过
+stdin 传递，不在命令参数或临时文件中保存。更新 feed 记录构建号、展示版本、
+最低 macOS 版本、完整包长度、EdDSA 签名和不可变的 GitHub 标签下载地址。
+源包、公钥或构建配置变化都必须重新构建／公证，不能修改已密封的 App。
+
+候选 artifact 增加 `appcast.xml`。签发和 macOS 15 初始化两个 job 都成功后，
+才能将 App ZIP、`appcast.xml`、`release-info.zip`、Wine/Mono 源码及包含这些
+附件的 `SHA256SUMS` 上传到 Release 草稿；核验齐备后才公开并设为 latest。
+不单独覆盖当前 latest 的 feed 指向尚未公开或尚未通过签发的新版。
+CI 四份原始 JSON 和 ZIP `.sha256` 仍保留，仅公开 Release 的 JSON 合并显示。
+
+### 安装前保护与验证边界
+
+更新替换整个 App（含 Wine／Mono），不删除外部 bottle 或文档。安装／迁移／
+服务操作进行时不开始检查更新；更新触发退出时重新读取真实进程清单，清单
+读取失败也拒绝继续。若 SW、CLI 或任何非已知基础服务仍在运行，提示先保存
+并正常退出，不为了更新强杀。只剩 wineserver 与托管 FlexNet 时才沿用已有
+收尾流程停止服务并确认容器退出。安装后启动仍走既有 Wine 身份和迁移检查，
+不绕过升级／备份提示。保护覆盖立即安装和安装后退出的路径。
+
+本地验证：Swift 206 项、Python 310 项（跳过 1）通过；真实 Sparkle 框架打包／
+五个原生组件清单核验通过；测试密钥的实际签名、验签及篡改拒绝通过。
+这些不代表生产密钥已配置，也不代表两版正式签名 App 之间的下载、退出、替换、
+重启及迁移端到端验收通过。发布前仍需该项验证，不以单测或公证替代。
+
 目标是 Mac App Store 之外的直接分发，而非 App Store 沙盒或商店上传。
 当前新增流程仅由 `sign-app.yml` 手动运行，生成 CI candidate，不创建
 GitHub Release，也不修改本机主 App、主容器或默认开发打包流程。
