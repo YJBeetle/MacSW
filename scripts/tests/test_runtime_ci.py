@@ -1023,6 +1023,9 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_focused_drawing_diagnostic_has_no_full_acceptance_claim(self):
         self.assert_hidden_plan(diagnostic_set="drawing-save")
 
+    def test_copy_first_probe_is_not_misrepresented_as_default_roundtrip_coverage(self):
+        self.assert_hidden_plan(diagnostic_set="drawing-copy-first")
+
     def test_focused_visible_drawing_comparison_keeps_shared_assertions_and_no_full_claim(self):
         self.assert_hidden_plan(diagnostic_set="drawing-save", diagnostic_visible=True)
 
@@ -1052,10 +1055,9 @@ class RuntimeAdapterTests(unittest.TestCase):
             mode = args[args.index("--mode") + 1]
             self.assertEqual(mode, expected_mode)
             output = Path(args[args.index("--output-dir") + 1])
-            plan = ci.shared_plan("full")
+            plan = ci.shared_plan("full", diagnostic_set)
             if diagnostic_set:
                 self.assertEqual(args[args.index("--diagnostic-set") + 1], diagnostic_set)
-                plan = [item for item in plan if item.name == diagnostic_set]
             else:
                 self.assertNotIn("--diagnostic-set", args)
             proof = {"completed": True, "success": True, "suite": "full", "mode": mode,

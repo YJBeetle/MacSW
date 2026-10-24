@@ -28,10 +28,10 @@ VISIBLE_TIMEOUT_SECONDS = 900
 SETS_TIMEOUT_SECONDS = {"core": 13800, "full": 19200}
 
 
-def shared_plan(suite):
+def shared_plan(suite, diagnostic_set=None):
     sys.path.insert(0, str(PROJECT / "Dependencies/SWCLI/scripts/ci"))
-    from gate_support.runtime_plan import runtime_plan
-    return runtime_plan(suite)
+    from gate_support.runtime_plan import runtime_plan, diagnostic_plan
+    return diagnostic_plan(suite, diagnostic_set) if diagnostic_set else runtime_plan(suite)
 
 
 def installed_drawing_template(script, prefix):
@@ -602,7 +602,7 @@ class RuntimeGate:
             raise ValueError("Unknown runtime profile")
         self.profile = profile
         if diagnostic_set and (profile != "hidden-full" or diagnostic_set not in
-                               {"drawing-save", "drawing-save-as", "drawings"}):
+                               {"drawing-save", "drawing-save-as", "drawings", "drawing-copy-first"}):
             raise ValueError("Diagnostic set requires hidden-full and a supported drawing set")
         self.diagnostic_set = diagnostic_set
         if diagnostic_visible and not diagnostic_set:
@@ -1074,11 +1074,7 @@ class RuntimeGate:
         self.record["budgets_seconds"]["functional_suite"] = SETS_TIMEOUT_SECONDS[self.suite]
         self.record["budgets_seconds"]["test_set"] = 1800
         deadline = time.monotonic() + SETS_TIMEOUT_SECONDS[self.suite]
-        plan = shared_plan(self.suite)
-        if self.diagnostic_set:
-            plan = [item for item in plan if item.name == self.diagnostic_set]
-            if len(plan) != 1:
-                raise RuntimeError("Pinned SWCLI does not expose the diagnostic set")
+        plan = shared_plan(self.suite, self.diagnostic_set)
         expected = [item.name for item in plan]
         for mode in self.modes:
             self.phase(mode + ".test-sets")
@@ -1175,7 +1171,7 @@ def main():
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--profile", choices=("visible-smoke", "hidden-full"), default="visible-smoke")
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
-    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings"),
+    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings", "drawing-copy-first"),
                         help="Focused manual diagnosis only; never full acceptance")
     parser.add_argument("--diagnostic-visible", action="store_true",
                         help="Visible-host comparison for a selected diagnostic set only")
