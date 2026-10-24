@@ -90,7 +90,7 @@ Developer 角色即可，账户需开启双重认证后生成 App 专用密码�
 配置 Environment 保护后再存入 Secrets，导出私钥须由账号持有人确认。
 参考 [GitHub 临时钥匙串流程](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)。
 
-首次运行：同一个 master 提交先完成 Build & Package 的轻量可见冒烟，
+默认流程：同一个 master 提交先完成 Build & Package 的轻量可见冒烟，
 普通 master push 默认执行；手动选择 `verify_solidworks=true`、
 `runtime_stage=full`、`runtime_profile=visible-smoke` 也可。
 必须通过 runtime job 的 `Lightweight visible SOLIDWORKS smoke` 步骤；
@@ -104,6 +104,13 @@ Mac 轻量冒烟显式给共享门禁传入 600 秒单请求预算（共享默�
 不接受其他提交、fork、PR、失败构建、仅安装验证或过期产物；核对服务端
 artifact SHA-256 后才解开 App ZIP。仍未配置凭据时流程应失败，不退化为
 ad-hoc 签名，不跳过公证。
+
+用户明确授权快速发布时，可在手动签发中设 `skip_runtime_check=true`。
+该选项默认关闭，只跳过安装／可见冒烟及整轮 run 成功的等待，仍要求唯一的
+`Build & package` job 成功、可信 master 来源、同一提交及产物哈希。来源记录
+中的 `runtime_verification.result` 标为 `skipped-by-manual-override`，不能据此
+宣称运行冒烟通过；Release 说明也应披露此边界。正式签名、公证、票据和签名包
+的原语／跨系统初始化校验不受此选项影响，后台安装测试可独立继续。
 
 ## 嵌套代码和签名顺序
 

@@ -2,7 +2,8 @@
 
 Validate GitHub's outer artifact digest before reading the App ZIP. This is
 separate from the signing job's credentials and never downloads private CAD
-fixtures. A successful build alone is not a successful visible smoke test.
+fixtures. Visible smoke is required by default; a manual override records that
+it was not checked, without relaxing build success or artifact provenance.
 """
 import argparse
 import json
@@ -23,21 +24,25 @@ import sign_app
 REPOSITORY = "YJBeetle/MacSW"
 
 
-def validate_run(run, sha):
-    required = {"status": "completed", "conclusion": "success",
-                "head_sha": sha, "head_branch": "master",
+def validate_run(run, sha, *, skip_runtime_check=False):
+    required = {"head_sha": sha, "head_branch": "master",
                 "path": ".github/workflows/build-app.yml"}
+    if not skip_runtime_check:
+        required.update(status="completed", conclusion="success")
     if (any(run.get(key) != value for key, value in required.items())
+            or run.get("status") not in ("in_progress", "completed")
             or run.get("event") not in ("push", "workflow_dispatch")
             or run.get("repository", {}).get("full_name") != REPOSITORY
             or run.get("head_repository", {}).get("full_name") != REPOSITORY):
         raise RuntimeError("Signing requires a successful trusted build of this exact master commit")
 
 
-def validate_jobs(jobs):
+def validate_jobs(jobs, *, skip_runtime_check=False):
     builds = [job for job in jobs if job.get("name") == "Build & package"]
     if len(builds) != 1 or builds[0].get("conclusion") != "success":
         raise RuntimeError("Required build job did not pass")
+    if skip_runtime_check:
+        return
     matches = [job for job in jobs if job.get("name") == "SOLIDWORKS installation & runtime"]
     if len(matches) != 1 or matches[0].get("conclusion") != "success":
         raise RuntimeError("Signing requires visible smoke: missing or failed runtime job")
@@ -91,7 +96,7 @@ def validate_app_zip(path):
                     raise RuntimeError("Unsafe App ZIP symlink")
 
 
-def fetch(run_id, sha, destination):
+def fetch(run_id, sha, destination, *, skip_runtime_check=False):
     if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise RuntimeError("Invalid build run ID or commit")
     if (os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
@@ -99,13 +104,13 @@ def fetch(run_id, sha, destination):
             or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"):
         raise RuntimeError("Signing input is restricted to manual master CI")
     run = api(f"repos/{REPOSITORY}/actions/runs/{run_id}")
-    validate_run(run, sha)
+    validate_run(run, sha, skip_runtime_check=skip_runtime_check)
     # More than 100 jobs is unexpected for this workflow; fail rather than
     # silently accepting a partial page.
     job_data = api(f"repos/{REPOSITORY}/actions/runs/{run_id}/jobs?per_page=100")
     if job_data.get("total_count") != len(job_data["jobs"]):
         raise RuntimeError("Unexpected paginated build jobs")
-    validate_jobs(job_data["jobs"])
+    validate_jobs(job_data["jobs"], skip_runtime_check=skip_runtime_check)
     data = api(f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page=100")
     if data.get("total_count") != len(data["artifacts"]):
         raise RuntimeError("Unexpected paginated build artifacts")
@@ -132,8 +137,15 @@ def fetch(run_id, sha, destination):
         "source_commit": sha, "artifact_id": artifact["id"],
         "artifact_digest": artifact["digest"], "app_archive": item.filename,
         "app_sha256": sign_app.digest(destination / "app.zip"),
+        "runtime_verification": {
+            "required": not skip_runtime_check,
+            "result": "skipped-by-manual-override" if skip_runtime_check else "visible-smoke-passed",
+        },
     }, indent=2) + "\n")
-    print("Trusted build and visible smoke verified; App artifact digest verified.")
+    if skip_runtime_check:
+        print("Trusted build verified; visible smoke explicitly NOT checked; App artifact digest verified.")
+    else:
+        print("Trusted build and visible smoke verified; App artifact digest verified.")
 
 
 if __name__ == "__main__":
@@ -141,5 +153,7 @@ if __name__ == "__main__":
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--destination", required=True, type=Path)
+    parser.add_argument("--skip-runtime-check", action="store_true",
+                        help="Manual release override: require successful build, but do not wait for CAD runtime")
     args = parser.parse_args()
-    fetch(args.run_id, args.sha, args.destination)
+    fetch(args.run_id, args.sha, args.destination, skip_runtime_check=args.skip_runtime_check)

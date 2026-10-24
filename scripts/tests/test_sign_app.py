@@ -1,6 +1,7 @@
 """Offline signing policy/provenance tests; no keys or Apple service needed."""
 import base64
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -544,6 +545,72 @@ class SigningProvenanceTests(unittest.TestCase):
                 source.validate_jobs(jobs)
         with self.assertRaises(RuntimeError):
             source.validate_jobs(jobs[:1])
+
+    def test_manual_override_allows_pending_or_failed_runtime_not_failed_builds(self):
+        for status, conclusion in (("in_progress", None), ("completed", "failure")):
+            run = dict(self.run_record(), status=status, conclusion=conclusion)
+            source.validate_run(run, "a" * 40, skip_runtime_check=True)
+            with self.assertRaises(RuntimeError):
+                source.validate_run(run, "a" * 40)
+        source.validate_jobs(self.smoke_jobs()[:1], skip_runtime_check=True)
+        for conclusion in (None, "failure", "cancelled", "skipped"):
+            with self.subTest(conclusion=conclusion), self.assertRaises(RuntimeError):
+                source.validate_jobs([{"name": "Build & package", "conclusion": conclusion}],
+                                     skip_runtime_check=True)
+        with self.assertRaises(RuntimeError):
+            source.validate_jobs(self.smoke_jobs()[:1] * 2, skip_runtime_check=True)
+
+    def test_manual_override_keeps_source_provenance_restrictions(self):
+        for field, value in (("head_sha", "b" * 40), ("head_branch", "branch"), ("event", "pull_request"),
+                             ("path", "other.yml"), ("repository", {"full_name": "fork/MacSW"}),
+                             ("head_repository", {"full_name": "fork/MacSW"}), ("status", "queued")):
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                source.validate_run(dict(self.run_record(), **{field: value}), "a" * 40,
+                                    skip_runtime_check=True)
+
+    def test_provenance_explicitly_records_whether_smoke_was_checked(self):
+        inner = io.BytesIO()
+        with zipfile.ZipFile(inner, "w") as archive:
+            archive.writestr("MacSW.app/Contents/MacOS/MacSW", b"fixture")
+        outer = io.BytesIO()
+        with zipfile.ZipFile(outer, "w") as archive:
+            archive.writestr("build/archive/MacSW-0.1.2-macOS.zip", inner.getvalue())
+        payload = outer.getvalue()
+        artifact = {"id": 123, "name": "MacSW-macOS-App", "expired": False,
+                    "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}
+        for skip in (False, True):
+            with self.subTest(skip=skip), tempfile.TemporaryDirectory() as directory:
+                run = self.run_record()
+                jobs = self.smoke_jobs()
+                if skip:
+                    run.update(status="in_progress", conclusion=None)
+                    jobs = jobs[:1]
+                destination = Path(directory) / "download"
+                def download(args, **kwargs):
+                    kwargs["stdout"].write(payload)
+                    return SimpleNamespace(returncode=0)
+                with patch.dict(os.environ, GITHUB_REPOSITORY=source.REPOSITORY,
+                                GITHUB_REF="refs/heads/master", GITHUB_EVENT_NAME="workflow_dispatch"), \
+                        patch.object(source, "api", side_effect=[run,
+                            {"total_count": len(jobs), "jobs": jobs},
+                            {"total_count": 1, "artifacts": [artifact]}]), \
+                        patch.object(source.subprocess, "run", side_effect=download):
+                    source.fetch("123", "a" * 40, destination, skip_runtime_check=skip)
+                record = json.loads((destination / "provenance.json").read_text())
+                self.assertEqual(record["runtime_verification"], {
+                    "required": not skip,
+                    "result": "skipped-by-manual-override" if skip else "visible-smoke-passed"})
+
+    def test_manual_workflow_override_is_opt_in_and_never_skips_notarization(self):
+        workflow = (PROJECT / ".github/workflows/sign-app.yml").read_text()
+        option = workflow.split("      skip_runtime_check:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("type: boolean", option)
+        self.assertIn("default: false", option)
+        self.assertIn('if [ "$MACSW_SKIP_RUNTIME_CHECK" = true ]; then', workflow)
+        self.assertIn("flags+=(--skip-runtime-check)", workflow)
+        self.assertIn("MACSW_SKIP_RUNTIME_CHECK: ${{ inputs.skip_runtime_check }}", workflow)
+        self.assertIn("python3 -B scripts/ci/notarize-app.py", workflow)
+        self.assertIn("needs: sign-and-notarize", workflow)
 
     def test_missing_failed_or_duplicate_mode_cannot_authorize_signing(self):
         for index in (1,):
