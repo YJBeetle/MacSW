@@ -1029,6 +1029,9 @@ class RuntimeAdapterTests(unittest.TestCase):
     def test_copy_reopen_probe_is_not_misrepresented_as_save_reopen_coverage(self):
         self.assert_hidden_plan(diagnostic_set="drawing-copy-reopen")
 
+    def test_no_inspect_control_cannot_claim_structure_or_full_acceptance(self):
+        self.assert_hidden_plan(diagnostic_set="drawing-reopen-no-inspect")
+
     def test_focused_visible_drawing_comparison_keeps_shared_assertions_and_no_full_claim(self):
         self.assert_hidden_plan(diagnostic_set="drawing-save", diagnostic_visible=True)
 
