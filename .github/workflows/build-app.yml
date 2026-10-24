@@ -26,7 +26,7 @@ on:
       diagnostic_test_set:
         description: 'Manual hidden-full diagnosis only; selected sets do not count as full acceptance'
         type: choice
-        options: [all, drawing-save, drawing-save-as, drawings, drawing-copy-first]
+        options: [all, drawing-save, drawing-save-as, drawings, drawing-copy-first, drawing-copy-reopen]
         default: all
       diagnostic_visible:
         description: 'Single-set visibility comparison only; requires diagnostic_test_set other than all'

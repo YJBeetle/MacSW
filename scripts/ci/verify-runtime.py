@@ -602,7 +602,7 @@ class RuntimeGate:
             raise ValueError("Unknown runtime profile")
         self.profile = profile
         if diagnostic_set and (profile != "hidden-full" or diagnostic_set not in
-                               {"drawing-save", "drawing-save-as", "drawings", "drawing-copy-first"}):
+                               {"drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen"}):
             raise ValueError("Diagnostic set requires hidden-full and a supported drawing set")
         self.diagnostic_set = diagnostic_set
         if diagnostic_visible and not diagnostic_set:
@@ -1171,7 +1171,7 @@ def main():
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--profile", choices=("visible-smoke", "hidden-full"), default="visible-smoke")
     parser.add_argument("--renderer", choices=("auto", "software"), default="auto")
-    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings", "drawing-copy-first"),
+    parser.add_argument("--diagnostic-set", choices=("drawing-save", "drawing-save-as", "drawings", "drawing-copy-first", "drawing-copy-reopen"),
                         help="Focused manual diagnosis only; never full acceptance")
     parser.add_argument("--diagnostic-visible", action="store_true",
                         help="Visible-host comparison for a selected diagnostic set only")
