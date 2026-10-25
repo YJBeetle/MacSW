@@ -16,8 +16,8 @@ public enum WineRuntimeService {
             case .fresh: return "容器尚未初始化，安装完成后记录版本。"
             case .baseline: return "尚未记录已知可用的 Wine 版本。请确认当前版本可用后记录基线。"
             case .ready: return "容器与当前 Wine / Mono / 补丁一致。"
-            case .upgrade: return "Wine、Mono、补丁或 App 位置已变化；请先备份并迁移容器。"
-            case .recovery: return "有未完成的迁移；新版 Wine 已阻止启动，请先恢复。"
+            case .upgrade: return "Wine、Mono、补丁或 App 位置已变化；请升级容器。"
+            case .recovery: return "有未完成的升级；Wine 已阻止启动，请重试升级或重新安装。"
             case .invalid: return "Wine 版本记录无效；新版 Wine 已阻止启动，请检查升级日志。"
             }
         }
@@ -68,21 +68,11 @@ public enum WineRuntimeService {
             let marker = prefix.appendingPathComponent(".macsw-wine-prefix-id")
             guard let id = try? String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
                   id == value["prefix_id"] as? String else { return .baseline }
-            guard value["format"] as? Int == 1, let recorded = value["identity"] as? [String: String] else { return .invalid }
+            guard let format = value["format"] as? Int, [1, 2].contains(format),
+                  let recorded = value["identity"] as? [String: String] else { return .invalid }
             let sameLocation = (value["active_app"] as? String).map { $0 == bundle.resolvingSymlinksInPath().path } ?? true
             return recorded == (try identity(contents: bundle.appendingPathComponent("Contents"))) && sameLocation ? .ready : .upgrade
         } catch { return .invalid }
-    }
-
-    public static func canRollback(prefix: URL) -> Bool {
-        do {
-            let directory = root(prefix: prefix)
-            let journal = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("last-upgrade.json"))) as? [String: Any]
-            let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("receipt.json"))) as? [String: Any]
-            guard let previous = journal?["new_identity"] as? [String: String],
-                  let current = receipt?["identity"] as? [String: String] else { return false }
-            return previous == current
-        } catch { return false }
     }
 
     /// Shared launch-lock protocol with wine_runtime.py. Hold only across

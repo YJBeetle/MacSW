@@ -13,23 +13,21 @@ public final class RuntimeStore: ObservableObject {
     @Published public private(set) var pendingWineTool: String?
     @Published public private(set) var wineRuntimeState: WineRuntimeService.State = .unmanaged
     @Published public private(set) var isMigratingWine = false
-    @Published public private(set) var canRollbackWine = false
     private var wineMigrationTask: Task<Void, Never>?
 
     public func refreshWineRuntime() {
         wineRuntimeState = WineRuntimeService.status(prefix: paths.bottle)
-        canRollbackWine = WineRuntimeService.canRollback(prefix: paths.bottle)
     }
 
     /// Called only after a UI confirmation that explicitly permits stopping SW.
     public func maintainWineRuntime(_ command: String) {
         guard !isOpeningDocument, !isMigratingWine, !licenseServer.isOperating, !swcliDaemon.isOperating,
               state != .starting, state != .stopping, !wine.isInstalling(prefix: paths.bottle),
-              pendingWineTool == nil, ["baseline", "upgrade", "recover", "rollback"].contains(command) else { return }
+              pendingWineTool == nil, ["baseline", "upgrade", "recover"].contains(command) else { return }
         isMigratingWine = true
         licenseServer.runtimeMaintenanceSuspended = true
         fontPreparationSuspended = true
-        statusMessage = "正在保留旧 App、备份或恢复容器，请勿退出 MacSW…"
+        statusMessage = "正在维护容器，请勿退出 MacSW…"
         wineMigrationTask = Task {
             defer {
                 isMigratingWine = false

@@ -1,8 +1,9 @@
-"""Explicit, recoverable upgrades for MacSW's managed Wine bottle.
+"""Explicit, in-place upgrades for MacSW's managed Wine bottle.
 
 No Wine process is used to discover the installed runtime. A migration holds
-the same launch lock as the App/CLI, stops only this prefix, clones it on APFS,
-and keeps both the old App and the original bottle. No backups are auto-pruned.
+the same launch lock as the App/CLI, stops only this prefix,
+and updates the selected bottle without making App or container backups.
+Failed upgrades stay blocked until explicitly retried or reinstalled.
 """
 import argparse
 from contextlib import contextmanager
@@ -64,10 +65,6 @@ def identity(contents):
     return values
 
 
-def fingerprint(values):
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
-
-
 def verify_app(contents, values):
     modules = dict(MODULES)
     if any(key in values for key in MSXML_IDENTITY_KEYS):
@@ -103,7 +100,7 @@ def verify_seal(contents):
     if result.returncode:
         raise RuntimeError(
             f"App 签名校验失败，已停止迁移，未执行 Wine：{contents.parent}。"
-            "请保留容器与旧 App 备份，并重新下载完整 App；若为旧归档，请先修复归档，勿跳过安全检查。")
+            "请重新下载完整 App；未修改容器，勿跳过安全检查。")
 
 
 def read_json(path):
@@ -143,7 +140,9 @@ def status(contents, prefix):
         return "baseline"
     old = read_json(receipt)
     marker = prefix / ".macsw-wine-prefix-id"
-    if old.get("format") != 1 or not marker.exists() or marker.read_text().strip() != old.get("prefix_id"):
+    if old.get("format") not in (1, 2):
+        return "invalid"
+    if not marker.exists() or marker.read_text().strip() != old.get("prefix_id"):
         return "baseline"
     matches_path = not old.get("active_app") or old["active_app"] == str(contents.parent.resolve())
     return "ready" if old["identity"] == identity(contents) and matches_path else "upgrade"
@@ -152,7 +151,7 @@ def status(contents, prefix):
 def require_ready(contents, prefix):
     value = status(contents, prefix)
     if value not in ("ready", "fresh", "unmanaged"):
-        raise RuntimeError("Wine 容器需要版本确认、升级或恢复；请在 MacSW 设置 → 维护中处理，未启动新版 Wine。")
+        raise RuntimeError("Wine 容器需要版本确认、升级或重试；请在 MacSW 设置 → 维护中处理，未启动新版 Wine。")
 
 
 @contextmanager
@@ -183,56 +182,13 @@ def launch(contents, prefix, arguments):
     return process.wait()
 
 
-def clone(source, destination):
-    if destination.exists() or destination.is_symlink():
-        raise RuntimeError("备份目标已存在，拒绝覆盖。")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if source.stat().st_dev == destination.parent.stat().st_dev:
-        command = ["/bin/cp", "-cR", str(source), str(destination)]
-    else:
-        # The App may live on an external/Data volume. Cross-volume archive
-        # copies need real space; do not follow bottle links into user folders.
-        size = 0
-        for directory, _, files in os.walk(source, followlinks=False):
-            for name in files:
-                file = Path(directory) / name
-                if not file.is_symlink():
-                    size += file.stat().st_size
-        if shutil.disk_usage(destination.parent).free < size + 256 * 1024 * 1024:
-            raise RuntimeError("跨卷备份可用空间不足，已拒绝复制。")
-        command = ["/usr/bin/ditto", "--noqtn", str(source), str(destination)]
-    with tempfile.TemporaryFile() as errors:
-        result = subprocess.run(command, stdout=errors, stderr=errors, timeout=600)
-        if result.returncode:
-            errors.seek(0)
-            detail = errors.read(2048).decode(errors="replace")
-            raise RuntimeError("容器/App 备份或复制失败，已有备份保留：" + detail)
-
-
-def archive(contents, root, values):
-    if contents.parent.is_symlink():
-        raise RuntimeError("App 归档源不能是符号链接。")
-    verify_seal(contents)
-    target = root / "apps" / fingerprint(values) / "MacSW.app"
-    if not target.exists():
-        stage = target.parent / ("staging-" + str(uuid.uuid4()) + ".app")
-        clone(contents.parent, stage)
-        verify_app(stage / "Contents", values)
-        verify_seal(stage / "Contents")
-        stage.rename(target)
-    verify_app(target / "Contents", values)
-    verify_seal(target / "Contents")
-    if identity(target / "Contents") != values:
-        raise RuntimeError("归档 App 的构建身份不匹配。")
-    return target
-
-
 def baseline(contents, prefix):
     with launch_lock(prefix, exclusive=True) as root:
         if (root / "pending.json").exists():
-            raise RuntimeError("存在未完成的迁移，请先恢复。")
+            raise RuntimeError("存在未完成的迁移，请先重试升级或重新安装。")
         if not (prefix / "drive_c").is_dir():
             raise RuntimeError("请先完成容器安装。")
+        verify_seal(contents)
         values = identity(contents)
         receipt = root / "receipt.json"
         marker = prefix / ".macsw-wine-prefix-id"
@@ -241,14 +197,13 @@ def baseline(contents, prefix):
             if old["identity"] != values or (old.get("active_app") and old["active_app"] != str(contents.parent.resolve())):
                 raise RuntimeError("不能用记录基线绕过 Wine 版本升级。")
         verify_app(contents, values)
-        old_app = archive(contents, root, values)
         if marker.is_symlink():
             raise RuntimeError("容器身份标记不能是符号链接。")
         prefix_id = marker.read_text().strip() if marker.exists() else str(uuid.uuid4())
         marker.write_text(prefix_id, encoding="utf-8")
-        write_json(receipt, {"format": 1, "prefix_id": prefix_id,
-                             "identity": values, "app": str(old_app), "active_app": str(contents.parent.resolve())})
-        print("已记录当前可用 Wine/Mono，并保留完整旧 App。", flush=True)
+        write_json(receipt, {"format": 2, "prefix_id": prefix_id,
+                             "identity": values, "active_app": str(contents.parent.resolve())})
+        print("已记录当前可用 Wine/Mono。", flush=True)
 
 
 def environment(contents, prefix):
@@ -311,113 +266,50 @@ def boot(contents, prefix, log):
                           "/v", "Tahoma"], log)
 
 
-def restore(root, prefix, log):
-    journal = read_json(root / "pending.json")
-    backup = Path(journal["backup"])
-    # Journal paths are untrusted input. Never rename/delete arbitrary paths.
-    if (backup.parent.parent != root / "backups" or backup.name != "bottle" or backup.is_symlink()
-            or not backup.resolve().is_relative_to(root.resolve())):
-        raise RuntimeError("恢复记录中的备份路径不安全。")
-    old = journal["previous"]
-    if (backup / ".macsw-wine-prefix-id").read_text().strip() != old["prefix_id"]:
-        raise RuntimeError("备份容器身份不匹配，拒绝恢复。")
-    old_contents = Path(old["app"]) / "Contents"
-    expected = root / "apps" / fingerprint(old["identity"]) / "MacSW.app/Contents"
-    if old_contents != expected or identity(old_contents) != old["identity"]:
-        raise RuntimeError("旧 App 身份不匹配，保留备份等待人工恢复。")
-    verify_app(old_contents, old["identity"])
-    new_contents = Path(journal["new_app"]) / "Contents"
-    if new_contents.parent.parent.parent != root / "apps":
-        raise RuntimeError("新版 App 归档路径无效。")
-    verify_app(new_contents, identity(new_contents))
-    stop(new_contents, prefix, log)
-    stop(old_contents, prefix, log)
-    if journal.get("phase") != "restored":
-        if not backup.is_dir():
-            raise RuntimeError("缺少原容器备份，拒绝恢复。")
-        failed = backup.parent / "failed-bottle"
-        # Make restoration idempotent after interruption between the renames.
-        if prefix.exists():
-            if failed.exists():
-                failed = backup.parent / ("interrupted-restore-" + str(uuid.uuid4()))
-            prefix.rename(failed)
-        if not prefix.exists():
-            clone(backup, prefix)
-        journal["phase"] = "restored"
-        write_json(root / "pending.json", journal)
-    # Builtin DLL links and Mono RuntimePath may refer to the overwritten App.
-    # Rebind them to the archived old App before declaring recovery complete.
-    if not (prefix / "drive_c").is_dir() or (prefix / ".macsw-wine-prefix-id").read_text().strip() != old["prefix_id"]:
-        raise RuntimeError("已恢复容器的身份不匹配，保留备份等待恢复。")
-    boot(old_contents, prefix, log)
-    stop(old_contents, prefix, log)
-    write_json(root / "receipt.json", {**old, "active_app": str(old_contents.parent.resolve())})
-    (root / "pending.json").unlink()
-    return old["app"]
-
-
-def migrate(contents, prefix):
+def migrate(contents, prefix, *, retry=False):
     with launch_lock(prefix, exclusive=True) as root:
-        if status(contents, prefix) == "ready":
+        current = status(contents, prefix)
+        if current == "ready":
             print("Wine/Mono 未变化，无需迁移。")
             return
-        if status(contents, prefix) != "upgrade":
-            raise RuntimeError("请先记录已知可用版本，或恢复未完成的迁移。")
+        if current != ("recovery" if retry else "upgrade"):
+            raise RuntimeError("请先记录已知可用版本，或重试未完成的升级。")
         old = read_json(root / "receipt.json")
-        old_contents = Path(old["app"]) / "Contents"
-        if (old_contents != root / "apps" / fingerprint(old["identity"]) / "MacSW.app/Contents"
-                or identity(old_contents) != old["identity"]):
-            raise RuntimeError("旧 App 归档路径无效。")
-        verify_app(old_contents, old["identity"])
+        marker = prefix / ".macsw-wine-prefix-id"
+        if (old.get("format") not in (1, 2) or marker.is_symlink()
+                or marker.read_text().strip() != old.get("prefix_id")):
+            raise RuntimeError("容器身份不匹配，拒绝升级。")
+        verify_seal(contents)
         values = identity(contents)
         verify_app(contents, values)
-        new_app = archive(contents, root, values)
+        active_app = str(contents.parent.resolve())
+        journal = {"format": 2, "mode": "in-place", "prefix_id": old["prefix_id"],
+                   "identity": values, "active_app": active_app}
+        if retry and read_json(root / "pending.json") != journal:
+            raise RuntimeError("未完成升级的版本或容器不匹配；旧版备份记录请用旧版处理，或重新安装。")
         log = root / "migration.log"
-        print("正在停止选定容器并建立 APFS 完整备份…", flush=True)
-        stop(old_contents, prefix, log)
-        backup = root / "backups" / str(uuid.uuid4()) / "bottle"
-        clone(prefix, backup)
-        journal = {"format": 1, "previous": old, "backup": str(backup),
-                   "new_app": str(new_app), "new_identity": values, "phase": "upgrading"}
+        print("正在停止选定容器…", flush=True)
+        # Wine 11.16 -k/-w operate only on this prefix's server lock; they do
+        # not start a server, run wineboot, or load old container DLLs. Use the
+        # current verified bundle, never an old archived executable.
+        stop(contents, prefix, log)
         write_json(root / "pending.json", journal)
         try:
             print("正在更新 Wine、Mono 和 COM 注册工具并检查依赖…", flush=True)
             boot(contents, prefix, log)
             stop(contents, prefix, log)
             write_json(root / "last-upgrade.json", journal)
-            write_json(root / "receipt.json", {**old, "identity": values, "app": str(new_app),
-                                               "active_app": str(contents.parent.resolve())})
+            write_json(root / "receipt.json", {"format": 2, "prefix_id": old["prefix_id"],
+                                               "identity": values, "active_app": active_app})
             (root / "pending.json").unlink()
-            print(f"迁移及依赖检查完成；请启动 SOLIDWORKS 验收。备份：{backup}", flush=True)
+            print("升级及依赖检查完成；请启动 SOLIDWORKS 验收。", flush=True)
         except Exception as error:
-            try:
-                app = restore(root, prefix, log)
-            except Exception as recovery_error:
-                raise RuntimeError(f"迁移失败：{error}；恢复未完成：{recovery_error}；备份：{backup}") from error
-            raise RuntimeError(f"迁移失败，已恢复旧容器。请退出新版并打开：{app}。日志：{log}") from error
-
-
-def rollback(prefix):
-    with launch_lock(prefix, exclusive=True) as root:
-        if (root / "pending.json").exists():
-            raise RuntimeError("存在未完成的迁移，请先恢复。")
-        journal = read_json(root / "last-upgrade.json")
-        receipt = read_json(root / "receipt.json")
-        marker = (prefix / ".macsw-wine-prefix-id").read_text().strip()
-        if (receipt["identity"] != journal["new_identity"] or marker != receipt["prefix_id"]
-                or journal["previous"]["prefix_id"] != receipt["prefix_id"]):
-            raise RuntimeError("回退记录与当前容器不匹配，拒绝恢复。")
-        write_json(root / "pending.json", {**journal, "phase": "upgrading"})
-        app = restore(root, prefix, root / "migration.log")
-        print("已恢复升级前的容器；请退出新版并打开：" + app, flush=True)
+            raise RuntimeError(f"原地升级失败，未备份且未自动回退。请重试升级或重新安装；日志：{log}；原因：{error}") from error
 
 
 def shutdown(contents, prefix):
     with launch_lock(prefix, exclusive=True) as root:
-        if (root / "receipt.json").exists():
-            receipt = read_json(root / "receipt.json")
-            contents = root / "apps" / fingerprint(receipt["identity"]) / "MacSW.app/Contents"
-            verify_app(contents, receipt["identity"])
+        verify_app(contents, identity(contents))
         # Only wineserver: shutting down must not boot the new runtime.
         stop(contents, prefix, root / "migration.log")
 
@@ -439,12 +331,11 @@ def main():
         elif args.command == "upgrade":
             migrate(contents, prefix)
         elif args.command == "rollback":
-            rollback(prefix)
+            raise RuntimeError("已取消自动备份与回退；请重试升级或重新安装。旧备份未删除。")
         elif args.command == "stop":
             shutdown(contents, prefix)
         elif args.command == "recover":
-            with launch_lock(prefix, exclusive=True) as root:
-                print("已恢复旧容器，请退出新版并打开：" + restore(root, prefix, root / "migration.log"))
+            migrate(contents, prefix, retry=True)
         else:
             return launch(contents, prefix, command[1:] if command[:1] == ["--"] else command)
     except Exception as error:

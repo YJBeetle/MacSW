@@ -49,8 +49,8 @@ struct SettingsView: View {
             }
         } message: {
             Text(runtimeAction == "baseline"
-                 ? "仅在当前 Wine 已经正常使用 SOLIDWORKS 时记录。会归档完整 App，不触发 wineboot，也不会用基线绕过已记录的版本差异。"
-                 : "请保存文档。将停止本容器全部 Windows 进程，保留旧 App 和完整容器备份后执行升级或恢复。同卷使用 APFS 克隆，跨卷则检查空间后复制。回退恢复升级前快照；之后的设置与文件保留在失败副本，不会自动合并。恢复后需退出新版并打开归档旧 App；请勿在维护中退出 MacSW。")
+                 ? "仅在当前 Wine 已经正常使用 SOLIDWORKS 时记录版本信息。不备份 App 或容器，不触发 wineboot，也不会用基线绕过版本差异。"
+                 : "请保存文档。将停止本容器全部 Windows 进程并原地升级，不备份旧 App 或容器，也不自动回退。失败后只能重试升级或重新安装；容器内的设置和插件可能需要重新配置。文档请保存在容器外。请勿在维护中退出 MacSW。")
         }
     }
 
@@ -268,22 +268,19 @@ struct SettingsView: View {
                         Button("记录当前可用版本…") { runtimeAction = "baseline" }
                     }
                     if runtime.wineRuntimeState == .upgrade {
-                        Button("备份并升级容器…") { runtimeAction = "upgrade" }
+                        Button("升级容器") { runtimeAction = "upgrade" }
                     }
                     if runtime.wineRuntimeState == .recovery {
-                        Button("恢复旧容器…") { runtimeAction = "recover" }
+                        Button("重试失败的升级…") { runtimeAction = "recover" }
                     }
-                    if runtime.wineRuntimeState == .ready, runtime.canRollbackWine {
-                        Button("回退上次升级…") { runtimeAction = "rollback" }
-                    }
-                    Button("查看备份与日志") {
+                    Button("查看升级记录与日志") {
                         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath:
                             WineRuntimeService.root(prefix: runtime.paths.bottle).path)
                     }
                     if runtime.isMigratingWine { ProgressView().controlSize(.small) }
                 }
                 .disabled(runtime.isMigratingWine)
-                Text("版本身份覆盖 Wine、Mono 和补丁。迁移后仍需验证 SOLIDWORKS 的打开、建模与保存；备份不会自动删除。")
+                Text("版本身份覆盖 Wine、Mono 和补丁。升级后仍需验证 SOLIDWORKS 的打开、建模与保存。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Wine 工具") {
