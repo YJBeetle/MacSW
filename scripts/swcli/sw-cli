@@ -46,12 +46,12 @@ export SWCLI_HOST_PLATFORM="macos-wine"
 export PYTHONDONTWRITEBYTECODE=1
 
 require_windows_runtime() {
-    "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" check \
+    "${NATIVE_PYTHON}" -I -B "${SWCLI_RESOURCES}/bin/wine_runtime.py" check \
         --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" || exit $?
     # Stop/status must remain usable with the old backend when an upgrade is
     # blocked by a live daemon. All other Windows entrypoints synchronize first.
     if [ "${1:-}" != "existing" ]; then
-        "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/swcli_runtime.py" \
+        "${NATIVE_PYTHON}" -I -B "${SWCLI_RESOURCES}/bin/swcli_runtime.py" \
             --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" || exit $?
     fi
     if [ ! -f "${PYTHON_UNIX}" ] || [ ! -f "${PYTHONW_UNIX}" ]; then
@@ -76,7 +76,7 @@ run_windows_windowless_cli() {
     if env \
         SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
         SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
-        "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
+        "${NATIVE_PYTHON}" -I -B "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
         --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" -- \
         "${WINELOADER}" "${WINDOWS_PYTHONW}" -c "${bootstrap}" "${output_windows}" "$@"; then
         status=0
@@ -106,7 +106,7 @@ case "${1:-}" in
         exec env \
             SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
             SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \
-            "${NATIVE_PYTHON}" -I "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
+            "${NATIVE_PYTHON}" -I -B "${SWCLI_RESOURCES}/bin/wine_runtime.py" launch \
             --contents "${CONTENTS_DIR}" --prefix "${WINEPREFIX}" -- \
             "${WINELOADER}" "${WINDOWS_PYTHON}" -m swcli "$@"
         ;;
@@ -114,4 +114,4 @@ esac
 
 export PYTHONPATH="${NATIVE_SWCLI_SOURCE}"
 export SWCLI_PATH_TRANSLATE_CMD="${NATIVE_PATH_HELPER}"
-exec "${NATIVE_PYTHON}" -m swcli "$@"
+exec "${NATIVE_PYTHON}" -B -m swcli "$@"

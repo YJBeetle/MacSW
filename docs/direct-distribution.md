@@ -209,3 +209,13 @@ Toolbox/装配体保存重开，然后再接自动 Release 发布。
 记录，不能混用旧 ZIP 与新清单。v0.1.0 修订包使用 build 2 区分初始包。
 公开发布时还要同时保留对应 Wine/Mono source archives，不能因为换了签名
 ZIP 就丢掉现有开源运行时的源码分发。
+
+## Native Python 与签名资源
+
+内置 native Python 的所有运行入口必须显式传入 `-B`，避免导入时在 App 内生成
+`__pycache__/*.pyc`，破坏资源签名。只设置 `PYTHONDONTWRITEBYTECODE` 不够：
+隔离模式 `-I` 会忽略该环境变量，应使用 `-I -B`。
+
+容器迁移在归档 App、调用旧版 wineserver 和启动 Wine 前验证已有资源签名；
+验证失败会停止，不应以清除隔离标志、关闭 Gatekeeper 或重签旧归档来绕过。
+模块哈希检查与整包签名检查保持独立，以支持先签内层、更新清单、最后签外层的打包顺序。

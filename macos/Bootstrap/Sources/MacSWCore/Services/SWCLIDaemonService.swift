@@ -64,7 +64,7 @@ public struct SWCLIDaemonService: Sendable {
             try validateEndpoint()
             let process = Process()
             process.executableURL = bundleURL.appendingPathComponent("Contents/Resources/SWCLI/runtime/PythonNative/bin/python3")
-            process.arguments = ["-c", Self.probeScript, endpoint]
+            process.arguments = ["-B", "-c", Self.probeScript, endpoint]
             var environment = ProcessInfo.processInfo.environment
             // Native health checks must not acquire a Wine launch lock or write
             // bytecode into the signed App's resources.

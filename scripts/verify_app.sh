@@ -81,7 +81,7 @@ test -f "${SWCLI_RUNTIME}/Lib/site-packages/jsonschema/__init__.py"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/rpds/rpds.cp311-win_amd64.pyd"
 test "$(shasum -a 256 "${SWCLI_DIR}/wheels.tsv" | awk '{print $1}')" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIWheelManifestSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
-PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -c \
+PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -B -c \
     'import attrs, jsonschema, referencing, rpds, typing_extensions; from swcli.operation_schemas import operation_schemas; [jsonschema.Draft202012Validator.check_schema(schema) for schema in operation_schemas().values()]'
 grep -Fxq 'Lib\site-packages' "${SWCLI_RUNTIME}/python311._pth"
 grep -Fxq 'import site' "${SWCLI_RUNTIME}/python311._pth"
@@ -106,9 +106,9 @@ cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py" "${SWCLI_DIR}/bin/swcli_path
 cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli_runtime.py" "${SWCLI_DIR}/bin/swcli_runtime.py"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/wine_runtime.py" "${SWCLI_DIR}/bin/wine_runtime.py"
 cmp "${WORKSPACE_ROOT}/scripts/swcli/open_document.py" "${SWCLI_DIR}/bin/open_document.py"
-"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I "${SWCLI_DIR}/bin/swcli_runtime.py" \
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -B "${SWCLI_DIR}/bin/swcli_runtime.py" \
     --contents "${CONTENTS_DIR}" --verify
-"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -c \
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -B -c \
     'import json, sys; m=json.load(open(sys.argv[1])); assert m["version"] == sys.argv[2] and m["source_commit"] == sys.argv[3]' \
     "${SWCLI_DIR}/runtime-manifest.json" "${SWCLI_VERSION}" "${SWCLI_SOURCE_COMMIT}"
 (

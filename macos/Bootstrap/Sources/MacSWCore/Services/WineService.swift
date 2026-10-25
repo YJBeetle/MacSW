@@ -418,7 +418,7 @@ public final class WineService: @unchecked Sendable {
         let contents = Bundle.main.bundleURL.appendingPathComponent("Contents")
         let python = contents.appendingPathComponent("Resources/SWCLI/runtime/PythonNative/bin/python3")
         let guardScript = contents.appendingPathComponent("Resources/SWCLI/bin/wine_runtime.py")
-        return (["env"] + assignments + [Self.shellQuote(python.path), "-I", Self.shellQuote(guardScript.path),
+        return (["env"] + assignments + [Self.shellQuote(python.path), "-I", "-B", Self.shellQuote(guardScript.path),
                 "launch", "--contents", Self.shellQuote(contents.path), "--prefix", Self.shellQuote(prefix.path),
                 "--", Self.shellQuote(wineBinary.path), Self.shellQuote(cmd)]).joined(separator: " ")
     }

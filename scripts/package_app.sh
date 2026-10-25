@@ -142,7 +142,7 @@ cp -p "${SWCLI_RUNTIME_SYNC}" "${RESOURCES_DIR}/SWCLI/bin/swcli_runtime.py"
 cp -p "${WORKSPACE_ROOT}/scripts/swcli/wine_runtime.py" "${RESOURCES_DIR}/SWCLI/bin/wine_runtime.py"
 cp -p "${WORKSPACE_ROOT}/scripts/swcli/open_document.py" "${RESOURCES_DIR}/SWCLI/bin/open_document.py"
 chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
-"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I "${SWCLI_RUNTIME_SYNC}" \
+"${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -B "${SWCLI_RUNTIME_SYNC}" \
     --contents "${CONTENTS_DIR}" --build-manifest \
     --version "${SWCLI_VERSION}" --source-commit "${SWCLI_SOURCE_COMMIT}"
 

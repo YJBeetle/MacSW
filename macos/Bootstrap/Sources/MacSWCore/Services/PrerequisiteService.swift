@@ -105,7 +105,7 @@ public final class PrerequisiteService: @unchecked Sendable {
         defer { try? handle.close() }
         let process = Process()
         process.executableURL = python
-        process.arguments = ["-I", helper.path, "--contents", contents.path, "--prefix", prefix.path]
+        process.arguments = ["-I", "-B", helper.path, "--contents", contents.path, "--prefix", prefix.path]
         if installing { process.arguments?.append("--installing") }
         process.environment = WineService.shared.environment(winePrefix: prefix, solidWorks: true)
         process.standardOutput = handle

@@ -44,6 +44,7 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(command.hasPrefix("env WINEPREFIX='/tmp/MacSW test'\\''s bottle' "))
         XCTAssertTrue(command.contains("WINELOADER='\(wine.wineBinary.path)'"))
         XCTAssertTrue(command.contains("WINESERVER='\(wine.wineServerBinary.path)'"))
+        XCTAssertTrue(command.contains(" -I -B "))
         XCTAssertTrue(command.hasSuffix(" 'C:\\windows\\system32\\cmd.exe'"))
     }
 

@@ -111,7 +111,9 @@ public enum WineRuntimeService {
             let resources = contents.appendingPathComponent("Resources/SWCLI")
             let process = Process()
             process.executableURL = resources.appendingPathComponent("runtime/PythonNative/bin/python3")
-            process.arguments = ["-I", resources.appendingPathComponent("bin/wine_runtime.py").path,
+            // -I ignores PYTHONDONTWRITEBYTECODE. -B must be explicit to keep
+            // Python imports from changing the sealed App's resources.
+            process.arguments = ["-I", "-B", resources.appendingPathComponent("bin/wine_runtime.py").path,
                                  command, "--contents", contents.path, "--prefix", prefix.path]
             let log = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-wine-upgrade-\(UUID().uuidString).log")
             guard FileManager.default.createFile(atPath: log.path, contents: nil) else { throw failure("无法创建迁移日志。") }

@@ -89,6 +89,23 @@ def verify_app(contents, values):
             raise RuntimeError(f"Wine/Mono 模块校验失败：{key}；未升级容器。")
 
 
+def verify_seal(contents):
+    # Unsigned source-build fixtures have no resource seal. Keep this separate
+    # from verify_app: packaging checks module hashes before the outer re-sign.
+    if not (contents / "_CodeSignature/CodeResources").exists():
+        return
+    try:
+        result = subprocess.run(
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(contents.parent)],
+            capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"无法验证 App 签名，已停止迁移，未执行 Wine：{contents.parent}") from error
+    if result.returncode:
+        raise RuntimeError(
+            f"App 签名校验失败，已停止迁移，未执行 Wine：{contents.parent}。"
+            "请保留容器与旧 App 备份，并重新下载完整 App；若为旧归档，请先修复归档，勿跳过安全检查。")
+
+
 def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -195,13 +212,16 @@ def clone(source, destination):
 def archive(contents, root, values):
     if contents.parent.is_symlink():
         raise RuntimeError("App 归档源不能是符号链接。")
+    verify_seal(contents)
     target = root / "apps" / fingerprint(values) / "MacSW.app"
     if not target.exists():
         stage = target.parent / ("staging-" + str(uuid.uuid4()) + ".app")
         clone(contents.parent, stage)
         verify_app(stage / "Contents", values)
+        verify_seal(stage / "Contents")
         stage.rename(target)
     verify_app(target / "Contents", values)
+    verify_seal(target / "Contents")
     if identity(target / "Contents") != values:
         raise RuntimeError("归档 App 的构建身份不匹配。")
     return target
@@ -252,6 +272,7 @@ def run(contents, prefix, arguments, log, *, server=False):
 
 
 def stop(contents, prefix, log):
+    verify_seal(contents)
     # -k may report no server (1); still require a successful bounded -w.
     try:
         run(contents, prefix, ["-k"], log, server=True)
@@ -262,6 +283,7 @@ def stop(contents, prefix, log):
 
 
 def boot(contents, prefix, log):
+    verify_seal(contents)
     values = identity(contents)
     verify_app(contents, values)
     run(contents, prefix, [r"C:\windows\system32\wineboot.exe", "-u"], log)

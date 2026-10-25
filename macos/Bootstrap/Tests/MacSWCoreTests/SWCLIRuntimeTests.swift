@@ -26,7 +26,7 @@ final class SWCLIRuntimeTests: XCTestCase {
         try Data("pythonw".utf8).write(to: resources.appendingPathComponent("runtime/Python311/pythonw.exe"))
         let process = Process()
         process.executableURL = native.appendingPathComponent("python3")
-        process.arguments = ["-I", helper.path, "--contents", contents.path, "--build-manifest",
+        process.arguments = ["-I", "-B", helper.path, "--contents", contents.path, "--build-manifest",
                              "--version", "test-version", "--source-commit", "test-commit"]
         try process.run()
         process.waitUntilExit()

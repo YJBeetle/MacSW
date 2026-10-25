@@ -45,15 +45,21 @@ exit 0
 EOF
 cat > "${CONTENTS_DIR}/Resources/SWCLI/runtime/PythonNative/bin/python3" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == */swcli_path.py ]]; then
-    exec "${SWCLI_TEST_PYTHON}" "$@"
+if [[ "${1:-}" == "-I" ]]; then shift; fi
+if [[ "${1:-}" != "-B" ]]; then
+    echo 'bundled native Python must explicitly disable bytecode' >&2
+    exit 97
 fi
-if [[ "${1:-}" == "-I" && "${2:-}" == */swcli_runtime.py ]]; then
+shift
+if [[ "${1:-}" == */swcli_path.py ]]; then
+    exec "${SWCLI_TEST_PYTHON}" -B "$@"
+fi
+if [[ "${1:-}" == */swcli_runtime.py ]]; then
     printf 'sync prefix=%s\n' "${WINEPREFIX}" >> "${SWCLI_TEST_LOG}"
     exit "${SWCLI_TEST_SYNC_STATUS:-0}"
 fi
-if [[ "${1:-}" == "-I" && "${2:-}" == */wine_runtime.py ]]; then
-    if [[ "${3:-}" == "check" ]]; then
+if [[ "${1:-}" == */wine_runtime.py ]]; then
+    if [[ "${2:-}" == "check" ]]; then
         exit "${SWCLI_TEST_WINE_STATUS:-0}"
     fi
     while [[ "${1:-}" != "--" ]]; do shift; done
