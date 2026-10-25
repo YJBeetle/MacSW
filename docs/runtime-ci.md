@@ -78,6 +78,18 @@ push 使用默认介质、夹具、简体中文和 `full` 阶段，运行轻量�
 `coverage_scope=direct-native-control`、`full_acceptance_eligible=false`；不证明结构、
 保存重开或完整 19 组验收，也不改变产品默认 COM 策略。
 
+原生对照 `40082804144` 仍在第二次 OpenDoc6 超 600 秒：首开 138.708 秒、
+关闭 2.798 秒，空目录和源／副本哈希检查通过，清场无错误。它绕过 daemon、
+目录和逐请求范围仍复现，但尚无足够 PE 调用栈确定具体原因。
+现为此手动原生诊断增加 `--timeout-backtrace`：先持久化原生超时失败，才对
+探针已确认自有 PID 的线程逐一运行 WineDbg 文本 backtrace，随后照常清场。
+不得使用会遍历其他进程的 `bt all`；不生成或上传内存 dump，不执行目标函数。
+调试器最多运行 30 秒，文本最多保留 2 MiB，经原有文本脱敏屏障上传；工具缺失
+在启动 CAD 前失败，不以无观测重复替代。调试失败单独记入诊断回执，不覆盖业务
+首个失败，调试中原调用即使返回也不能改判通过。调用预算和默认 19 组均不变。
+命令边界依据 [WineDbg parser](https://github.com/wine-mirror/wine/blob/master/programs/winedbg/dbg.y)
+和 [thread backtrace implementation](https://github.com/wine-mirror/wine/blob/master/programs/winedbg/stack.c)。
+
 两类运行复用构建、安装基底缓存和证据清理，但采用不同并发队列；
 不重复两模式 CAD 全套，也不复制安装脚本。隐藏档是诊断测试，
 不作为签名／公证前置条件；失败不重试、不静默忽略。

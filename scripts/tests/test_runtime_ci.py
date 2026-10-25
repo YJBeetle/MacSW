@@ -1065,6 +1065,7 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertNotIn(gate.cli, arguments)
             self.assertNotIn("daemon", arguments)
             self.assertEqual(arguments[arguments.index("--request-timeout") + 1], "600")
+            self.assertIn("--timeout-backtrace", arguments)
             wrapper = (PROJECT / "scripts/swcli/sw-cli").read_text()
             self.assertIn('WINEDLLOVERRIDES="' + gate.env["WINEDLLOVERRIDES"] + '"', wrapper)
             self.assertEqual((gate.cwd / ci.NATIVE_DRAWING_GATE).read_bytes(), script.read_bytes())

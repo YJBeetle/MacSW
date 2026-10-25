@@ -1022,7 +1022,8 @@ class RuntimeGate:
                      r"C:\MacSW\Python311\python.exe", self.windows_path(staged),
                      "--source", self.windows_path(drawing), "--output-dir", self.windows_path(output),
                      "--work-dir", self.windows_path(self.cwd / "private-native-drawing"),
-                     "--request-timeout", str(REQUEST_TIMEOUT_SECONDS), "--startup-timeout", str(STARTUP_TIMEOUT_SECONDS)]
+                     "--request-timeout", str(REQUEST_TIMEOUT_SECONDS), "--startup-timeout", str(STARTUP_TIMEOUT_SECONDS),
+                     "--timeout-backtrace"]
         if mode == "visible":
             arguments += ["--visible"]
         self.phase(mode + ".native-control")
