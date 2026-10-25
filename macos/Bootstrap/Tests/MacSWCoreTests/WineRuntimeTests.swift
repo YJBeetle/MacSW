@@ -56,6 +56,18 @@ final class WineRuntimeTests: XCTestCase {
         XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .recovery)
     }
 
+    func testFormatTwoReceiptNeedsNoArchiveAndMatchesTheCurrentApp() throws {
+        let (prefix, bundle, values) = try fixture()
+        try record(prefix: prefix, identity: values)
+        let receipt = WineRuntimeService.root(prefix: prefix).appendingPathComponent("receipt.json")
+        try JSONSerialization.data(withJSONObject: ["format": 2, "prefix_id": "prefix-id",
+            "identity": values, "active_app": bundle.path]).write(to: receipt)
+        XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .ready)
+        XCTAssertTrue(WineRuntimeService.State.upgrade.message.contains("升级容器"))
+        XCTAssertFalse(WineRuntimeService.State.upgrade.message.contains("不备份"))
+        XCTAssertTrue(WineRuntimeService.State.recovery.message.contains("重试"))
+    }
+
     func testToolboxManifestRequiresAllNewModuleHashes() throws {
         let (_, bundle, values) = try fixture()
         let manifestURL = bundle.appendingPathComponent("Contents/Resources/BuildManifest.plist")

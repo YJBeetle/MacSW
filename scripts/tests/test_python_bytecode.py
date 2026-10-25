@@ -52,16 +52,14 @@ class PythonResourceSealTests(unittest.TestCase):
     def test_isolation_ignores_environment_and_preflight_blocks_damaged_app(self):
         self.import_module(["-I"])
         self.assertTrue(list(self.modules.rglob("*.pyc")))
-        with patch.object(RUNTIME, "run") as wine, patch.object(RUNTIME, "clone") as clone:
+        with patch.object(RUNTIME, "run") as wine:
             for operation in (
                 lambda: RUNTIME.stop(self.contents, self.root / "bottle", self.root / "log"),
                 lambda: RUNTIME.boot(self.contents, self.root / "bottle", self.root / "log"),
-                lambda: RUNTIME.archive(self.contents, self.root / "state", {}),
             ):
                 with self.assertRaisesRegex(RuntimeError, "签名校验失败"):
                     operation()
             wine.assert_not_called()
-            clone.assert_not_called()
 
     def test_signature_check_timeout_fails_closed(self):
         with patch.object(RUNTIME.subprocess, "run", side_effect=subprocess.TimeoutExpired("codesign", 60)):

@@ -1,9 +1,9 @@
 import hashlib
 import importlib.util
-import json
 from pathlib import Path
 import plistlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,46 +16,54 @@ SPEC.loader.exec_module(RUNTIME)
 
 class WineUpgradeTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="macsw-wine-upgrade-")
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        temporary = tempfile.TemporaryDirectory(prefix="macsw-wine-upgrade-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
         self.prefix = self.root / "bottle"
         (self.prefix / "drive_c").mkdir(parents=True)
-        (self.prefix / "user.reg").write_text("old fonts and preferences")
-        self.contents = self.app("old", "patch-one")
-        self.new = self.app("new", "patch-two")
-        self.clone = patch.object(RUNTIME, "clone", side_effect=lambda source, target: shutil.copytree(source, target, symlinks=True))
-        self.clone.start()
-        self.addCleanup(self.clone.stop)
-        RUNTIME.state_root(self.prefix).mkdir()
+        (self.prefix / "user.reg").write_text("old preferences")
+        self.state = RUNTIME.state_root(self.prefix)
+        self.state.mkdir()
+        self.contents = self.app("old")
+        self.new = self.app("new")
 
-    def app(self, name, patch_identity):
+    def app(self, name):
         contents = self.root / (name + ".app") / "Contents"
         (contents / "Resources").mkdir(parents=True)
-        values = {"WineVersion": "11.16", "MonoVersion": "11.3.0", "WineTestPatchSHA256": patch_identity,
-                  "SWCLISourceCommit": name}
-        for key, relative in RUNTIME.MODULES.items():
+        values = {"WineVersion": "11.16", "MonoVersion": "11.3.0",
+                  "WineTestPatchSHA256": name, "SWCLISourceCommit": name}
+        self.add_modules(contents, values, RUNTIME.MODULES)
+        return contents
+
+    def add_modules(self, contents, values, modules):
+        for key, relative in modules.items():
             module = contents / "Frameworks/wine" / relative.format(**values)
             module.parent.mkdir(parents=True, exist_ok=True)
             module.write_bytes(b"fixture-module")
             values[key] = hashlib.sha256(module.read_bytes()).hexdigest()
+        self.manifest(contents, values)
+
+    def manifest(self, contents, values):
         with (contents / "Resources/BuildManifest.plist").open("wb") as stream:
             plistlib.dump(values, stream)
-        return contents
 
     def baseline(self):
         with patch.object(RUNTIME, "run", side_effect=AssertionError("must not run Wine")):
             RUNTIME.baseline(self.contents, self.prefix)
-        self.old = RUNTIME.read_json(RUNTIME.state_root(self.prefix) / "receipt.json")
-        self.archived_old = Path(self.old["app"]) / "Contents"
+        self.old = RUNTIME.read_json(self.state / "receipt.json")
 
-    def test_baseline_archives_without_wineboot(self):
+    def assert_no_backups(self):
+        self.assertFalse((self.state / "apps").exists())
+        self.assertFalse((self.state / "backups").exists())
+
+    def test_baseline_only_records_metadata(self):
         self.baseline()
         self.assertEqual(RUNTIME.status(self.contents, self.prefix), "ready")
-        self.assertTrue(Path(self.old["app"]).is_dir())
-        self.assertEqual((self.prefix / "user.reg").read_text(), "old fonts and preferences")
+        self.assertEqual(self.old["format"], 2)
+        self.assertNotIn("app", self.old)
+        self.assert_no_backups()
 
-    def test_same_wine_version_but_changed_patch_needs_upgrade(self):
+    def test_patch_change_requires_upgrade_and_blocks_launch(self):
         self.baseline()
         self.assertEqual(RUNTIME.status(self.new, self.prefix), "upgrade")
         with self.assertRaisesRegex(RuntimeError, "未启动新版 Wine"):
@@ -64,188 +72,131 @@ class WineUpgradeTests(unittest.TestCase):
     def test_identity_ignores_swcli_commit(self):
         self.assertNotIn("SWCLISourceCommit", RUNTIME.identity(self.contents))
 
-    def test_resource_layout_preserves_identity_and_hash_checks_through_compatibility_alias(self):
+    def test_resource_alias_preserves_identity_and_hash_checks(self):
         values = RUNTIME.identity(self.new)
         alias = self.new / "Frameworks/wine"
         resource = self.new / "Resources/Wine"
         alias.rename(resource)
         alias.symlink_to("../Resources/Wine")
-        self.assertEqual(RUNTIME.identity(self.new), values)
         RUNTIME.verify_app(self.new, values)
-        module = resource / RUNTIME.MODULES["WineLoaderSHA256"]
-        module.write_bytes(b"corrupt")
+        (resource / RUNTIME.MODULES["WineLoaderSHA256"]).write_bytes(b"corrupt")
         with self.assertRaisesRegex(RuntimeError, "WineLoaderSHA256"):
             RUNTIME.verify_app(self.new, values)
 
-    def msxml_modules(self, contents):
-        values = RUNTIME.identity(contents)
-        for key, relative in RUNTIME.MSXML_MODULES.items():
-            module = contents / 'Frameworks/wine' / relative
-            module.parent.mkdir(parents=True, exist_ok=True)
-            module.write_bytes(b'msxml-schema-namespace-module')
-            values[key] = hashlib.sha256(module.read_bytes()).hexdigest()
-        values['WineMSXMLSchemaPatchSHA256'] = '1' * 64
-        with (contents / 'Resources/BuildManifest.plist').open('wb') as stream:
-            plistlib.dump(values, stream)
-        return values
-
-    def test_msxml_identity_without_mono_overlay_requires_upgrade(self):
-        self.baseline()
-        values = self.msxml_modules(self.new)
-        RUNTIME.verify_app(self.new, values)
-        self.assertEqual(RUNTIME.status(self.new, self.prefix), 'upgrade')
-
-    def test_corrupt_msxml_rejected_before_upgrade(self):
-        values = self.msxml_modules(self.new)
-        module = self.new / 'Frameworks/wine/lib/wine/x86_64-windows/msxml3.dll'
-        module.write_bytes(b'corrupt')
-        with self.assertRaisesRegex(RuntimeError, 'WineMSXML3ModuleSHA256'):
+    def test_extensions_validate_every_module_and_reject_partial_groups(self):
+        for modules, extra, label in (
+            (RUNTIME.MSXML_MODULES, {"WineMSXMLSchemaPatchSHA256": "1" * 64}, "MSXML"),
+            (RUNTIME.TOOLBOX_MODULES, {}, "Toolbox"),
+        ):
+            original = RUNTIME.identity(self.new)
+            values = {**original, **extra}
+            self.add_modules(self.new, values, modules)
             RUNTIME.verify_app(self.new, values)
-
-    def test_partial_msxml_manifest_rejected(self):
-        baseline = RUNTIME.identity(self.new)
-        for key in RUNTIME.MSXML_IDENTITY_KEYS:
-            with self.subTest(key=key):
-                partial = {**baseline, key: '1' * 64}
-                with (self.new / 'Resources/BuildManifest.plist').open('wb') as stream:
-                    plistlib.dump(partial, stream)
-                with self.assertRaisesRegex(RuntimeError, 'MSXML'):
+            for key, relative in modules.items():
+                with self.subTest(key=key):
+                    module = self.new / "Frameworks/wine" / relative.format(**values)
+                    saved = module.read_bytes()
+                    module.write_bytes(b"corrupt")
+                    with self.assertRaisesRegex(RuntimeError, key):
+                        RUNTIME.verify_app(self.new, values)
+                    module.write_bytes(saved)
+            for key in [*modules, *extra]:
+                partial = {**original, key: "1" * 64}
+                self.manifest(self.new, partial)
+                with self.assertRaisesRegex(RuntimeError, label):
                     RUNTIME.identity(self.new)
-                with self.assertRaisesRegex(RuntimeError, 'MSXML'):
+                with self.assertRaisesRegex(RuntimeError, label):
                     RUNTIME.verify_app(self.new, partial)
+            self.manifest(self.new, original)
 
-    def toolbox_modules(self, contents):
-        values = self.msxml_modules(contents)
-        for key, relative in RUNTIME.TOOLBOX_MODULES.items():
-            module = contents / 'Frameworks/wine' / relative.format(**values)
-            module.parent.mkdir(parents=True, exist_ok=True)
-            module.write_bytes(b'new-toolbox-module')
-            values[key] = hashlib.sha256(module.read_bytes()).hexdigest()
-        with (contents / 'Resources/BuildManifest.plist').open('wb') as stream:
-            plistlib.dump(values, stream)
-        return values
-
-    def test_complete_toolbox_extension_verified_and_requires_upgrade(self):
-        self.baseline()
-        values = self.toolbox_modules(self.new)
-        RUNTIME.verify_app(self.new, values)
-        self.assertEqual(RUNTIME.status(self.new, self.prefix), 'upgrade')
-
-    def test_corrupt_toolbox_module_rejected_before_upgrade(self):
-        values = self.toolbox_modules(self.new)
-        for key, relative in RUNTIME.TOOLBOX_MODULES.items():
-            module = self.new / 'Frameworks/wine' / relative.format(**values)
-            original = module.read_bytes()
-            module.write_bytes(b'corrupt')
-            with self.assertRaisesRegex(RuntimeError, key):
-                RUNTIME.verify_app(self.new, values)
-            module.write_bytes(original)
-
-    def test_partial_toolbox_extension_is_not_a_legacy_manifest(self):
-        values = RUNTIME.identity(self.new)
-        values['MonoCCWModuleSHA256'] = '1'*64
-        with (self.new / 'Resources/BuildManifest.plist').open('wb') as stream:
-            plistlib.dump(values, stream)
-        with self.assertRaisesRegex(RuntimeError, 'Toolbox'):
-            RUNTIME.identity(self.new)
-        with self.assertRaisesRegex(RuntimeError, 'Toolbox'):
-            RUNTIME.verify_app(self.new, values)
-
-    def test_changed_identity_cannot_bypass_by_baseline(self):
+    def test_baseline_cannot_bypass_version_change(self):
         self.baseline()
         with self.assertRaisesRegex(RuntimeError, "绕过"):
             RUNTIME.baseline(self.new, self.prefix)
 
-    def test_success_keeps_original_full_bottle_and_old_app(self):
-        self.baseline()
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot"):
-            RUNTIME.migrate(self.new, self.prefix)
-        self.assertEqual(RUNTIME.status(self.new, self.prefix), "ready")
-        backups = list(RUNTIME.state_root(self.prefix).glob("backups/*/bottle/user.reg"))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_text(), "old fonts and preferences")
-        self.assertTrue(Path(self.old["app"]).exists())
-
-    def test_failed_boot_restores_preferences_and_old_identity(self):
-        self.baseline()
-        def boot(contents, prefix, log):
-            if contents == self.new:
-                (prefix / "user.reg").write_text("damaged by upgrade")
-                raise RuntimeError("injected boot failure")
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot", side_effect=boot):
-            with self.assertRaisesRegex(RuntimeError, "已恢复旧容器"):
-                RUNTIME.migrate(self.new, self.prefix)
-        self.assertEqual(RUNTIME.status(self.archived_old, self.prefix), "ready")
-        self.assertEqual((self.prefix / "user.reg").read_text(), "old fonts and preferences")
-        self.assertEqual(RUNTIME.status(self.new, self.prefix), "upgrade")
-        self.assertEqual(len(list(RUNTIME.state_root(self.prefix).glob("backups/*/failed-bottle"))), 1)
-
-    def test_user_can_rollback_after_successful_dependency_checks(self):
-        self.baseline()
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot"):
-            RUNTIME.migrate(self.new, self.prefix)
-            (self.prefix / "user.reg").write_text("new preferences")
-            RUNTIME.rollback(self.prefix)
-        self.assertEqual(RUNTIME.status(self.archived_old, self.prefix), "ready")
-        self.assertEqual((self.prefix / "user.reg").read_text(), "old fonts and preferences")
-
-    def test_rollback_cannot_restore_other_prefix_generation(self):
-        self.baseline()
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot"):
-            RUNTIME.migrate(self.new, self.prefix)
-            (self.prefix / ".macsw-wine-prefix-id").write_text("replacement-id")
-            with self.assertRaisesRegex(RuntimeError, "不匹配"):
-                RUNTIME.rollback(self.prefix)
-
-    def test_backup_failure_never_boots_or_changes_receipt(self):
-        self.baseline()
-        real_clone = RUNTIME.clone
-        def clone(source, destination):
-            if destination.name == "bottle":
-                raise RuntimeError("no APFS space")
-            real_clone(source, destination)
-        with patch.object(RUNTIME, "clone", side_effect=clone), patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot") as boot:
-            with self.assertRaisesRegex(RuntimeError, "APFS"):
-                RUNTIME.migrate(self.new, self.prefix)
-            boot.assert_not_called()
-        self.assertEqual(RUNTIME.read_json(RUNTIME.state_root(self.prefix) / "receipt.json"), self.old)
-
-    def test_failed_recovery_leaves_journal_and_backup_for_retry(self):
-        self.baseline()
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot", side_effect=RuntimeError("failed boot")):
-            with self.assertRaisesRegex(RuntimeError, "恢复未完成"):
-                RUNTIME.migrate(self.new, self.prefix)
-        self.assertEqual(RUNTIME.status(self.new, self.prefix), "recovery")
-        root = RUNTIME.state_root(self.prefix)
-        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot"):
-            RUNTIME.restore(root, self.prefix, root / "migration.log")
-        self.assertEqual(RUNTIME.status(self.archived_old, self.prefix), "ready")
-
-    def test_relocated_app_needs_rebinding_even_if_wine_identity_matches(self):
-        self.baseline()
-        relocated = self.root / "moved.app/Contents"
-        shutil.copytree(self.contents, relocated)
-        self.assertEqual(RUNTIME.identity(relocated), RUNTIME.identity(self.contents))
-        self.assertEqual(RUNTIME.status(relocated, self.prefix), "upgrade")
-        with self.assertRaisesRegex(RuntimeError, "绕过"):
-            RUNTIME.baseline(relocated, self.prefix)
-
-    def test_shutdown_uses_recorded_server_never_boots_new_wine(self):
+    def test_success_uses_only_current_app_and_no_backup(self):
         self.baseline()
         with patch.object(RUNTIME, "stop") as stop, patch.object(RUNTIME, "boot") as boot:
-            RUNTIME.shutdown(self.new, self.prefix)
-            self.assertEqual(stop.call_args.args[0], self.archived_old)
-            boot.assert_not_called()
+            RUNTIME.migrate(self.new, self.prefix)
+        self.assertEqual([call.args[0] for call in stop.call_args_list], [self.new, self.new])
+        boot.assert_called_once_with(self.new, self.prefix, self.state / "migration.log")
+        self.assertEqual(RUNTIME.status(self.new, self.prefix), "ready")
+        self.assert_no_backups()
+        self.assertNotIn("app", RUNTIME.read_json(self.state / "receipt.json"))
 
-    def test_stop_failure_never_backs_up_or_boots(self):
+    def test_legacy_receipt_never_reads_old_archive_or_deletes_old_backups(self):
         self.baseline()
-        with patch.object(RUNTIME, "stop", side_effect=RuntimeError("server won't stop")), patch.object(RUNTIME, "boot") as boot:
+        RUNTIME.write_json(self.state / "receipt.json", {
+            **self.old, "format": 1, "app": "/nonexistent/damaged/MacSW.app"})
+        old_backup = self.state / "backups/keep-existing.txt"
+        old_backup.parent.mkdir()
+        old_backup.write_text("existing backup")
+        with patch.object(RUNTIME, "stop") as stop, patch.object(RUNTIME, "boot"):
+            RUNTIME.migrate(self.new, self.prefix)
+        self.assertTrue(all(call.args[0] == self.new for call in stop.call_args_list))
+        self.assertEqual(old_backup.read_text(), "existing backup")
+        self.assertEqual(RUNTIME.read_json(self.state / "receipt.json")["format"], 2)
+
+    def fail_boot(self):
+        def boot(contents, prefix, log):
+            (prefix / "user.reg").write_text("partially updated")
+            raise RuntimeError("injected boot failure")
+        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot", side_effect=boot):
+            with self.assertRaisesRegex(RuntimeError, "未备份且未自动回退"):
+                RUNTIME.migrate(self.new, self.prefix)
+
+    def test_failure_blocks_launch_without_claiming_rollback(self):
+        self.baseline()
+        self.fail_boot()
+        self.assertEqual(RUNTIME.status(self.new, self.prefix), "recovery")
+        self.assertEqual((self.prefix / "user.reg").read_text(), "partially updated")
+        self.assertEqual(RUNTIME.read_json(self.state / "receipt.json"), self.old)
+        self.assert_no_backups()
+        with self.assertRaises(RuntimeError):
+            RUNTIME.require_ready(self.new, self.prefix)
+
+    def test_explicit_retry_finishes_without_backup(self):
+        self.baseline()
+        self.fail_boot()
+        with patch.object(RUNTIME, "stop"), patch.object(RUNTIME, "boot"):
+            RUNTIME.migrate(self.new, self.prefix, retry=True)
+        self.assertEqual(RUNTIME.status(self.new, self.prefix), "ready")
+        self.assertFalse((self.state / "pending.json").exists())
+        self.assert_no_backups()
+
+    def test_retry_rejects_other_version_prefix_or_path(self):
+        self.baseline()
+        for field, value in (("identity", {}), ("prefix_id", "other"), ("active_app", "/other.app")):
+            pending = {"format": 2, "mode": "in-place", "prefix_id": self.old["prefix_id"],
+                       "identity": RUNTIME.identity(self.new), "active_app": str(self.new.parent.resolve())}
+            pending[field] = value
+            RUNTIME.write_json(self.state / "pending.json", pending)
+            with patch.object(RUNTIME, "stop") as stop:
+                with self.assertRaises(RuntimeError):
+                    RUNTIME.migrate(self.new, self.prefix, retry=True)
+                stop.assert_not_called()
+            (self.state / "pending.json").unlink()
+
+    def test_legacy_pending_is_preserved_and_not_executed(self):
+        self.baseline()
+        pending = {"format": 1, "backup": "/untrusted/path"}
+        RUNTIME.write_json(self.state / "pending.json", pending)
+        with patch.object(RUNTIME, "stop") as stop:
+            with self.assertRaisesRegex(RuntimeError, "旧版"):
+                RUNTIME.migrate(self.new, self.prefix, retry=True)
+            stop.assert_not_called()
+        self.assertEqual(RUNTIME.read_json(self.state / "pending.json"), pending)
+
+    def test_stop_failure_leaves_receipt_and_container_untouched(self):
+        self.baseline()
+        with patch.object(RUNTIME, "stop", side_effect=RuntimeError("won't stop")), patch.object(RUNTIME, "boot") as boot:
             with self.assertRaisesRegex(RuntimeError, "won't stop"):
                 RUNTIME.migrate(self.new, self.prefix)
             boot.assert_not_called()
-        self.assertFalse((RUNTIME.state_root(self.prefix) / "pending.json").exists())
+        self.assertFalse((self.state / "pending.json").exists())
+        self.assertEqual(RUNTIME.read_json(self.state / "receipt.json"), self.old)
 
-    def test_corrupt_runtime_refused_before_stopping(self):
+    def test_corrupt_current_app_refused_before_stop(self):
         self.baseline()
         (self.new / "Frameworks/wine" / RUNTIME.MODULES["WineLoaderSHA256"]).write_text("corrupt")
         with patch.object(RUNTIME, "stop") as stop:
@@ -253,13 +204,53 @@ class WineUpgradeTests(unittest.TestCase):
                 RUNTIME.migrate(self.new, self.prefix)
             stop.assert_not_called()
 
-    def test_same_identity_upgrade_does_nothing(self):
+    def test_shutdown_uses_current_server_without_boot(self):
+        self.baseline()
+        with patch.object(RUNTIME, "stop") as stop, patch.object(RUNTIME, "boot") as boot:
+            RUNTIME.shutdown(self.new, self.prefix)
+        self.assertEqual(stop.call_args.args[0], self.new)
+        boot.assert_not_called()
+
+    def test_boot_rebinds_regasm_and_checks_current_dependencies(self):
+        with patch.object(RUNTIME, "run") as run:
+            RUNTIME.boot(self.new, self.prefix, self.state / "migration.log")
+        for directory in ("Framework", "Framework64"):
+            target = self.prefix / f"drive_c/windows/Microsoft.NET/{directory}/v4.0.30319/regasm.exe"
+            self.assertEqual(target.read_bytes(), b"fixture-module")
+        self.assertEqual(run.call_args_list[0].args[2], [r"C:\windows\system32\wineboot.exe", "-u"])
+        self.assertTrue(all(call.args[0] == self.new for call in run.call_args_list))
+
+    def test_stop_runs_only_current_server_k_and_w_for_selected_prefix(self):
+        responses = [subprocess.CalledProcessError(1, "no server"), subprocess.CompletedProcess([], 0)]
+        with patch.object(RUNTIME.subprocess, "run", side_effect=responses) as run:
+            RUNTIME.stop(self.new, self.prefix, self.state / "migration.log")
+        self.assertEqual([call.args[0] for call in run.call_args_list], [
+            [str(self.new / "Frameworks/wine/bin/wineserver"), "-k"],
+            [str(self.new / "Frameworks/wine/bin/wineserver"), "-w"]])
+        for call in run.call_args_list:
+            self.assertEqual(call.kwargs["env"]["WINEPREFIX"], str(self.prefix))
+
+    def test_stop_wait_failure_is_not_treated_as_success(self):
+        responses = [subprocess.CompletedProcess([], 0), subprocess.CalledProcessError(2, "wait")]
+        with patch.object(RUNTIME.subprocess, "run", side_effect=responses):
+            with self.assertRaises(subprocess.CalledProcessError):
+                RUNTIME.stop(self.new, self.prefix, self.state / "migration.log")
+
+    def test_matching_identity_upgrade_is_noop(self):
         self.baseline()
         with patch.object(RUNTIME, "stop") as stop:
             RUNTIME.migrate(self.contents, self.prefix)
             stop.assert_not_called()
 
-    def test_replaced_prefix_requires_new_baseline(self):
+    def test_relocated_app_requires_rebinding(self):
+        self.baseline()
+        moved = self.root / "moved.app/Contents"
+        shutil.copytree(self.contents, moved)
+        self.assertEqual(RUNTIME.status(moved, self.prefix), "upgrade")
+        with self.assertRaisesRegex(RuntimeError, "绕过"):
+            RUNTIME.baseline(moved, self.prefix)
+
+    def test_replaced_prefix_requires_baseline(self):
         self.baseline()
         (self.prefix / ".macsw-wine-prefix-id").unlink()
         self.assertEqual(RUNTIME.status(self.contents, self.prefix), "baseline")
@@ -272,17 +263,20 @@ class WineUpgradeTests(unittest.TestCase):
                     RUNTIME.launch(self.contents, self.prefix, ["must-not-launch"])
                 spawn.assert_not_called()
 
-    def test_unmanaged_other_prefix_is_not_modified(self):
-        foreign = self.root / "other-bottle"
+    def test_unmanaged_prefix_untouched(self):
+        foreign = self.root / "foreign-bottle"
         (foreign / "drive_c").mkdir(parents=True)
         self.assertEqual(RUNTIME.status(self.contents, foreign), "unmanaged")
         self.assertFalse(RUNTIME.state_root(foreign).exists())
 
-    def test_pending_journal_prevents_launch_even_if_identity_matches(self):
+    def test_pending_blocks_launch_and_baseline(self):
         self.baseline()
-        RUNTIME.write_json(RUNTIME.state_root(self.prefix) / "pending.json", {"incomplete": True})
+        RUNTIME.write_json(self.state / "pending.json", {"incomplete": True})
+        self.assertEqual(RUNTIME.status(self.contents, self.prefix), "recovery")
         with self.assertRaises(RuntimeError):
             RUNTIME.require_ready(self.contents, self.prefix)
+        with self.assertRaises(RuntimeError):
+            RUNTIME.baseline(self.contents, self.prefix)
 
     def test_symlink_prefix_rejected(self):
         link = self.root / "link"
