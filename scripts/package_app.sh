@@ -21,6 +21,7 @@ COMBASE_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/combase.dll"
 COMCTL32_V6_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/comctl32_v6.dll"
 MSXML3_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/msxml3.dll"
 WINE_LOADER_PATCH="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}/MacSW"
+FILE_MANAGER_PATCH_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 MONO_PATCH="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/libmono-2.0-x86.dll"
 MONO_MSCORLIB="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/mscorlib.dll"
 MONO_REGASM_X86="${WORKSPACE_ROOT}/dist/${MONO_PATCH_RELEASE}/regasm-x86.exe"
@@ -59,6 +60,11 @@ for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW
     require_file "${PACKAGE_INPUT}"
 done
 unset PACKAGE_INPUT
+for ARCH in x86_64-windows i386-windows; do
+    for MODULE in shell32.dll explorer.exe; do
+        require_file "${FILE_MANAGER_PATCH_DIR}/${ARCH}/${MODULE}"
+    done
+done
 
 test "$(shasum -a 256 "${WINE_ARCHIVE}" | awk '{print $1}')" = "${WINE_RUNTIME_SHA256}" || { echo "Wine runtime checksum mismatch" >&2; exit 1; }
 test "$(shasum -a 256 "${WINE_SOURCE_ARCHIVE}" | awk '{print $1}')" = "${WINE_SOURCE_SHA256}" || { echo "Wine source checksum mismatch" >&2; exit 1; }
@@ -197,6 +203,11 @@ cp "${NTDLL_PATCH}" "${NTDLL_TARGET}"
 cp "${COMBASE_PATCH}" "${COMBASE_TARGET}"
 cp "${COMCTL32_V6_PATCH}" "${COMCTL32_V6_TARGET}"
 cp "${MSXML3_PATCH}" "${MSXML3_TARGET}"
+for ARCH in x86_64-windows i386-windows; do
+    for MODULE in shell32.dll explorer.exe; do
+        cp "${FILE_MANAGER_PATCH_DIR}/${ARCH}/${MODULE}" "${FRAMEWORKS_DIR}/wine/lib/wine/${ARCH}/${MODULE}"
+    done
+done
 cp "${WINE_LOADER_PATCH}" "${BRANDED_WINE_LOADER}"
 ln -sf MacSW "${WINE_LOADER_COMPAT}"
 codesign --force --sign - "${WINEMAC_TARGET}"
@@ -238,6 +249,14 @@ NTDLL_MODULE_SHA256="$(shasum -a 256 "${NTDLL_TARGET}" | awk '{print $1}')"
 WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')"
 /usr/libexec/PlistBuddy -c "Add :AppVersion string ${APP_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :AppBuild string ${APP_BUILD}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineNativeFileManagerPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
+for SPEC in 'x86_64-windows shell32.dll WineShell32X64ModuleSHA256' \
+            'i386-windows shell32.dll WineShell32X86ModuleSHA256' \
+            'x86_64-windows explorer.exe WineExplorerX64ModuleSHA256' \
+            'i386-windows explorer.exe WineExplorerX86ModuleSHA256'; do
+    read -r ARCH MODULE KEY <<< "${SPEC}"
+    /usr/libexec/PlistBuddy -c "Add :${KEY} string $(shasum -a 256 "${FRAMEWORKS_DIR}/wine/lib/wine/${ARCH}/${MODULE}" | awk '{print $1}')" "${BUILD_MANIFEST}"
+done
 /usr/libexec/PlistBuddy -c "Add :WineVersion string ${WINE_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineRuntimeSHA256 string ${WINE_RUNTIME_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineSourceSHA256 string ${WINE_SOURCE_SHA256}" "${BUILD_MANIFEST}"

@@ -1,0 +1,155 @@
+diff --git a/include/Makefile.in b/include/Makefile.in
+--- a/include/Makefile.in
++++ b/include/Makefile.in
+@@ -1135,6 +1135,7 @@
+ 	wine/mmsystem16.h \
+ 	wine/mscvpdb.h \
+ 	wine/mssign.h \
++	wine/native_file_manager.h \
+ 	wine/nsi.h \
+ 	wine/opengl_driver.h \
+ 	wine/orpc.idl \
+diff --git a/include/wine/native_file_manager.h b/include/wine/native_file_manager.h
+new file mode 100644
+--- /dev/null
++++ b/include/wine/native_file_manager.h
+@@ -0,0 +1,41 @@
++/* MacSW's opt-in bridge for filesystem folders. No command shell is used. */
++#ifndef __WINE_NATIVE_FILE_MANAGER_H
++#define __WINE_NATIVE_FILE_MANAGER_H
++
++#include "winternl.h"
++
++static BOOL wine_native_file_manager_enabled(void)
++{
++    WCHAR enabled[2];
++    return GetEnvironmentVariableW( L"MACSW_NATIVE_FILE_MANAGER", enabled, ARRAY_SIZE(enabled) ) == 1 &&
++           enabled[0] == '1';
++}
++
++static BOOL wine_open_native_file_manager( const WCHAR *path, BOOL select )
++{
++    DWORD attributes;
++    char *unix_path;
++    char *reveal[] = { "/usr/bin/open", "-R", "--", NULL, NULL };
++    char *browse[] = { "/usr/bin/open", "-a", "Finder", "--", NULL, NULL };
++    BOOL ret;
++
++    if (!wine_native_file_manager_enabled() || !path || !*path)
++        return FALSE;
++
++    attributes = GetFileAttributesW( path );
++    if (attributes == INVALID_FILE_ATTRIBUTES || (!select && !(attributes & FILE_ATTRIBUTE_DIRECTORY)))
++        return FALSE;
++
++    if (!(unix_path = wine_get_unix_file_name( path ))) return FALSE;
++    if (unix_path[0] != '/')
++    {
++        HeapFree( GetProcessHeap(), 0, unix_path );
++        return FALSE;
++    }
++    reveal[3] = browse[4] = unix_path;
++    ret = !__wine_unix_spawnvp( select ? reveal : browse, FALSE );
++    HeapFree( GetProcessHeap(), 0, unix_path );
++    return ret;
++}
++
++#endif
+diff --git a/programs/explorer/explorer.c b/programs/explorer/explorer.c
+--- a/programs/explorer/explorer.c
++++ b/programs/explorer/explorer.c
+@@ -34,6 +34,7 @@
+ #include <shlwapi.h>
+ #include <commoncontrols.h>
+ #include <commctrl.h>
++#include "wine/native_file_manager.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
+ 
+@@ -924,6 +925,10 @@
+     memset(&parameters,0,sizeof(parameters));
+     explorer_hInstance = hinstance;
+     parse_command_line(cmdline,&parameters);
++    if (!parameters.explorer_mode &&
++        wine_open_native_file_manager( parameters.selection[0] ? parameters.selection : parameters.root,
++                                       !!parameters.selection[0] ))
++        return 0;
+     hres = OleInitialize(NULL);
+     if(FAILED(hres))
+     {
+diff --git a/dlls/shell32/shlfolder.c b/dlls/shell32/shlfolder.c
+--- a/dlls/shell32/shlfolder.c
++++ b/dlls/shell32/shlfolder.c
+@@ -42,6 +42,7 @@
+ #include "shlwapi.h"
+ #include "wine/debug.h"
+ #include "shfldr.h"
++#include "wine/native_file_manager.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL (shell);
+ 
+@@ -653,6 +654,26 @@
+     if (!pidlFolder)
+         return E_INVALIDARG;
+ 
++    /* Preserve edit, virtual namespace and multi-selection semantics in Wine. */
++    if (!flags && cidl <= 1 && (!cidl || (apidl && apidl[0])))
++    {
++        ITEMIDLIST *combined = NULL;
++        const ITEMIDLIST *target = pidlFolder;
++        WCHAR *path;
++        BOOL opened = FALSE;
++
++        if (cidl)
++            target = ILFindChild( pidlFolder, apidl[0] ) ? apidl[0] :
++                     (combined = ILCombine( pidlFolder, apidl[0] ));
++        if (target && SUCCEEDED(SHGetNameFromIDList( target, SIGDN_FILESYSPATH, &path )))
++        {
++            opened = wine_open_native_file_manager( path, TRUE );
++            CoTaskMemFree( path );
++        }
++        ILFree( combined );
++        if (opened) return S_OK;
++    }
++
+     if (flags & OFASI_OPENDESKTOP)
+         FIXME("Ignoring unsupported OFASI_OPENDESKTOP flag.\n");
+ 
+@@ -689,12 +710,36 @@
+     hr = IShellWindows_FindWindowSW(sw, &var_parent, &var_empty, SWC_EXPLORER, &hwnd, 0, &dispatch);
+     if (hr != S_OK)
+     {
++        WCHAR *folder = NULL, *parameters = NULL;
++        BOOL launched;
++
+         sei.cbSize = sizeof(sei);
+         sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_IDLIST | SEE_MASK_NOASYNC | SEE_MASK_WAITFORINPUTIDLE;
+         sei.lpVerb = L"explore";
+         sei.lpIDList = (void *)pidl_parent;
+         sei.nShow = SW_NORMAL;
+-        if (!ShellExecuteExW(&sei))
++        /* The selection protocol below needs a real Wine Explorer window.
++         * /e explicitly retains it for edit/multi-select and native failures. */
++        if (wine_native_file_manager_enabled() &&
++            SUCCEEDED(SHGetNameFromIDList( pidl_parent, SIGDN_DESKTOPABSOLUTEPARSING, &folder )))
++        {
++            if (!(parameters = malloc( (wcslen(folder) + 8) * sizeof(WCHAR) )))
++            {
++                CoTaskMemFree( folder );
++                hr = E_OUTOFMEMORY;
++                goto done;
++            }
++            swprintf( parameters, wcslen(folder) + 8, L"/e,\"%s\"", folder );
++            sei.fMask &= ~SEE_MASK_IDLIST;
++            sei.lpVerb = NULL;
++            sei.lpFile = L"explorer.exe";
++            sei.lpIDList = NULL;
++            sei.lpParameters = parameters;
++        }
++        launched = ShellExecuteExW(&sei);
++        free( parameters );
++        CoTaskMemFree( folder );
++        if (!launched)
+         {
+             WARN("Failed to create a explorer window.\n");
+             goto done;

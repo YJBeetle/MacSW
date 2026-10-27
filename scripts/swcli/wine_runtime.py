@@ -37,6 +37,14 @@ MSXML_MODULES = {
 }
 MSXML_IDENTITY_KEYS = ("WineMSXMLSchemaPatchSHA256", *MSXML_MODULES)
 
+FILE_MANAGER_MODULES = {
+    "WineShell32X64ModuleSHA256": "lib/wine/x86_64-windows/shell32.dll",
+    "WineShell32X86ModuleSHA256": "lib/wine/i386-windows/shell32.dll",
+    "WineExplorerX64ModuleSHA256": "lib/wine/x86_64-windows/explorer.exe",
+    "WineExplorerX86ModuleSHA256": "lib/wine/i386-windows/explorer.exe",
+}
+FILE_MANAGER_IDENTITY_KEYS = ("WineNativeFileManagerPatchSHA256", *FILE_MANAGER_MODULES)
+
 # Older baseline receipts predate these modules. New manifests must bind the
 # entire extension group; partial declarations never weaken verification.
 TOOLBOX_MODULES = {
@@ -62,6 +70,8 @@ def identity(contents):
         raise RuntimeError("App 的 MSXML 运行时身份不完整。")
     if any(key in values for key in TOOLBOX_MODULES) and not all(values.get(key) for key in TOOLBOX_MODULES):
         raise RuntimeError("App 的 Toolbox 运行时身份不完整。")
+    if any(key in values for key in FILE_MANAGER_IDENTITY_KEYS) and not all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
+        raise RuntimeError("App 的 Finder 桥接运行时身份不完整。")
     return values
 
 
@@ -75,6 +85,10 @@ def verify_app(contents, values):
         if not all(values.get(key) for key in TOOLBOX_MODULES):
             raise RuntimeError("App 的 Toolbox 运行时身份不完整。")
         modules.update(TOOLBOX_MODULES)
+    if any(key in values for key in FILE_MANAGER_IDENTITY_KEYS):
+        if not all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
+            raise RuntimeError("App 的 Finder 桥接运行时身份不完整。")
+        modules.update(FILE_MANAGER_MODULES)
     for key, relative in modules.items():
         path = contents / "Frameworks/wine" / relative.format(**values)
         with path.open("rb") as stream:
@@ -215,6 +229,7 @@ def environment(contents, prefix):
     result.update(WINEPREFIX=str(prefix), WINELOADER=str(wine / "lib/wine/x86_64-unix/MacSW"),
                   WINESERVER=str(wine / "bin/wineserver"), WINEDEBUG="-all", WINE_MONO_AOT="none",
                   LANG="zh_CN.UTF-8", LC_ALL="zh_CN.UTF-8")
+    result["MACSW_NATIVE_FILE_MANAGER"] = "1"
     return result
 
 
@@ -237,11 +252,38 @@ def stop(contents, prefix, log):
     run(contents, prefix, ["-w"], log, server=True)
 
 
+def deploy_file_manager(contents, prefix):
+    # wineboot -u can retain builtin files with the same Wine version. Publish
+    # these explicitly while this prefix's server is stopped, never in place.
+    for arch, directory in (("x86_64-windows", "system32"), ("i386-windows", "syswow64")):
+        for module in ("shell32.dll", "explorer.exe"):
+            source = contents / "Frameworks/wine/lib/wine" / arch / module
+            targets = [prefix / "drive_c/windows" / directory / module]
+            if arch == "x86_64-windows" and module == "explorer.exe":
+                targets.append(prefix / "drive_c/windows/explorer.exe")
+            for target in targets:
+                if not target.parent.resolve().is_relative_to(prefix.resolve()):
+                    raise RuntimeError("Finder 桥接目标目录指向容器外部。")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
+                    staging = Path(stream.name)
+                try:
+                    shutil.copy2(source, staging)
+                    with staging.open("rb") as stream:
+                        os.fsync(stream.fileno())
+                    os.replace(staging, target)
+                finally:
+                    staging.unlink(missing_ok=True)
+
+
 def boot(contents, prefix, log):
     verify_seal(contents)
     values = identity(contents)
     verify_app(contents, values)
     run(contents, prefix, [r"C:\windows\system32\wineboot.exe", "-u"], log)
+    if all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
+        stop(contents, prefix, log)
+        deploy_file_manager(contents, prefix)
     runtime = contents / "Frameworks/wine"
     mono = runtime / f"share/wine/mono/wine-mono-{values['MonoVersion']}"
     run(contents, prefix, [r"C:\windows\system32\reg.exe", "add", r"HKCU\Software\Wine\Mono",

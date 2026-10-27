@@ -47,6 +47,12 @@ public enum WineRuntimeService {
             throw failure("MSXML 运行时构建身份不完整。")
         }
         let toolboxKeys = ["MonoCCWModuleSHA256", "MonoBTLSModuleSHA256"]
+        let fileManagerKeys = ["WineNativeFileManagerPatchSHA256", "WineShell32X64ModuleSHA256",
+                               "WineShell32X86ModuleSHA256", "WineExplorerX64ModuleSHA256", "WineExplorerX86ModuleSHA256"]
+        if fileManagerKeys.contains(where: { values[$0] != nil }),
+           !fileManagerKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
+            throw failure("Finder 桥接运行时构建身份不完整。")
+        }
         if toolboxKeys.contains(where: { values[$0] != nil }),
            !toolboxKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
             throw failure("Toolbox 运行时构建身份不完整。")

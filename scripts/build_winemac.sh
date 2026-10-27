@@ -19,6 +19,7 @@ FONTLINK_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0012-win32u-preserve-cu
 SCREEN_READBACK_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0013-winemac-screen-readback.patch"
 MSXML_SCHEMA_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0014-msxml-schema-cache-namespace.patch"
 PE_MAPPING_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0015-ntdll-probe-executable-file-mappings.patch"
+FILE_MANAGER_PATCH="${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch"
 OUTPUT_DIR="${WORKSPACE_ROOT}/dist/${WINEMAC_OUTPUT_NAME}"
 WINEMAC_OUTPUT="${OUTPUT_DIR}/winemac.so"
 WIN32U_OUTPUT="${OUTPUT_DIR}/win32u.so"
@@ -75,10 +76,17 @@ FONTLINK_PATCH_SHA256="$(shasum -a 256 "${FONTLINK_PATCH}" | awk '{print $1}')"
 SCREEN_READBACK_PATCH_SHA256="$(shasum -a 256 "${SCREEN_READBACK_PATCH}" | awk '{print $1}')"
 MSXML_SCHEMA_PATCH_SHA256="$(shasum -a 256 "${MSXML_SCHEMA_PATCH}" | awk '{print $1}')"
 PE_MAPPING_PATCH_SHA256="$(shasum -a 256 "${PE_MAPPING_PATCH}" | awk '{print $1}')"
+FILE_MANAGER_PATCH_SHA256="$(shasum -a 256 "${FILE_MANAGER_PATCH}" | awk '{print $1}')"
 SCRIPT_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
-BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${TREEVIEW_PATCH_SHA256}:${PRINTWINDOW_PATCH_SHA256}:${FONTLINK_PATCH_SHA256}:${SCREEN_READBACK_PATCH_SHA256}:${MSXML_SCHEMA_PATCH_SHA256}:${PE_MAPPING_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
+BUILD_KEY="${WINE_VERSION}:${WINE_SOURCE_SHA256}:${WINE_DRIVER_DEPLOYMENT_TARGET}:${BRANDING_PATCH_SHA256}:${DRIVER_PATCH_SHA256}:${INPUT_PATCH_SHA256}:${OPENGL_PATCH_SHA256}:${TOPMOST_PATCH_SHA256}:${SPACE_PATCH_SHA256}:${BITMAP_PATCH_SHA256}:${SOFTWARE_RENDERER_PATCH_SHA256}:${TREEVIEW_PATCH_SHA256}:${PRINTWINDOW_PATCH_SHA256}:${FONTLINK_PATCH_SHA256}:${SCREEN_READBACK_PATCH_SHA256}:${MSXML_SCHEMA_PATCH_SHA256}:${PE_MAPPING_PATCH_SHA256}:${FILE_MANAGER_PATCH_SHA256}:${COM_PATCH_SHA256}:${SCRIPT_SHA256}"
+FILE_MANAGER_READY=true
+for ARCH in x86_64-windows i386-windows; do
+    for MODULE in shell32.dll explorer.exe; do
+        [ -f "${OUTPUT_DIR}/${ARCH}/${MODULE}" ] || FILE_MANAGER_READY=false
+    done
+done
 if [ -f "${WINEMAC_OUTPUT}" ] && [ -f "${WIN32U_OUTPUT}" ] && [ -f "${NTDLL_OUTPUT}" ] && [ -f "${WINE_LOADER_OUTPUT}" ] && [ -f "${COMBASE_OUTPUT}" ] && [ -f "${COMCTL32_V6_OUTPUT}" ] && [ -f "${MSXML3_OUTPUT}" ] && [ -f "${STAMP_FILE}" ] &&
-   [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
+   [ "${FILE_MANAGER_READY}" = true ] && [ "$(<"${STAMP_FILE}")" = "${BUILD_KEY}" ]; then
     echo "==> Patched Wine modules are up to date."
     exit 0
 fi
@@ -121,6 +129,8 @@ git -C "${SOURCE_DIR}" apply --check "${MSXML_SCHEMA_PATCH}"
 git -C "${SOURCE_DIR}" apply "${MSXML_SCHEMA_PATCH}"
 git -C "${SOURCE_DIR}" apply --check "${PE_MAPPING_PATCH}"
 git -C "${SOURCE_DIR}" apply "${PE_MAPPING_PATCH}"
+git -C "${SOURCE_DIR}" apply --check "${FILE_MANAGER_PATCH}"
+git -C "${SOURCE_DIR}" apply "${FILE_MANAGER_PATCH}"
 
 export MACOSX_DEPLOYMENT_TARGET="${WINE_DRIVER_DEPLOYMENT_TARGET}"
 pushd "${BUILD_DIR}" >/dev/null
@@ -180,6 +190,10 @@ make -C "${BUILD_DIR}" -j"${MAKE_JOBS}" \
     dlls/combase/x86_64-windows/combase.dll \
     dlls/comctl32_v6/x86_64-windows/comctl32_v6.dll \
     dlls/msxml3/x86_64-windows/msxml3.dll \
+    dlls/shell32/x86_64-windows/shell32.dll \
+    dlls/shell32/i386-windows/shell32.dll \
+    programs/explorer/x86_64-windows/explorer.exe \
+    programs/explorer/i386-windows/explorer.exe \
     loader/wine
 
 mkdir -p "${OUTPUT_DIR}"
@@ -211,6 +225,15 @@ mv "${WINE_LOADER_OUTPUT}.new" "${WINE_LOADER_OUTPUT}"
 mv "${COMBASE_OUTPUT}.new" "${COMBASE_OUTPUT}"
 mv "${COMCTL32_V6_OUTPUT}.new" "${COMCTL32_V6_OUTPUT}"
 mv "${MSXML3_OUTPUT}.new" "${MSXML3_OUTPUT}"
+for ARCH in x86_64-windows i386-windows; do
+    mkdir -p "${OUTPUT_DIR}/${ARCH}"
+    for MODULE in shell32.dll explorer.exe; do
+        if [ "${MODULE}" = shell32.dll ]; then SOURCE_MODULE=dlls/shell32; else SOURCE_MODULE=programs/explorer; fi
+        cp "${BUILD_DIR}/${SOURCE_MODULE}/${ARCH}/${MODULE}" "${OUTPUT_DIR}/${ARCH}/${MODULE}.new"
+        file "${OUTPUT_DIR}/${ARCH}/${MODULE}.new" | grep -q 'PE32.*executable'
+        mv "${OUTPUT_DIR}/${ARCH}/${MODULE}.new" "${OUTPUT_DIR}/${ARCH}/${MODULE}"
+    done
+done
 printf '%s' "${BUILD_KEY}" > "${STAMP_FILE}"
 
 echo "==> Patched Wine components built: ${WINEMAC_OUTPUT}, ${WIN32U_OUTPUT}, ${NTDLL_OUTPUT}, ${WINE_LOADER_OUTPUT}, ${COMBASE_OUTPUT}, ${COMCTL32_V6_OUTPUT}, ${MSXML3_OUTPUT}"
