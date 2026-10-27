@@ -96,6 +96,27 @@ final class WineRuntimeTests: XCTestCase {
         XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .upgrade)
     }
 
+    func testFinderManifestRequiresTheWholeModuleGroup() throws {
+        let (prefix, bundle, values) = try fixture()
+        try record(prefix: prefix, identity: values)
+        let url = bundle.appendingPathComponent("Contents/Resources/BuildManifest.plist")
+        let keys = ["WineNativeFileManagerPatchSHA256", "WineShell32X64ModuleSHA256",
+                    "WineShell32X86ModuleSHA256", "WineExplorerX64ModuleSHA256", "WineExplorerX86ModuleSHA256"]
+        var manifest = values
+        for key in keys {
+            manifest[key] = String(repeating: "a", count: 64)
+        }
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: url)
+        XCTAssertEqual(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")), manifest)
+        XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .upgrade)
+        for key in keys {
+            var partial = manifest
+            partial.removeValue(forKey: key)
+            try PropertyListSerialization.data(fromPropertyList: partial, format: .xml, options: 0).write(to: url)
+            XCTAssertThrowsError(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")))
+        }
+    }
+
     func testMalformedReceiptFailsClosed() throws {
         let (prefix, bundle, _) = try fixture()
         try Data("invalid".utf8).write(to: WineRuntimeService.root(prefix: prefix).appendingPathComponent("receipt.json"))

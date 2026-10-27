@@ -83,10 +83,36 @@ class WineUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "WineLoaderSHA256"):
             RUNTIME.verify_app(self.new, values)
 
+    def test_finder_modules_replace_same_version_builtins_after_wineboot_stops(self):
+        values = RUNTIME.identity(self.new)
+        values["WineNativeFileManagerPatchSHA256"] = "a" * 64
+        self.add_modules(self.new, values, RUNTIME.FILE_MANAGER_MODULES)
+        calls = []
+        def run(contents, prefix, arguments, log, **kwargs):
+            calls.append((arguments, kwargs.get("server", False)))
+            if "query" in arguments:
+                for directory in ("system32", "syswow64"):
+                    for name in ("shell32.dll", "explorer.exe"):
+                        self.assertEqual((prefix / "drive_c/windows" / directory / name).read_bytes(), b"fixture-module")
+        with patch.object(RUNTIME, "run", side_effect=run):
+            RUNTIME.boot(self.new, self.prefix, self.state / "test.log")
+        self.assertEqual(calls[:3], [([r"C:\windows\system32\wineboot.exe", "-u"], False),
+                                     (["-k"], True), (["-w"], True)])
+        self.assertEqual((self.prefix / "drive_c/windows/explorer.exe").read_bytes(), b"fixture-module")
+
+    def test_finder_deployment_rejects_an_external_windows_directory(self):
+        external = self.root / "external"
+        external.mkdir()
+        (self.prefix / "drive_c/windows").symlink_to(external)
+        with self.assertRaisesRegex(RuntimeError, "指向容器外部"):
+            RUNTIME.deploy_file_manager(self.new, self.prefix)
+        self.assertEqual(list(external.iterdir()), [])
+
     def test_extensions_validate_every_module_and_reject_partial_groups(self):
         for modules, extra, label in (
             (RUNTIME.MSXML_MODULES, {"WineMSXMLSchemaPatchSHA256": "1" * 64}, "MSXML"),
             (RUNTIME.TOOLBOX_MODULES, {}, "Toolbox"),
+            (RUNTIME.FILE_MANAGER_MODULES, {"WineNativeFileManagerPatchSHA256": "2" * 64}, "Finder"),
         ):
             original = RUNTIME.identity(self.new)
             values = {**original, **extra}

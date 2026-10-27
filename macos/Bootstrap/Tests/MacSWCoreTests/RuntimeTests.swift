@@ -9,6 +9,7 @@ final class RuntimeTests: XCTestCase {
         let env = wine.environment(winePrefix: prefix, solidWorks: true)
 
         XCTAssertEqual(env["WINEPREFIX"], prefix.path)
+        XCTAssertEqual(env["MACSW_NATIVE_FILE_MANAGER"], "1")
         XCTAssertTrue(env["WINELOADER"]?.hasSuffix("/Contents/Frameworks/wine/lib/wine/x86_64-unix/MacSW") == true)
         XCTAssertTrue(env["WINESERVER"]?.hasSuffix("/Contents/Frameworks/wine/bin/wineserver") == true)
         for key in [
@@ -45,6 +46,7 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(command.contains("WINELOADER='\(wine.wineBinary.path)'"))
         XCTAssertTrue(command.contains("WINESERVER='\(wine.wineServerBinary.path)'"))
         XCTAssertTrue(command.contains(" -I -B "))
+        XCTAssertTrue(command.contains("MACSW_NATIVE_FILE_MANAGER='1'"))
         XCTAssertTrue(command.hasSuffix(" 'C:\\windows\\system32\\cmd.exe'"))
     }
 
