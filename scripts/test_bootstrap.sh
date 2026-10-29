@@ -18,7 +18,7 @@ export SWIFT_MODULECACHE_PATH="${MODULE_CACHE_DIR}"
 bash -n "${WORKSPACE_ROOT}/scripts/ci/fetch-runtime-inputs.sh"
 python3 -m unittest discover -s "${WORKSPACE_ROOT}/scripts/tests" -p 'test_*.py'
 
-swift test \
+NSUnbufferedIO=YES swift test \
     --package-path "${PACKAGE_DIR}" \
     --scratch-path "${SWIFT_BUILD_DIR}" \
     --cache-path "${SWIFT_CACHE_DIR}" \

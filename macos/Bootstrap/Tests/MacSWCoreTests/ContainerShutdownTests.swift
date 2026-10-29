@@ -4,6 +4,18 @@ import XCTest
 @testable import MacSWCore
 
 final class ContainerShutdownTests: XCTestCase {
+    private var helperExits: [Int32: XCTestExpectation] = [:]
+
+    private func waitForHelperExit(_ process: Process) async {
+        // A helper can be awaited in the test and visited again by teardown.
+        guard let exited = helperExits.removeValue(forKey: process.processIdentifier) else {
+            XCTAssertFalse(process.isRunning)
+            return
+        }
+        await fulfillment(of: [exited], timeout: 5)
+        XCTAssertFalse(process.isRunning)
+    }
+
     private actor World {
         var processes: [WineProcess]
         var events: [String] = []
@@ -117,13 +129,16 @@ final class ContainerShutdownTests: XCTestCase {
         process.environment = ["WINEPREFIX": prefix.path, "PATH": "/usr/bin:/bin"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        let exited = XCTestExpectation(description: "Helper exited: \(name)")
+        process.terminationHandler = { _ in exited.fulfill() }
         try process.run()
+        helperExits[process.processIdentifier] = exited
         let identity = ProcessInventory.startIdentity(pid: process.processIdentifier)
         addTeardownBlock {
             if process.isRunning, identity == ProcessInventory.startIdentity(pid: process.processIdentifier) {
                 Darwin.kill(process.processIdentifier, SIGKILL)
             }
-            process.waitUntilExit()
+            await self.waitForHelperExit(process)
             try? FileManager.default.removeItem(at: root)
         }
         return process
@@ -154,7 +169,7 @@ final class ContainerShutdownTests: XCTestCase {
         XCTAssertTrue(a.isRunning)
         XCTAssertTrue(b.isRunning)
         try await ProcessInventory.signalAuxiliary(target, signal: SIGTERM, bottlePath: first.path, wineRuntimePath: "")
-        a.waitUntilExit()
+        await waitForHelperExit(a)
         XCTAssertFalse(a.isRunning)
         XCTAssertTrue(b.isRunning)
     }
@@ -181,7 +196,7 @@ final class ContainerShutdownTests: XCTestCase {
                 try await ProcessInventory.signalAuxiliary(process, signal: signal, bottlePath: first.path, wineRuntimePath: "")
             }, pause: { try await Task.sleep(nanoseconds: 10_000_000) }, serverTimeout: 10_000_000)
         try await cleanup.stop(protectMain: true)
-        a.waitUntilExit()
+        await waitForHelperExit(a)
         XCTAssertFalse(a.isRunning)
         XCTAssertTrue(b.isRunning)
     }
