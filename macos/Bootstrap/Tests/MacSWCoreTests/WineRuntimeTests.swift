@@ -140,6 +140,22 @@ final class WineRuntimeTests: XCTestCase {
         XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: bundle), .upgrade)
     }
 
+    func testPOSIXReceiptPathMatchesFoundationAndSymbolicAppAliases() throws {
+        let (prefix, bundle, values) = try fixture()
+        try record(prefix: prefix, identity: values)
+        let resolved = try XCTUnwrap(realpath(bundle.path, nil))
+        defer { free(resolved) }
+        let canonical = String(cString: resolved)
+        let receipt = WineRuntimeService.root(prefix: prefix).appendingPathComponent("receipt.json")
+        try JSONSerialization.data(withJSONObject: ["format": 2, "prefix_id": "prefix-id",
+            "identity": values, "active_app": canonical]).write(to: receipt)
+        let alias = bundle.deletingLastPathComponent().appendingPathComponent("Alias.app")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: bundle)
+        for path in [bundle, URL(fileURLWithPath: canonical).resolvingSymlinksInPath(), alias] {
+            XCTAssertEqual(WineRuntimeService.status(prefix: prefix, bundle: path), .ready, path.path)
+        }
+    }
+
     func testMigrationLockAlsoBlocksServerCleanup() throws {
         let (prefix, _, _) = try fixture()
         let fd = open(WineRuntimeService.root(prefix: prefix).appendingPathComponent("launch.lock").path, O_CREAT | O_RDWR, 0o600)

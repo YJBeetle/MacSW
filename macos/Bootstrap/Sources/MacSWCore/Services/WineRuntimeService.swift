@@ -27,6 +27,14 @@ public enum WineRuntimeService {
         prefix.deletingLastPathComponent().appendingPathComponent(".\(prefix.lastPathComponent).wine-runtime")
     }
 
+    private static func canonicalAppPath(_ url: URL) -> String {
+        // Match Python Path.resolve() in the upgrade receipt. Foundation may
+        // shorten /private/tmp to /tmp even after resolving symlinks.
+        guard let path = realpath(url.path, nil) else { return url.standardizedFileURL.path }
+        defer { free(path) }
+        return String(cString: path)
+    }
+
     public static func identity(contents: URL) throws -> [String: String] {
         let data = try Data(contentsOf: contents.appendingPathComponent("Resources/BuildManifest.plist"))
         let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] ?? [:]
@@ -76,7 +84,9 @@ public enum WineRuntimeService {
                   id == value["prefix_id"] as? String else { return .baseline }
             guard let format = value["format"] as? Int, [1, 2].contains(format),
                   let recorded = value["identity"] as? [String: String] else { return .invalid }
-            let sameLocation = (value["active_app"] as? String).map { $0 == bundle.resolvingSymlinksInPath().path } ?? true
+            let sameLocation = (value["active_app"] as? String).map {
+                canonicalAppPath(URL(fileURLWithPath: $0)) == canonicalAppPath(bundle)
+            } ?? true
             return recorded == (try identity(contents: bundle.appendingPathComponent("Contents"))) && sameLocation ? .ready : .upgrade
         } catch { return .invalid }
     }
