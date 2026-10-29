@@ -517,13 +517,15 @@ diff --git a/dlls/comdlg32/native_item_panel.inc b/dlls/comdlg32/native_item_pan
 new file mode 100644
 --- /dev/null
 +++ b/dlls/comdlg32/native_item_panel.inc
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,287 @@
 +/* Included after the regular dialog implementation: native UI, original SW callbacks. */
 +struct macsw_item_context
 +{
 +    FileDialogImpl *dialog;
 +    HWND controls[256];
 +    UINT count;
++    DWORD open_items[1024];
++    UINT open_count;
 +    WCHAR *name;
 +};
 +
@@ -594,9 +596,40 @@ new file mode 100644
 +    struct macsw_item_context *ctx = context;
 +    UINT i, j, count, type;
 +    WCHAR label[4096];
++    FileDialogImpl *This = ctx->dialog;
++    cctrl_item *item;
++    UINT selected = 0;
++    ctx->open_count = 0;
++    if (This->hmenu_opendropdown)
++    {
++        LIST_FOR_EACH_ENTRY(item, &This->cctrl_opendropdown.sub_items, cctrl_item, entry)
++        {
++            if ((item->cdcstate & (CDCS_ENABLED | CDCS_VISIBLE)) != (CDCS_ENABLED | CDCS_VISIBLE)) continue;
++            if (ctx->open_count == ARRAY_SIZE(ctx->open_items)) return FALSE;
++            if (This->opendropdown_has_selection && This->opendropdown_selection == item->id)
++                selected = ctx->open_count;
++            ctx->open_items[ctx->open_count++] = item->id;
++        }
++        if (!ctx->open_count) return FALSE;
++    }
 +    ctx->count = 0;
 +    EnumChildWindows(ctx->dialog->dlg_hwnd, macsw_collect_control, (LPARAM)ctx);
-+    if (!macsw_write_word(file, ctx->count)) return FALSE;
++    if (ctx->count + !!ctx->open_count > 256 ||
++        !macsw_write_word(file, ctx->count + !!ctx->open_count)) return FALSE;
++    /* Zero is reserved for the dialog's split Open button, which has no
++     * custom HWND. Preserve the original item IDs for GetSelectedControlItem. */
++    if (ctx->open_count)
++    {
++        GetWindowTextW(GetDlgItem(This->dlg_hwnd, IDOK), label, ARRAY_SIZE(label));
++        if (!macsw_write_word(file, 0) || !macsw_write_word(file, 2) ||
++            !macsw_write_word(file, 1) || !macsw_write_word(file, selected) ||
++            !macsw_write_word(file, ctx->open_count) || !macsw_write_text(file, label)) return FALSE;
++        for (i = 0; i < ctx->open_count; ++i)
++        {
++            item = get_item(&This->cctrl_opendropdown, ctx->open_items[i], 0, NULL);
++            if (!item || !macsw_write_text(file, item->label)) return FALSE;
++        }
++    }
 +    for (i = 0; i < ctx->count; ++i)
 +    {
 +        HWND hwnd = ctx->controls[i];
@@ -630,6 +663,18 @@ new file mode 100644
 +        set_file_name(This, text);
 +        SendMessageW(combo, CB_SETCURSEL, value, 0);
 +        SendMessageW(This->dlg_hwnd, WM_COMMAND, MAKEWPARAM(IDC_FILETYPE, CBN_SELCHANGE), (LPARAM)combo);
++        return;
++    }
++    if (code == 3 && !id && This->hmenu_opendropdown && value < ctx->open_count)
++    {
++        cctrl_item *item = get_item(&This->cctrl_opendropdown, ctx->open_items[value], 0, NULL);
++        if (item && (item->cdcstate & (CDCS_ENABLED | CDCS_VISIBLE)) == (CDCS_ENABLED | CDCS_VISIBLE))
++        {
++            /* Like show_opendropdown: this is a final-action choice, not an
++             * OnItemSelected notification for a custom combo box. */
++            This->opendropdown_has_selection = TRUE;
++            This->opendropdown_selection = item->id;
++        }
 +        return;
 +    }
 +    for (i = 0; i < ctx->count; ++i)
@@ -730,7 +775,7 @@ new file mode 100644
 +        FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT | FOS_PATHMUSTEXIST |
 +        FOS_FILEMUSTEXIST | FOS_NOREADONLYRETURN | FOS_NOTESTFILECREATE | FOS_DONTADDTORECENT |
 +        FOS_FORCESHOWHIDDEN | FOS_NODEREFERENCELINKS;
-+    if (This->hmenu_opendropdown || (This->options & ~supported)) return FALSE;
++    if (This->options & ~supported) return FALSE;
 +    if (folder) IShellItem_GetDisplayName(folder, SIGDN_FILESYSPATH, &directory);
 +    ctx.dialog = This;
 +    /* DialogBox already disables the application owner. Keep this hidden

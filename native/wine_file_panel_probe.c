@@ -111,6 +111,20 @@ int wmain(int argc, WCHAR **argv)
              * still reach its original handler without simulated mouse input. */
             SetTimer(NULL, 0, 1, clip_timer);
         }
+        if (argc > 1 && wcsstr(argv[1], L"dropdown"))
+        {
+            IFileDialogCustomize *custom;
+            IFileDialog_QueryInterface(dialog, &IID_IFileDialogCustomize, (void **)&custom);
+            IFileDialog_SetOptions(dialog, FOS_STRICTFILETYPES | FOS_NOCHANGEDIR | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST);
+            IFileDialogCustomize_EnableOpenDropDown(custom, 3457575);
+            IFileDialogCustomize_AddControlItem(custom, 3457575, 99, L"不可用");
+            IFileDialogCustomize_SetControlItemState(custom, 3457575, 99, CDCS_VISIBLE);
+            IFileDialogCustomize_AddControlItem(custom, 3457575, 98, L"隐藏");
+            IFileDialogCustomize_SetControlItemState(custom, 3457575, 98, CDCS_ENABLED);
+            IFileDialogCustomize_AddControlItem(custom, 3457575, 454453, L"打开");
+            IFileDialogCustomize_AddControlItem(custom, 3457575, 454454, L"以只读打开");
+            IFileDialogCustomize_Release(custom);
+        }
         puts("phase=show");
         hr = IFileDialog_Show(dialog, NULL);
         printf("hr=%08lx\n", hr);
@@ -130,6 +144,15 @@ int wmain(int argc, WCHAR **argv)
             IFileDialogCustomize_GetSelectedControlItem(custom, 101, &selected);
             IFileDialogCustomize_GetCheckButtonState(custom, 102, &checked);
             printf("selected=%lu checked=%d\n", selected, checked);
+            IFileDialogCustomize_Release(custom);
+        }
+        if (argc > 1 && wcsstr(argv[1], L"dropdown"))
+        {
+            IFileDialogCustomize *custom;
+            DWORD selected = 0;
+            IFileDialog_QueryInterface(dialog, &IID_IFileDialogCustomize, (void **)&custom);
+            HRESULT selection_hr = IFileDialogCustomize_GetSelectedControlItem(custom, 3457575, &selected);
+            printf("open_selection=%lu selection_hr=%08lx\n", selected, selection_hr);
             IFileDialogCustomize_Release(custom);
         }
         IFileDialog_Release(dialog);

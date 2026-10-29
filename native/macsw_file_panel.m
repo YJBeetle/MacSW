@@ -10,11 +10,13 @@ static void appendWord(NSMutableData *, uint32_t);
 static NSArray *readControls(NSData *, NSUInteger *);
 static BOOL writeResponse(NSString *, NSData *);
 
-@interface PanelController : NSObject
+@interface PanelController : NSObject <NSOpenSavePanelDelegate>
 @property NSSavePanel *panel;
 @property NSPopUpButton *formats;
 @property NSArray<NSArray<NSString *> *> *extensions;
+@property NSArray<NSRegularExpression *> *filenameFilters;
 @property NSString *defaultExtension;
+@property NSArray<NSString *> *saveExtensions;
 @property BOOL saving;
 @property NSString *requestPath;
 @property NSString *responsePath;
@@ -33,10 +35,17 @@ static BOOL writeResponse(NSString *, NSData *);
 {
     NSString *previousName = self.panel.nameFieldStringValue;
     NSArray *extensions = self.extensions.count ? self.extensions[self.formats.indexOfSelectedItem] : @[];
-    self.panel.allowedFileTypes = extensions.count ? extensions : nil;
-    self.panel.allowsOtherFileTypes = !extensions.count;
+    // NSOpenPanel extension lists cannot express Creo's versioned *.prt.*.
+    // Match the original filename patterns through its delegate instead.
+    self.panel.allowedFileTypes = self.saving && extensions.count ? extensions : nil;
+    // Filters describe the application's formats; the helper does not add
+    // a save-format policy. Wine/SW still receives the selected path.
+    self.panel.allowsOtherFileTypes = YES;
+    if (!self.saving) [self.panel validateVisibleColumns];
     if (self.saving) {
-        NSString *ext = extensions.firstObject ?: (self.extensions.count ? nil : self.defaultExtension);
+        NSString *ext = self.saveExtensions.count ? self.saveExtensions[self.formats.indexOfSelectedItem] : self.defaultExtension;
+        if ([ext rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"*?/\\:"]].location != NSNotFound)
+            ext = nil;
         NSString *name = self.panel.nameFieldStringValue;
         if (ext.length && name.length) {
             self.panel.nameFieldStringValue = [[name stringByDeletingPathExtension] stringByAppendingPathExtension:ext];
@@ -45,6 +54,27 @@ static BOOL writeResponse(NSString *, NSData *);
     // Wine's original type-change callback applies the new extension itself.
     // Give it the previous name so it cannot append the extension twice.
     if (sender) [self sendEvent:4 control:0 value:(uint32_t)self.formats.indexOfSelectedItem text:previousName];
+}
+
+- (BOOL)panel:(id)sender shouldEnableURL:(NSURL *)url
+{
+    (void)sender;
+    if (!url.isFileURL) return NO;
+    NSNumber *directory = nil;
+    [url getResourceValue:&directory forKey:NSURLIsDirectoryKey error:nil];
+    if (directory.boolValue || !self.filenameFilters.count) return YES;
+    NSInteger index = self.formats.indexOfSelectedItem;
+    if (index < 0 || (NSUInteger)index >= self.filenameFilters.count) return NO;
+    NSString *name = url.lastPathComponent;
+    return [self.filenameFilters[index] firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+}
+
+- (BOOL)panel:(id)sender validateURL:(NSURL *)url error:(NSError **)error
+{
+    if (self.saving || [self panel:sender shouldEnableURL:url]) return YES;
+    if (error) *error = [NSError errorWithDomain:@"com.yjbeetle.macsw.file-panel" code:1
+                                      userInfo:@{NSLocalizedDescriptionKey:@"文件名不符合当前选择的文件格式。"}];
+    return NO;
 }
 
 - (void)sendEvent:(uint32_t)code control:(uint32_t)control value:(uint32_t)value text:(NSString *)text
@@ -124,6 +154,7 @@ static NSString *cleanLabel(NSString *label)
         control.font = [NSFont systemFontOfSize:NSFont.systemFontSize];
         BOOL field = type == 2 || type == 5;
         NSString *rowLabel = field && pendingLabel.length ? pendingLabel : @"";
+        if (type == 2 && [item[@"id"] unsignedIntValue] == 0) rowLabel = label;
         if (rowLabel.length && ![rowLabel hasSuffix:@"："] && ![rowLabel hasSuffix:@":"])
             rowLabel = [rowLabel stringByAppendingString:@"："];
         // A pair of radio choices followed by an action and its text field is
@@ -307,13 +338,49 @@ static NSArray<NSString *> *extensionsForPattern(NSString *pattern)
     for (NSString *raw in [pattern componentsSeparatedByString:@";"]) {
         NSString *item = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
         if ([item isEqualToString:@"*"] || [item isEqualToString:@"*.*"]) { allFiles = YES; continue; }
-        if (![item hasPrefix:@"*."] || item.length < 3) return nil;
-        NSString *ext = [item substringFromIndex:2];
+        // SW's CATIA list mixes "*.CATProduct" and ".CATProduct".
+        // Both denote an extension; keep rejecting path/glob expressions.
+        NSUInteger prefix = [item hasPrefix:@"*."] ? 2 : ([item hasPrefix:@"."] ? 1 : 0);
+        if (!prefix || item.length <= prefix) return nil;
+        NSString *ext = [item substringFromIndex:prefix];
         if ([ext rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"*?/\\:"]].location != NSNotFound)
             return nil;
         [result addObject:ext];
     }
     return allFiles ? @[] : result;
+}
+
+// A wildcard filter is valid, but only a concrete extension may be appended.
+static NSString *saveExtensionForPattern(NSString *pattern)
+{
+    for (NSString *raw in [pattern componentsSeparatedByString:@";"]) {
+        NSArray *extensions = extensionsForPattern(raw);
+        if (extensions.count) return extensions.firstObject;
+    }
+    return @"";
+}
+
+// Windows file filters are case-insensitive filename globs, not UTType names.
+// Escape all regex syntax before translating the two supported wildcards.
+static NSRegularExpression *filenameFilterForPattern(NSString *pattern)
+{
+    NSMutableArray *alternatives = [NSMutableArray array];
+    for (NSString *raw in [pattern componentsSeparatedByString:@";"]) {
+        NSString *item = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (!item.length || [item rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/\\:"]].location != NSNotFound)
+            return nil;
+        if ([item isEqualToString:@"*.*"]) item = @"*";
+        else if ([item hasPrefix:@"."]) {
+            if (item.length == 1) return nil;
+            item = [@"*" stringByAppendingString:item];
+        }
+        NSString *regex = [NSRegularExpression escapedPatternForString:item];
+        regex = [regex stringByReplacingOccurrencesOfString:@"\\*" withString:@".*"];
+        regex = [regex stringByReplacingOccurrencesOfString:@"\\?" withString:@"."];
+        [alternatives addObject:regex];
+    }
+    NSString *regex = [NSString stringWithFormat:@"\\A(?:%@)\\z", [alternatives componentsJoinedByString:@"|"]];
+    return [NSRegularExpression regularExpressionWithPattern:regex options:NSRegularExpressionCaseInsensitive error:nil];
 }
 
 int main(int argc, const char **argv)
@@ -342,11 +409,18 @@ int main(int argc, const char **argv)
         NSString *name = readString(data, &offset), *defaultExt = readString(data, &offset);
         if (!title || !directory || !name || !defaultExt) return 2;
         NSMutableArray *names = [NSMutableArray array], *extensions = [NSMutableArray array];
+        NSMutableArray *filenameFilters = [NSMutableArray array], *saveExtensions = [NSMutableArray array];
         for (uint32_t i = 0; i < count; ++i) {
             NSString *label = readString(data, &offset), *pattern = readString(data, &offset);
             NSArray *exts = pattern ? extensionsForPattern(pattern) : nil;
-            if (!label || !exts) { respond(response, 2, index, @[]); return 0; }
-            [names addObject:label]; [extensions addObject:exts];
+            NSRegularExpression *filter = pattern ? filenameFilterForPattern(pattern) : nil;
+            if (!label || !filter) {
+                NSLog(@"MacSW native panel: unsupported file filter %@ (%@)", label, pattern);
+                respond(response, 2, index, @[]); return 0;
+            }
+            [names addObject:label]; [extensions addObject:exts ?: @[]];
+            [filenameFilters addObject:filter];
+            [saveExtensions addObject:saveExtensionForPattern(pattern)];
         }
         uint32_t sequence;
         if (!readWord(data, &offset, &sequence)) return 2;
@@ -362,6 +436,8 @@ int main(int argc, const char **argv)
         PanelController *controller = [PanelController new];
         controller.saving = mode == 2;
         controller.extensions = extensions;
+        controller.filenameFilters = filenameFilters;
+        controller.saveExtensions = saveExtensions;
         controller.defaultExtension = defaultExt;
         controller.requestPath = request;
         controller.responsePath = response;
@@ -370,6 +446,7 @@ int main(int argc, const char **argv)
         controller.lastFileName = name;
         NSSavePanel *panel = controller.saving ? NSSavePanel.savePanel : NSOpenPanel.openPanel;
         controller.panel = panel;
+        panel.delegate = controller;
         panel.title = title.length ? title : (controller.saving ? @"保存" : @"打开");
         panel.prompt = controller.saving ? @"保存" : @"打开";
         panel.nameFieldLabel = controller.saving ? @"存储为：" : @"文件名：";

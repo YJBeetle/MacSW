@@ -51,7 +51,7 @@ assert strings[0] == 'MacSW 原生面板验证'
 assert strings[5] == '*.SLDPRT' and strings[7] == '*.step;*.stp'
 case = os.environ['MACSW_PANEL_CASE']
 if case == 'com-save-wildcard': assert strings[2] == '原生面板验证.SLDPRT', strings[2]
-if case == 'com-save-controls':
+if case == 'com-save-controls' or case.startswith('com-open-dropdown'):
     def snapshot(packet):
         header = struct.unpack_from('<6I', packet)
         cursor = 24
@@ -75,36 +75,58 @@ if case == 'com-save-controls':
             result[label] = values
         if cursor != len(packet): raise ValueError('request update is incomplete')
         return seq, result
-    seq, current = snapshot(data)
-    assert current['保存原件'][1:4] == (6, 1, 1), current
-    assert current['保存副本'][1:4] == (6, 1, 0), current
-    assert current['包含参考'][1:4] == (3, 1, 0), current
-    for label in [None, '保存副本', '保存原件', '保存副本', '包含参考', '副本模式', '原始模式', '副本模式']:
-        print('native control event:', label, 'sequence:', seq + 1, file=sys.stderr, flush=True)
-        control = current[label][0] if label else 0
-        event = struct.pack('<8I', magic, version, 3 if label else 4, 0, 0, control, 0, seq + 1)
-        response.write_bytes(event + (strings[2] + '\0').encode('utf-16le'))
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            packet = request.read_bytes()
-            try: next_seq, next_controls = snapshot(packet)
-            except (struct.error, IndexError, ValueError): time.sleep(.02); continue
-            if next_seq == seq + 1: break
-            time.sleep(.02)
-        else: raise AssertionError('control notification was not acknowledged')
-        seq, current = next_seq, next_controls
-        print('native control acknowledged:', label, file=sys.stderr, flush=True)
-        if label is None:
-            assert current['原始模式'][1:4] == (6, 1, 1), current
-            assert current['副本模式'][1:4] == (6, 1, 0), current
-            continue
-        assert current[label][3] == 1, (label, current)
-        if label in ['保存原件', '保存副本']:
-            other = '保存原件' if label == '保存副本' else '保存副本'
-            assert current[other][3] == 0, current
-        if label in ['原始模式', '副本模式']:
-            other = '原始模式' if label == '副本模式' else '副本模式'
-            assert current[other][3] == 0 and current['独立选项'][3] == 1, current
+    if case == 'com-save-controls':
+        seq, current = snapshot(data)
+        assert current['保存原件'][1:4] == (6, 1, 1), current
+        assert current['保存副本'][1:4] == (6, 1, 0), current
+        assert current['包含参考'][1:4] == (3, 1, 0), current
+        for label in [None, '保存副本', '保存原件', '保存副本', '包含参考', '副本模式', '原始模式', '副本模式']:
+            print('native control event:', label, 'sequence:', seq + 1, file=sys.stderr, flush=True)
+            control = current[label][0] if label else 0
+            event = struct.pack('<8I', magic, version, 3 if label else 4, 0, 0, control, 0, seq + 1)
+            response.write_bytes(event + (strings[2] + '\0').encode('utf-16le'))
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                packet = request.read_bytes()
+                try: next_seq, next_controls = snapshot(packet)
+                except (struct.error, IndexError, ValueError): time.sleep(.02); continue
+                if next_seq == seq + 1: break
+                time.sleep(.02)
+            else: raise AssertionError('control notification was not acknowledged')
+            seq, current = next_seq, next_controls
+            print('native control acknowledged:', label, file=sys.stderr, flush=True)
+            if label is None:
+                assert current['原始模式'][1:4] == (6, 1, 1), current
+                assert current['副本模式'][1:4] == (6, 1, 0), current
+                continue
+            assert current[label][3] == 1, (label, current)
+            if label in ['保存原件', '保存副本']:
+                other = '保存原件' if label == '保存副本' else '保存副本'
+                assert current[other][3] == 0, current
+            if label in ['原始模式', '副本模式']:
+                other = '原始模式' if label == '副本模式' else '副本模式'
+                assert current[other][3] == 0 and current['独立选项'][3] == 1, current
+    else:
+        seq, current = snapshot(data)
+        assert len(current) == 1, current
+        menu = next(iter(current.values()))
+        assert menu == (0, 2, 1, 0, 2), menu
+        assert '以只读打开'.encode('utf-16le') in data
+        assert '不可用'.encode('utf-16le') not in data
+        assert '隐藏'.encode('utf-16le') not in data
+        if case.endswith('readonly'):
+            for value in [1, 0, 1]:
+                response.write_bytes(struct.pack('<8I', magic, version, 3, 0, 0, 0, value, seq + 1)
+                                     + (strings[2] + '\0').encode('utf-16le'))
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    try: next_seq, next_controls = snapshot(request.read_bytes())
+                    except (struct.error, IndexError, ValueError): time.sleep(.02); continue
+                    if next_seq == seq + 1: break
+                    time.sleep(.02)
+                else: raise AssertionError('open dropdown event not acknowledged')
+                seq, current = next_seq, next_controls
+                assert next(iter(current.values()))[3] == value, current
 else:
     assert controls == 0 and offset + 8 == len(data)
 fixtures = pathlib.Path(os.environ['MACSW_PANEL_FIXTURES'])
@@ -140,7 +162,9 @@ pathlib.Path(os.environ['MACSW_PANEL_CAPTURE']).write_text(json.dumps(strings, e
                                    ('small', 'small'), ('cancel', 'open'), ('com-open', 'com'),
                                    ('com-save', 'com-save'), ('com-save-wildcard', 'com-save-wildcard'),
                                    ('com-save-controls', 'com-save-controls'),
-                                   ('com-save-fallback', 'com-save-fallback')]:
+                                   ('com-save-fallback', 'com-save-fallback'),
+                                   ('com-open-dropdown', 'com-open-dropdown'),
+                                   ('com-open-dropdown-readonly', 'com-open-dropdown-readonly')]:
                     if args.cases and case not in args.cases:
                         continue
                     print(arch, case, 'starting', flush=True)
@@ -168,6 +192,9 @@ pathlib.Path(os.environ['MACSW_PANEL_CAPTURE']).write_text(json.dumps(strings, e
                         if case.startswith('com-'): assert 'dialog_show_events=0' in output, output
                         if 'save' not in case: assert '模型一.SLDPRT' in output, output
                         else: assert '新模型.step' in output, output
+                        if case.startswith('com-open-dropdown'):
+                            expected = 454454 if case.endswith('readonly') else 454453
+                            assert f'open_selection={expected} selection_hr=00000000' in output, output
                         if case == 'multi': assert '模型二.SLDPRT' in output, output
                         if case == 'com-save-controls': assert 'selected=12 checked=1' in output, output
                     results.append({'arch': arch, 'case': case, 'passed': True})

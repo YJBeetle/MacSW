@@ -189,6 +189,7 @@ jobs:
 
       - name: Verify packaged native file dialog bridge
         run: |
+          bash scripts/test_native_file_panel_filters.sh
           python3 scripts/diagnostics/verify_native_file_panels.py \
             --app build/app/MacSW.app --evidence build/native-file-panel-evidence
 
