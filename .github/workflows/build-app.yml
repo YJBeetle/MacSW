@@ -198,6 +198,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: MacSW-native-file-panels
+          archive: true
           path: build/native-file-panel-evidence
           if-no-files-found: ignore
           retention-days: 14

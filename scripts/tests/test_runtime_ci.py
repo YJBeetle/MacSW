@@ -50,7 +50,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
             "actions/cache@v6": 1,
             "actions/cache/restore@v6": 1,
             "actions/cache/save@v6": 1,
-            "actions/upload-artifact@v7": 3,
+            "actions/upload-artifact@v7": 4,
             "actions/download-artifact@v8": 2,
         }
         for action, count in actions.items():
