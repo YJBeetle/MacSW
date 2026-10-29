@@ -72,7 +72,7 @@ struct SettingsView: View {
                 }
                 Toggle("自动检查更新", isOn: Binding(get: { updater.automaticChecks },
                     set: { updater.setAutomaticChecks($0) }))
-                Text("安装前请保存并退出 SOLIDWORKS 和 SWCLI。仅替换 App，不删除容器或文档。")
+                Text("更新前请保存并退出 SOLIDWORKS；其他容器进程会自动结束。更新不删除容器或文档。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             personalizationSection
@@ -261,28 +261,7 @@ struct SettingsView: View {
 
     private var maintenanceSettings: some View {
         Form {
-            Section("Wine 版本与升级") {
-                Text(runtime.wineRuntimeState.message).font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    if runtime.wineRuntimeState == .baseline {
-                        Button("记录当前可用版本…") { runtimeAction = "baseline" }
-                    }
-                    if runtime.wineRuntimeState == .upgrade {
-                        Button("升级容器") { runtimeAction = "upgrade" }
-                    }
-                    if runtime.wineRuntimeState == .recovery {
-                        Button("重试失败的升级…") { runtimeAction = "recover" }
-                    }
-                    Button("查看升级记录与日志") {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath:
-                            WineRuntimeService.root(prefix: runtime.paths.bottle).path)
-                    }
-                    if runtime.isMigratingWine { ProgressView().controlSize(.small) }
-                }
-                .disabled(runtime.isMigratingWine)
-                Text("版本身份覆盖 Wine、Mono 和补丁。升级后仍需验证 SOLIDWORKS 的打开、建模与保存。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            ContainerOperationsSection(runtime: runtime, runtimeAction: $runtimeAction)
             Section("Wine 工具") {
                 HStack(spacing: 10) {
                     wineToolButton("注册表编辑器", name: "regedit")
@@ -300,41 +279,6 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
-            Section("容器操作") {
-                // 两个动作各占一行，说明写在各自按钮右边，读的人不用再去下面找对应关系。
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Button("重启容器") { runtime.restartContainer() }.disabled(runtime.isMigratingWine)
-                    Text("结束 wineserver；若 SOLIDWORKS 正在运行会重新拉起。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Button(role: .destructive) { runtime.forceStop() } label: {
-                        // macOS 的 Form 按钮不会因为 role 变红（只在告警里生效），所以标签自己上色。
-                        Text("强制终止全部进程").foregroundStyle(.red)
-                    }
-                    .disabled(runtime.isMigratingWine)
-                    Text("终止容器里的全部进程，并在必要时结束 wineserver。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !runtime.statusMessage.isEmpty {
-                    Text(runtime.statusMessage).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-            }
-            Section("安装") {
-                Button("安装或重新安装 SOLIDWORKS…") {
-                    AppShell.shared.showBootstrapWindow()
-                }
-                .disabled(runtime.isMigratingWine)
-                Text("打开独立的 Bootstrap 窗口；全新安装选项只在现有容器存在时显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -429,7 +373,7 @@ private struct ProcessTable: View {
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
-        .frame(height: 176)
+        .frame(height: processes.isEmpty ? 72 : min(176, max(92, 32 + CGFloat(processes.count) * 24)))
         .overlay {
             if processes.isEmpty {
                 Text("未检测到运行中的进程")
