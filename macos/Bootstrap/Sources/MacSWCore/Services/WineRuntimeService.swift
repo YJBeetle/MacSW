@@ -112,27 +112,18 @@ public enum WineRuntimeService {
     }
 
     public static func perform(_ command: String, prefix: URL, bundle: URL = Bundle.main.bundleURL) async throws -> String {
-        try await Task.detached {
-            let contents = bundle.appendingPathComponent("Contents")
-            let resources = contents.appendingPathComponent("Resources/SWCLI")
-            let process = Process()
-            process.executableURL = resources.appendingPathComponent("runtime/PythonNative/bin/python3")
-            // -I ignores PYTHONDONTWRITEBYTECODE. -B must be explicit to keep
-            // Python imports from changing the sealed App's resources.
-            process.arguments = ["-I", "-B", resources.appendingPathComponent("bin/wine_runtime.py").path,
-                                 command, "--contents", contents.path, "--prefix", prefix.path]
-            let log = FileManager.default.temporaryDirectory.appendingPathComponent("MacSW-wine-upgrade-\(UUID().uuidString).log")
-            guard FileManager.default.createFile(atPath: log.path, contents: nil) else { throw failure("无法创建迁移日志。") }
-            defer { try? FileManager.default.removeItem(at: log) }
-            let handle = try FileHandle(forWritingTo: log)
-            defer { try? handle.close() }
-            process.standardOutput = handle
-            process.standardError = handle
-            try process.run()
-            process.waitUntilExit()
-            let message = String(decoding: try Data(contentsOf: log), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard process.terminationStatus == 0 else { throw failure(message) }
-            return message
-        }.value
+        let contents = bundle.appendingPathComponent("Contents")
+        let resources = contents.appendingPathComponent("Resources/SWCLI")
+        let process = Process()
+        process.executableURL = resources.appendingPathComponent("runtime/PythonNative/bin/python3")
+        // -I ignores PYTHONDONTWRITEBYTECODE. -B must be explicit to keep
+        // Python imports from changing the sealed App's resources.
+        process.arguments = ["-I", "-B", resources.appendingPathComponent("bin/wine_runtime.py").path,
+                             command, "--contents", contents.path, "--prefix", prefix.path]
+        let output = try await WineService.shared.capturePairCancellable(process)
+        let message = [output.standardOutput, output.standardError].filter { !$0.isEmpty }
+            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard output.status == 0 else { throw failure(message) }
+        return message
     }
 }

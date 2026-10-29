@@ -359,7 +359,7 @@ public final class RuntimeStore: ObservableObject {
             if !wineRuntimeState.allowsLaunch {
                 do {
                     _ = try await WineRuntimeService.perform("stop", prefix: paths.bottle)
-                    statusMessage = "已使用归档运行时停止容器，没有启动新版 Wine。"
+                    statusMessage = "已停止当前容器。"
                     await refreshState()
                 } catch { statusMessage = error.localizedDescription }
                 return
@@ -378,46 +378,23 @@ public final class RuntimeStore: ObservableObject {
         }
     }
 
-    /// 托盘退出时只收尾当前容器；先停托管许可证进程，再结束 wineserver 和其余 Wine 客户进程。
-    /// 未能确认进程全部退出时由调用方留在 App 中显示错误，避免假装已经清理完毕。
-    public func stopContainerForAppQuit(forUpdate: Bool = false) async throws {
+    /// All exit paths share bounded cleanup. Only an explicit normal-quit
+    /// confirmation may allow stopping the main CAD session; updates never do.
+    public func stopContainerForAppQuit(forUpdate: Bool = false, allowMainTermination: Bool = false) async throws {
         guard !isOpeningDocument else { throw runtimeError("正在打开文件，请完成后再退出。") }
         guard !swcliDaemon.isOperating else { throw runtimeError("SWCLI 正在启动，请完成后再退出。") }
         guard !isMigratingWine else { throw runtimeError("Wine 迁移正在执行，请完成后再退出。") }
-        refreshWineRuntime()
-        if !wineRuntimeState.allowsLaunch {
-            _ = try await WineRuntimeService.perform("stop", prefix: paths.bottle)
-            return
-        }
-        let snapshot = await ProcessInventory.snapshot(
-            bottlePath: paths.bottle.path,
-            wineRuntimePath: wine.runtimeURL.path
-        )
-        guard !snapshot.isEmpty else { return }
-        await licenseServer.refreshInstallation()
-        try await licenseServer.stopIfRunning()
-        if forUpdate {
-            // Refresh again after asynchronous service shutdown. A client may
-            // have appeared since the updater's first observation.
-            let current = try await ProcessInventory.snapshotForUpdate(
-                bottlePath: paths.bottle.path, wineRuntimePath: wine.runtimeURL.path)
-            if let reason = AppUpdatePolicy.blockingReason(maintenance: isMigratingWine ||
-                swcliDaemon.isOperating || wine.isInstalling(prefix: paths.bottle), processes: current) {
-                throw runtimeError(reason)
+        let prefix = paths.bottle
+        let runtimePath = wine.runtimeURL.path
+        let cleanup = ContainerShutdownService(
+            snapshot: { try await ProcessInventory.snapshotForUpdate(bottlePath: prefix.path, wineRuntimePath: runtimePath) },
+            stopServer: { _ = try await WineRuntimeService.perform("stop", prefix: prefix) },
+            signal: { process, signal in
+                try await ProcessInventory.signalAuxiliary(process, signal: signal,
+                                                          bottlePath: prefix.path, wineRuntimePath: runtimePath)
             }
-        }
-        guard try await wine.stopWineServerForCleanup(prefix: paths.bottle) else {
-            throw runtimeError("未能停止 Wine 容器，MacSW 将继续运行。")
-        }
-        for attempt in 0..<5 {
-            let remaining = await ProcessInventory.snapshot(
-                bottlePath: paths.bottle.path,
-                wineRuntimePath: wine.runtimeURL.path
-            )
-            if remaining.isEmpty { return }
-            if attempt < 4 { try await Task.sleep(nanoseconds: 500_000_000) }
-        }
-        throw runtimeError("Wine 容器仍有进程，MacSW 将继续运行；请在维护页检查。")
+        )
+        try await cleanup.stop(protectMain: forUpdate || !allowMainTermination)
     }
 
     /// 重启容器：终止全部 Windows 进程并结束 wineserver；原本在跑 SOLIDWORKS 的话再拉起来。

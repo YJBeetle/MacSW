@@ -7,12 +7,15 @@ public struct WineProcess: Identifiable, Equatable, Sendable {
     public let residentKB: Int64
     /// ps 的 etime，形如 "01:23:45" 或 "1-02:03:04"（天-时:分:秒）。
     public let elapsed: String
+    /// Native process generation; elapsed time alone cannot detect PID reuse.
+    public let startIdentity: UInt64?
 
-    public init(name: String, pid: Int32, residentKB: Int64, elapsed: String) {
+    public init(name: String, pid: Int32, residentKB: Int64, elapsed: String, startIdentity: UInt64? = nil) {
         self.name = name
         self.pid = pid
         self.residentKB = residentKB
         self.elapsed = elapsed
+        self.startIdentity = startIdentity
     }
 
     public var id: Int32 { pid }
@@ -138,6 +141,29 @@ public enum ProcessInventory {
         return winePrefix(from: Data(buffer.prefix(size)))
     }
 
+    static func startIdentity(pid: Int32) -> UInt64? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
+    }
+
+    /// Never use the UI's path/name heuristics as permission to signal a PID.
+    /// Recheck its generation, live name and actual prefix immediately before use.
+    static func signalAuxiliary(_ target: WineProcess, signal: Int32,
+                                bottlePath: String, wineRuntimePath: String) async throws {
+        guard let identity = target.startIdentity,
+              let live = try await snapshotForUpdate(bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
+                .first(where: { $0.pid == target.pid }),
+              live.startIdentity == identity, live.name == target.name,
+              live.name.caseInsensitiveCompare(primaryProcess) != .orderedSame,
+              let prefix = winePrefix(pid: live.pid), canonicalPath(prefix) == canonicalPath(bottlePath),
+              startIdentity(pid: live.pid) == identity else { return }
+        if kill(live.pid, signal) != 0 && errno != ESRCH {
+            throw MacSWError.make("未能结束容器进程 \(live.name)（\(live.pid)）。", domain: "MacSW.Shutdown")
+        }
+    }
+
     /// 宿主侧起的 wine 工具（reg import、taskkill 这些临时命令行）不是容器里的程序，
     /// wineserver 例外，它代表容器还活着。按 `<运行时>/bin/` 前缀认，
     /// 不能按空格切第一个字段：容器或 App 的路径里可能有空格。
@@ -190,13 +216,30 @@ public enum ProcessInventory {
             throw MacSWError.make("无法确认容器进程状态，暂不允许安装更新。", domain: "MacSW.Update")
         }
         let output = String(decoding: data, as: UTF8.self)
-        // 只对原有启发式识别到的候选读取环境，不扫描其他应用的环境。
+        // 只对 Wine 路径或 Windows 形式命令行的候选读取归属，不扫描其他应用环境。
         let candidates = parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath)
-        var prefixes: [Int32: String] = [:]
-        for candidate in candidates {
-            if let prefix = winePrefix(pid: candidate.pid) { prefixes[candidate.pid] = prefix }
+        var candidateIDs = Set(candidates.map(\.pid))
+        // Windows rewrites argv[0]. Generic helpers (Python, Notepad, etc.) do
+        // not necessarily contain a host path; discover them before reading
+        // only their WINEPREFIX, then use that prefix as ownership evidence.
+        for line in output.split(separator: "\n") {
+            let fields = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard fields.count == 4, let pid = Int32(fields[0]) else { continue }
+            let command = String(fields[3]).trimmingCharacters(in: .whitespaces)
+            if command.range(of: #"(?i)^(?:[a-z]:[\\/]|[^\s/\\]+\.exe(?:\s|$))"#,
+                             options: .regularExpression) != nil { candidateIDs.insert(pid) }
         }
-        return parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath, processPrefixes: prefixes)
+        var prefixes: [Int32: String] = [:]
+        var identities: [Int32: UInt64] = [:]
+        for pid in candidateIDs {
+            let before = startIdentity(pid: pid)
+            if let prefix = winePrefix(pid: pid) { prefixes[pid] = prefix }
+            if let before, startIdentity(pid: pid) == before { identities[pid] = before }
+        }
+        return parse(output, bottlePath: bottlePath, wineRuntimePath: wineRuntimePath, processPrefixes: prefixes).map {
+            WineProcess(name: $0.name, pid: $0.pid, residentKB: $0.residentKB, elapsed: $0.elapsed,
+                        startIdentity: identities[$0.pid])
+        }
     }
 
     public static func isSolidWorksRunning(_ snapshot: [WineProcess]) -> Bool {

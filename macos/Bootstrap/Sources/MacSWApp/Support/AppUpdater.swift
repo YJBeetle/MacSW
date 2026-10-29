@@ -7,7 +7,7 @@ import Sparkle
 @MainActor
 final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     @Published private(set) var canCheck = false
-    @Published private(set) var preparingInstallation = false
+    @Published private(set) var preparingTermination = false
     @Published private(set) var automaticChecks = false
     private var controller: SPUStandardUpdaterController?
     private var observation: AnyCancellable?
@@ -50,7 +50,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
-        if maintenance {
+        if maintenance || preparingTermination {
             throw NSError(domain: "MacSW.Update", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "安装或容器维护中，请稍后检查更新。"])
         }
@@ -70,27 +70,39 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         installationPending = false
     }
 
-    /// Sparkle's replacement waits for application termination. This gate also
-    /// covers install-on-quit; postponing relaunch alone does not cover that path.
+    /// Normal quit, Command-Q and Sparkle all enter the same termination gate.
     func shouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
-        guard installationPending else { return .terminateNow }
-        guard !preparingInstallation else { return .terminateCancel }
-        preparingInstallation = true
+        guard !preparingTermination else { return .terminateCancel }
+        let forUpdate = installationPending
+        preparingTermination = true
         Task {
-            defer { preparingInstallation = false }
+            defer { preparingTermination = false }
             do {
                 let snapshot = try await ProcessInventory.snapshotForUpdate(bottlePath: runtime.paths.bottle.path,
                     wineRuntimePath: WineService.shared.runtimeURL.path)
-                if let reason = AppUpdatePolicy.blockingReason(maintenance: maintenance, processes: snapshot) {
+                if let reason = AppUpdatePolicy.blockingReason(maintenance: maintenance,
+                                                               processes: forUpdate ? snapshot : []) {
                     throw NSError(domain: "MacSW.Update", code: 2, userInfo: [NSLocalizedDescriptionKey: reason])
                 }
-                // Only known infrastructure remains. The existing shutdown path
-                // stops managed licensing and verifies the bottle is empty.
-                try await runtime.stopContainerForAppQuit(forUpdate: true)
+                let mainIsRunning = ProcessInventory.isSolidWorksRunning(snapshot)
+                if !forUpdate && mainIsRunning {
+                    let alert = NSAlert()
+                    alert.messageText = "结束 SOLIDWORKS 并退出 MacSW？"
+                    alert.informativeText = "未保存的 SOLIDWORKS 内容会丢失。此容器中的其他程序也会一并结束。"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "结束程序并退出")
+                    alert.addButton(withTitle: "取消")
+                    guard alert.runModal() == .alertFirstButtonReturn else {
+                        app.reply(toApplicationShouldTerminate: false)
+                        return
+                    }
+                }
+                try await runtime.stopContainerForAppQuit(forUpdate: forUpdate,
+                                                         allowMainTermination: !forUpdate && mainIsRunning)
                 app.reply(toApplicationShouldTerminate: true)
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "暂不能安装 MacSW 更新"
+                alert.messageText = forUpdate ? "暂不能安装 MacSW 更新" : "未能退出 MacSW"
                 alert.informativeText = error.localizedDescription
                 alert.addButton(withTitle: "好")
                 NSApp.activate(ignoringOtherApps: true)

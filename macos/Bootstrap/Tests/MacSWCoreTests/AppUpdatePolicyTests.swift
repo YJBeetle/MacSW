@@ -7,15 +7,15 @@ final class AppUpdatePolicyTests: XCTestCase {
         XCTAssertNil(AppUpdatePolicy.blockingReason(maintenance: false, processes: []))
     }
 
-    func testUserClientsNeverGetKilledForAnUpdate() {
-        for name in ["SLDWORKS.exe", "sldworks.exe", "sldworks_fs.exe", "python.exe", "notepad.exe", "unknown"] {
+    func testOnlyTheMainSolidWorksProcessRequiresUserExit() {
+        for name in ["SLDWORKS.exe", "sldworks.exe"] {
             let process = WineProcess(name: name, pid: 1, residentKB: 1, elapsed: "00:01")
             XCTAssertNotNil(AppUpdatePolicy.blockingReason(maintenance: false, processes: [process]), name)
         }
     }
 
-    func testOnlyManagedInfrastructureCanBeStopped() {
-        let processes = ["wineserver", "lmgrd.exe", "SW_D.exe"].map {
+    func testAuxiliariesAndOtherClientsAreCleanedUpWithoutBlocking() {
+        let processes = ["wineserver", "lmgrd.exe", "SW_D.exe", "sldworks_fs.exe", "python.exe", "notepad.exe", "unknown"].map {
             WineProcess(name: $0, pid: 1, residentKB: 1, elapsed: "00:01")
         }
         XCTAssertNil(AppUpdatePolicy.blockingReason(maintenance: false, processes: processes))

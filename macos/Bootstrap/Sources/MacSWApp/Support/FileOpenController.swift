@@ -10,7 +10,7 @@ final class FileOpenController: ObservableObject {
 
     init(runtime: RuntimeStore, bootstrap: BootstrapStore, updater: AppUpdater) {
         queue = DocumentOpenQueue(open: { url in
-            guard !bootstrap.state.isActive, !bootstrap.isInspectingMedia, !updater.preparingInstallation else {
+            guard !bootstrap.state.isActive, !bootstrap.isInspectingMedia, !updater.preparingTermination else {
                 throw NSError(domain: "MacSW.DocumentOpen", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: "安装或更新正在执行，请完成后重新打开文件。"])
             }

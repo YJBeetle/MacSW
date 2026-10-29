@@ -72,7 +72,7 @@ struct MacSWApplication: App {
     var body: some Scene {
         MenuBarExtra("MacSW", systemImage: "cube.fill") {
             MenuBarPanelView(runtime: runtime, licenseServer: licenseServer, updater: updater)
-                .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
+                .disabled(updater.preparingTermination || runtime.isOpeningDocument)
         }
         .menuBarExtraStyle(.window)
 
@@ -84,7 +84,7 @@ struct MacSWApplication: App {
                 keyboardShortcuts: keyboardShortcuts
             )
             .environmentObject(updater)
-            .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
+            .disabled(updater.preparingTermination || runtime.isOpeningDocument)
         }
     }
 }
@@ -96,6 +96,6 @@ private struct UpdateGuardedBootstrap: View {
 
     var body: some View {
         BootstrapSceneRoot(store: store, runtime: runtime)
-            .disabled(updater.preparingInstallation || runtime.isOpeningDocument)
+            .disabled(updater.preparingTermination || runtime.isOpeningDocument)
     }
 }
