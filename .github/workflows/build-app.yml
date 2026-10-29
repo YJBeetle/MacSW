@@ -61,6 +61,8 @@ on:
       - 'native/mono_ccw_release_probe.cs'
       - 'native/mono_btls_probe.cs'
       - 'native/msxml_schema_namespace_probe.c'
+      - 'native/macsw_file_panel.m'
+      - 'native/wine_file_panel_probe.c'
       - 'resources/**'
       - '.gitmodules'
       - 'Dependencies/SWCLI'
@@ -183,6 +185,20 @@ jobs:
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
             dist/${{ steps.build-config.outputs.mono_source_asset }}
+          retention-days: 14
+
+      - name: Verify packaged native file dialog bridge
+        run: |
+          python3 scripts/diagnostics/verify_native_file_panels.py \
+            --app build/app/MacSW.app --evidence build/native-file-panel-evidence
+
+      - name: Upload native file dialog evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-native-file-panels
+          path: build/native-file-panel-evidence
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Build and archive CI-only helpers

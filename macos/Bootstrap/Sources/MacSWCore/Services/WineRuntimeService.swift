@@ -61,6 +61,11 @@ public enum WineRuntimeService {
            !fileManagerKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
             throw failure("Finder 桥接运行时构建身份不完整。")
         }
+        let panelKeys = ["WineNativeFilePanelPatchSHA256", "WineComdlg32X64ModuleSHA256", "WineComdlg32X86ModuleSHA256"]
+        if panelKeys.contains(where: { values[$0] != nil }),
+           !panelKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
+            throw failure("原生文件面板运行时构建身份不完整。")
+        }
         if toolboxKeys.contains(where: { values[$0] != nil }),
            !toolboxKeys.allSatisfy({ !(values[$0] ?? "").isEmpty }) {
             throw failure("Toolbox 运行时构建身份不完整。")

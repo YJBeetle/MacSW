@@ -115,6 +115,11 @@ public final class WineService: @unchecked Sendable {
         environment["LC_ALL"] = "zh_CN.UTF-8"
         environment["WINEDEBUG"] = "-all"
         environment["MACSW_NATIVE_FILE_MANAGER"] = "1"
+        let panel = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel")
+        environment.removeValue(forKey: "MACSW_NATIVE_FILE_PANEL")
+        if FileManager.default.isExecutableFile(atPath: panel.path) {
+            environment["MACSW_NATIVE_FILE_PANEL"] = panel.path
+        }
         environment["WINE_MONO_AOT"] = solidWorks ? "none" : "interp"
         if solidWorks {
             environment["WINEDLLOVERRIDES"] = (["atiadlxx=d"] + Self.vcLibraries.map { "\($0)=n,b" })
@@ -411,7 +416,7 @@ public final class WineService: @unchecked Sendable {
 
     func commandPromptTerminalCommand(prefix: URL) -> String {
         let wineEnvironment = environment(winePrefix: prefix)
-        let keys = ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG", "WINE_MONO_AOT", "MACSW_NATIVE_FILE_MANAGER"]
+        let keys = ["WINEPREFIX", "WINELOADER", "WINESERVER", "LANG", "LC_ALL", "WINEDEBUG", "WINE_MONO_AOT", "MACSW_NATIVE_FILE_MANAGER", "MACSW_NATIVE_FILE_PANEL"]
         let assignments = keys.compactMap { key in
             wineEnvironment[key].map { "\(key)=\(Self.shellQuote($0))" }
         }

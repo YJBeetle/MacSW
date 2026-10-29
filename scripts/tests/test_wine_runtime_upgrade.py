@@ -72,6 +72,31 @@ class WineUpgradeTests(unittest.TestCase):
     def test_identity_ignores_swcli_commit(self):
         self.assertNotIn("SWCLISourceCommit", RUNTIME.identity(self.contents))
 
+    def test_native_panel_modules_require_a_complete_group_and_replace_old_builtins(self):
+        values = RUNTIME.identity(self.new)
+        values["WineNativeFilePanelPatchSHA256"] = "b" * 64
+        self.manifest(self.new, values)
+        with self.assertRaisesRegex(RuntimeError, "原生文件面板"):
+            RUNTIME.identity(self.new)
+        self.add_modules(self.new, values, RUNTIME.FILE_PANEL_MODULES)
+        for directory in ("system32", "syswow64"):
+            target = self.prefix / "drive_c/windows" / directory / "comdlg32.dll"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"old builtin")
+        with patch.object(RUNTIME, "run"):
+            RUNTIME.boot(self.new, self.prefix, self.state / "panel.log")
+        for directory in ("system32", "syswow64"):
+            self.assertEqual((self.prefix / "drive_c/windows" / directory / "comdlg32.dll").read_bytes(), b"fixture-module")
+
+    def test_panel_environment_uses_only_the_current_bundled_helper(self):
+        helper = self.new / "Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
+        with patch.dict("os.environ", {"MACSW_NATIVE_FILE_PANEL": "/untrusted/helper"}):
+            self.assertNotIn("MACSW_NATIVE_FILE_PANEL", RUNTIME.environment(self.new, self.prefix))
+            helper.parent.mkdir(parents=True)
+            helper.write_bytes(b"fixture")
+            helper.chmod(0o755)
+            self.assertEqual(RUNTIME.environment(self.new, self.prefix)["MACSW_NATIVE_FILE_PANEL"], str(helper))
+
     def test_resource_alias_preserves_identity_and_hash_checks(self):
         values = RUNTIME.identity(self.new)
         alias = self.new / "Frameworks/wine"
@@ -101,6 +126,9 @@ class WineUpgradeTests(unittest.TestCase):
         self.assertEqual((self.prefix / "drive_c/windows/explorer.exe").read_bytes(), b"fixture-module")
 
     def test_finder_deployment_rejects_an_external_windows_directory(self):
+        values = RUNTIME.identity(self.new)
+        values["WineNativeFileManagerPatchSHA256"] = "a" * 64
+        self.add_modules(self.new, values, RUNTIME.FILE_MANAGER_MODULES)
         external = self.root / "external"
         external.mkdir()
         (self.prefix / "drive_c/windows").symlink_to(external)

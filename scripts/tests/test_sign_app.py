@@ -218,7 +218,7 @@ class SigningInventoryTests(unittest.TestCase):
             self.assertEqual(signing.verify(self.app, "ABCDEFGHIJ"), entries)
         self.assertEqual(verify.call_count, len(entries))
         checked = {call.args[0] for call in verify.call_args_list[:-1]}
-        self.assertEqual(checked, {self.app / item["path"] for item in entries if item["policy"] != "app"})
+        self.assertEqual(checked, {self.app / item.get("target", item["path"]) for item in entries if item["policy"] != "app"})
         verify.assert_called_with(self.app, "app", "ABCDEFGHIJ", outer=True)
 
     def test_sign_order_no_deep_and_payload_checked_before_rehash(self):

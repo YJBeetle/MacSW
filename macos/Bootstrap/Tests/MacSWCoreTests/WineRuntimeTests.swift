@@ -117,6 +117,19 @@ final class WineRuntimeTests: XCTestCase {
         }
     }
 
+    func testNativePanelManifestRequiresBothArchitectures() throws {
+        let (_, bundle, values) = try fixture()
+        let url = bundle.appendingPathComponent("Contents/Resources/BuildManifest.plist")
+        var manifest = values
+        manifest["WineNativeFilePanelPatchSHA256"] = "patch"
+        manifest["WineComdlg32X64ModuleSHA256"] = "x64"
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: url)
+        XCTAssertThrowsError(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")))
+        manifest["WineComdlg32X86ModuleSHA256"] = "x86"
+        try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0).write(to: url)
+        XCTAssertEqual(try WineRuntimeService.identity(contents: bundle.appendingPathComponent("Contents")), manifest)
+    }
+
     func testMalformedReceiptFailsClosed() throws {
         let (prefix, bundle, _) = try fixture()
         try Data("invalid".utf8).write(to: WineRuntimeService.root(prefix: prefix).appendingPathComponent("receipt.json"))

@@ -1,0 +1,762 @@
+diff --git a/dlls/comdlg32/Makefile.in b/dlls/comdlg32/Makefile.in
+--- a/dlls/comdlg32/Makefile.in
++++ b/dlls/comdlg32/Makefile.in
+@@ -18,6 +18,7 @@
+ 	finddlg.c \
+ 	fontdlg.c \
+ 	itemdlg.c \
++	native_file_panel.c \
+ 	pd32_collate.svg \
+ 	pd32_landscape.svg \
+ 	pd32_nocollate.svg \
+diff --git a/dlls/comdlg32/filedlg.c b/dlls/comdlg32/filedlg.c
+--- a/dlls/comdlg32/filedlg.c
++++ b/dlls/comdlg32/filedlg.c
+@@ -69,6 +69,7 @@
+ #include "shlwapi.h"
+ 
+ #include "wine/debug.h"
++#include "native_file_panel.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
+ 
+@@ -4170,6 +4171,11 @@
+     if (ofn->Flags & OFN_FILEMUSTEXIST)
+         ofn->Flags |= OFN_PATHMUSTEXIST;
+ 
++    {
++        int native = macsw_file_name(ofn, FALSE, FALSE);
++        if (native != -1) return native;
++    }
++
+     if (is_win16_looks(ofn->Flags))
+         return GetFileName31A(ofn, OPEN_DIALOG);
+     else
+@@ -4205,6 +4211,11 @@
+     if (ofn->Flags & OFN_FILEMUSTEXIST)
+         ofn->Flags |= OFN_PATHMUSTEXIST;
+ 
++    {
++        int native = macsw_file_name(ofn, TRUE, FALSE);
++        if (native != -1) return native;
++    }
++
+     if (is_win16_looks(ofn->Flags))
+         return GetFileName31W(ofn, OPEN_DIALOG);
+     else
+@@ -4235,6 +4246,11 @@
+         return FALSE;
+     }
+ 
++    {
++        int native = macsw_file_name(ofn, FALSE, TRUE);
++        if (native != -1) return native;
++    }
++
+     if (is_win16_looks(ofn->Flags))
+         return GetFileName31A(ofn, SAVE_DIALOG);
+     else
+@@ -4263,6 +4279,11 @@
+     {
+         COMDLG32_SetCommDlgExtendedError( CDERR_STRUCTSIZE );
+         return FALSE;
++    }
++
++    {
++        int native = macsw_file_name(ofn, TRUE, TRUE);
++        if (native != -1) return native;
+     }
+ 
+     if (is_win16_looks(ofn->Flags))
+diff --git a/dlls/comdlg32/itemdlg.c b/dlls/comdlg32/itemdlg.c
+--- a/dlls/comdlg32/itemdlg.c
++++ b/dlls/comdlg32/itemdlg.c
+@@ -33,6 +33,7 @@
+ #include "filedlgbrowser.h"
+ 
+ #include "wine/debug.h"
++#include "native_file_panel.h"
+ #include "wine/list.h"
+ 
+ #define IDC_NAV_TOOLBAR      200
+@@ -124,6 +125,8 @@
+     DWORD ebevents_cookie;
+ 
+     LPWSTR set_filename;
++    LPWSTR macsw_document_filename;
++    BOOL macsw_suppress_show;
+     LPWSTR default_ext;
+     LPWSTR custom_title;
+     LPWSTR custom_okbutton;
+@@ -475,6 +478,14 @@
+         LocalFree(This->set_filename);
+ 
+     This->set_filename = str ? StrDupW(str) : NULL;
++
++    /* Applications also pass wildcards to update the filter. Keep the last
++     * actual document name for the native panel, including initialization. */
++    if (getenv("MACSW_NATIVE_FILE_PANEL") && str && str[0] && !wcspbrk(str, L"*?"))
++    {
++        LocalFree(This->macsw_document_filename);
++        This->macsw_document_filename = StrDupW(str);
++    }
+ 
+     if (str && wcspbrk(str, L"*?"))
+         set_current_filter(This, str);
+@@ -2348,13 +2359,39 @@
+     return FALSE;
+ }
+ 
++static LRESULT macsw_custom_panel(FileDialogImpl *This);
++
+ static INT_PTR CALLBACK itemdlg_dlgproc(HWND hwnd, UINT umessage, WPARAM wparam, LPARAM lparam)
+ {
+     FileDialogImpl *This = (FileDialogImpl*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+ 
+     switch(umessage)
+     {
+-    case WM_INITDIALOG:       return on_wm_initdialog(hwnd, lparam);
++    case WM_INITDIALOG:
++    {
++        WCHAR helper[2];
++        LRESULT result;
++        This = (FileDialogImpl *)lparam;
++        This->macsw_suppress_show = !!GetEnvironmentVariableW(L"MACSW_NATIVE_FILE_PANEL", helper, ARRAY_SIZE(helper));
++        result = on_wm_initdialog(hwnd, lparam);
++        if (This->macsw_suppress_show) PostMessageW(hwnd, WM_APP + 0x51, 0, 0);
++        return result;
++    }
++    case WM_WINDOWPOSCHANGING:
++        if (This && This->macsw_suppress_show)
++        {
++            WINDOWPOS *position = (WINDOWPOS *)lparam;
++            position->flags &= ~SWP_SHOWWINDOW;
++            position->flags |= SWP_NOACTIVATE | SWP_NOZORDER;
++        }
++        return FALSE;
++    case WM_APP + 0x51:
++        if (!macsw_custom_panel(This))
++        {
++            This->macsw_suppress_show = FALSE;
++            ShowWindow(hwnd, SW_SHOW);
++        }
++        return TRUE;
+     case WM_COMMAND:          return on_wm_command(This, wparam, lparam);
+     case WM_SIZE:             return on_wm_size(This);
+     case WM_GETMINMAXINFO:    return on_wm_getminmaxinfo(This, lparam);
+@@ -2503,6 +2540,7 @@
+         if(This->psia_results)      IShellItemArray_Release(This->psia_results);
+ 
+         LocalFree(This->set_filename);
++        LocalFree(This->macsw_document_filename);
+         LocalFree(This->default_ext);
+         LocalFree(This->custom_title);
+         LocalFree(This->custom_okbutton);
+@@ -2518,6 +2556,8 @@
+ 
+     return ref;
+ }
++
++#include "native_item_panel.inc"
+ 
+ static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
+ {
+diff --git a/dlls/comdlg32/native_file_panel.h b/dlls/comdlg32/native_file_panel.h
+new file mode 100644
+--- /dev/null
++++ b/dlls/comdlg32/native_file_panel.h
+@@ -0,0 +1,22 @@
++/* MacSW native panels: -1 means unsupported, 0 cancel, 1 accepted. */
++struct macsw_panel_request
++{
++    HWND owner;
++    BOOL save;
++    DWORD flags; /* multi=1, folders=2, hidden=4, no-alias=8 */
++    const WCHAR *title, *directory, *name, *extension;
++    const COMDLG_FILTERSPEC *filters;
++    UINT filter_count, filter_index;
++    void *context;
++    BOOL (*write_controls)(void *, HANDLE);
++    void (*action)(void *, UINT, UINT, UINT, const WCHAR *);
++    void (*refresh)(void *, struct macsw_panel_request *);
++};
++struct macsw_panel_result
++{
++    WCHAR **paths;
++    UINT count, filter_index;
++};
++int macsw_show_file_panel(const struct macsw_panel_request *, struct macsw_panel_result *);
++void macsw_free_file_panel(struct macsw_panel_result *);
++int macsw_file_name(void *, BOOL unicode, BOOL save);
+diff --git a/dlls/comdlg32/native_file_panel.c b/dlls/comdlg32/native_file_panel.c
+new file mode 100644
+--- /dev/null
++++ b/dlls/comdlg32/native_file_panel.c
+@@ -0,0 +1,320 @@
++/* Opt-in AppKit bridge. The native process owns UI only; Wine owns DOS paths. */
++#include <stdlib.h>
++#include <string.h>
++#include <stdarg.h>
++#include "windef.h"
++#include "winbase.h"
++#include "winternl.h"
++#include "winuser.h"
++#include "winnls.h"
++#include "wingdi.h"
++#include "commdlg.h"
++#include "cderr.h"
++#include "shlobj.h"
++#include "shlwapi.h"
++#include "cdlg.h"
++#include "wine/debug.h"
++#include "native_file_panel.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
++#define PANEL_MAGIC 0x4d535046
++#define PANEL_LIMIT (1024 * 1024)
++
++static BOOL write_bytes(HANDLE file, const void *data, DWORD size)
++{
++    DWORD written;
++    return WriteFile(file, data, size, &written, NULL) && written == size;
++}
++static BOOL write_string(HANDLE file, const WCHAR *text)
++{
++    return write_bytes(file, text ? text : L"", ((text ? lstrlenW(text) : 0) + 1) * sizeof(WCHAR));
++}
++static WCHAR *from_utf8(const char *text)
++{
++    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, NULL, 0);
++    WCHAR *ret = count ? malloc(count * sizeof(WCHAR)) : NULL;
++    if (ret) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, ret, count);
++    return ret;
++}
++static char *to_utf8(const WCHAR *text)
++{
++    int count = WideCharToMultiByte(CP_UTF8, 0, text, -1, NULL, 0, NULL, NULL);
++    char *ret = count ? malloc(count) : NULL;
++    if (ret) WideCharToMultiByte(CP_UTF8, 0, text, -1, ret, count, NULL, NULL);
++    return ret;
++}
++static WCHAR *next_string(WCHAR **cursor, const WCHAR *end)
++{
++    WCHAR *start = *cursor;
++    while (*cursor < end) if (!*(*cursor)++) return start;
++    return NULL;
++}
++void macsw_free_file_panel(struct macsw_panel_result *result)
++{
++    UINT i;
++    for (i = 0; i < result->count; ++i) HeapFree(GetProcessHeap(), 0, result->paths[i]);
++    free(result->paths);
++    memset(result, 0, sizeof(*result));
++}
++static DWORD WINAPI spawn_panel(void *args)
++{
++    return __wine_unix_spawnvp(args, TRUE);
++}
++
++static BOOL write_request(HANDLE file, struct macsw_panel_request *request, const WCHAR *folder, UINT sequence)
++{
++    UINT i;
++    DWORD header[6];
++    if (request->refresh) request->refresh(request->context, request);
++    header[0] = PANEL_MAGIC; header[1] = 1; header[2] = request->save ? 2 : 1;
++    header[3] = request->flags; header[4] = request->filter_index; header[5] = request->filter_count;
++    if (!write_bytes(file, header, sizeof(header)) || !write_string(file, request->title) ||
++        !write_string(file, folder) || !write_string(file, request->name) || !write_string(file, request->extension)) return FALSE;
++    for (i = 0; i < request->filter_count; ++i)
++        if (!write_string(file, request->filters[i].pszName) || !write_string(file, request->filters[i].pszSpec)) return FALSE;
++    if (!write_bytes(file, &sequence, sizeof(sequence))) return FALSE;
++    if (request->write_controls) return request->write_controls(request->context, file);
++    i = 0;
++    return write_bytes(file, &i, sizeof(i));
++}
++
++int macsw_show_file_panel(const struct macsw_panel_request *original, struct macsw_panel_result *result)
++{
++    struct macsw_panel_request mutable = *original, *request = &mutable;
++    WCHAR helper[32768], temp[MAX_PATH], input[MAX_PATH] = L"", output[MAX_PATH] = L"";
++    WCHAR current[32768], full[32768], *folder = NULL;
++    const WCHAR *name = request->name ? request->name : L"";
++    char *argv[4] = {NULL};
++    char *unix_folder = NULL;
++    HANDLE file = INVALID_HANDLE_VALUE, thread = NULL;
++    DWORD header[8], sequence = 0;
++    DWORD size, read, status;
++    BYTE *data = NULL;
++    WCHAR *cursor, *end;
++    UINT i;
++    MSG msg;
++    BOOL disabled = FALSE;
++    int ret = -1;
++
++    memset(result, 0, sizeof(*result));
++    size = GetEnvironmentVariableW(L"MACSW_NATIVE_FILE_PANEL", helper, ARRAY_SIZE(helper));
++    if (!size || size >= ARRAY_SIZE(helper) || helper[0] != '/') return -1;
++    if (request->filter_count > 128) return -1;
++    if (!GetTempPathW(ARRAY_SIZE(temp), temp) ||
++        !GetTempFileNameW(temp, L"msp", 0, input) || !GetTempFileNameW(temp, L"msp", 0, output)) goto done;
++    if (!(argv[0] = to_utf8(helper)) || !(argv[1] = wine_get_unix_file_name(input)) ||
++        !(argv[2] = wine_get_unix_file_name(output))) goto done;
++
++    if (*name && (wcschr(name, '\\') || wcschr(name, '/')) &&
++        GetFullPathNameW(name, ARRAY_SIZE(full), full, NULL) < ARRAY_SIZE(full))
++    {
++        name = PathFindFileNameW(full);
++        lstrcpynW(current, full, ARRAY_SIZE(current));
++        PathRemoveFileSpecW(current);
++    }
++    else if (request->directory && *request->directory) lstrcpynW(current, request->directory, ARRAY_SIZE(current));
++    else if (!GetCurrentDirectoryW(ARRAY_SIZE(current), current)) goto done;
++    unix_folder = wine_get_unix_file_name(current);
++    if (unix_folder) folder = from_utf8(unix_folder);
++    request->name = name;
++    file = CreateFileW(input, GENERIC_WRITE, FILE_SHARE_READ, NULL, TRUNCATE_EXISTING, FILE_ATTRIBUTE_TEMPORARY, NULL);
++    if (file == INVALID_HANDLE_VALUE || !write_request(file, request, folder, sequence)) goto done;
++    CloseHandle(file); file = INVALID_HANDLE_VALUE;
++    TRACE("MacSW native %s panel, filters %u\n", request->save ? "save" : "open", request->filter_count);
++    thread = CreateThread(NULL, 0, spawn_panel, argv, 0, NULL);
++    if (!thread) goto done;
++    if (request->owner && IsWindowEnabled(request->owner)) { EnableWindow(request->owner, FALSE); disabled = TRUE; }
++    // Keep the Wine window/message loop alive while AppKit runs in its own process.
++    for (;;)
++    {
++        status = MsgWaitForMultipleObjectsEx(1, &thread, 40, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
++        if (status == WAIT_OBJECT_0) break;
++        if (status == WAIT_TIMEOUT)
++        {
++            HANDLE event = CreateFileW(output, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
++            DWORD length = event == INVALID_HANDLE_VALUE ? 0 : GetFileSize(event, NULL), got;
++            BYTE *packet = length >= 32 && length <= PANEL_LIMIT && !(length % 2) ? calloc(1, length + 2) : NULL;
++            if (packet && ReadFile(event, packet, length, &got, NULL) && got == length)
++            {
++                DWORD *words = (DWORD *)packet;
++                if (words[0] == PANEL_MAGIC && words[1] == 1 && (words[2] == 3 || words[2] == 4) && words[7] == sequence + 1)
++                {
++                    const WCHAR *text = (const WCHAR *)(packet + 32);
++                    if (request->action) request->action(request->context, words[2], words[5], words[6], text);
++                    sequence++;
++                    file = CreateFileW(input, GENERIC_WRITE, FILE_SHARE_READ, NULL, TRUNCATE_EXISTING, FILE_ATTRIBUTE_TEMPORARY, NULL);
++                    if (file != INVALID_HANDLE_VALUE) { write_request(file, request, folder, sequence); CloseHandle(file); }
++                    file = INVALID_HANDLE_VALUE;
++                }
++            }
++            free(packet);
++            if (event != INVALID_HANDLE_VALUE) CloseHandle(event);
++            continue;
++        }
++        if (status != WAIT_OBJECT_0 + 1) { WaitForSingleObject(thread, INFINITE); break; }
++        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
++        {
++            if (msg.message == WM_QUIT) { PostQuitMessage(msg.wParam); WaitForSingleObject(thread, INFINITE); goto done; }
++            TranslateMessage(&msg); DispatchMessageW(&msg);
++        }
++    }
++    if (!GetExitCodeThread(thread, &status) || status) goto done;
++    file = CreateFileW(output, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
++    if (file == INVALID_HANDLE_VALUE || (size = GetFileSize(file, NULL)) < 20 || size > PANEL_LIMIT || size % 2) goto done;
++    if (!(data = malloc(size)) || !ReadFile(file, data, size, &read, NULL) || read != size) goto done;
++    memcpy(header, data, 20);
++    if (header[0] != PANEL_MAGIC || header[1] != 1) goto done;
++    if (header[2] == 1 && !header[4] && size == 20) { ret = 0; goto done; }
++    if (header[2] || !header[4] || header[4] > 4096 ||
++        (!(request->flags & 1) && header[4] != 1) ||
++        (request->filter_count && (!header[3] || header[3] > request->filter_count))) goto done;
++    result->paths = calloc(header[4], sizeof(*result->paths));
++    if (!result->paths) goto done;
++    cursor = (WCHAR *)(data + 20); end = (WCHAR *)(data + size);
++    for (i = 0; i < header[4]; ++i)
++    {
++        WCHAR *path = next_string(&cursor, end);
++        char *unix_path;
++        if (!path || path[0] != '/' || !(unix_path = to_utf8(path))) goto done;
++        result->paths[i] = wine_get_dos_file_name(unix_path);
++        free(unix_path);
++        if (!result->paths[i]) goto done;
++        result->count++;
++    }
++    if (cursor != end) goto done;
++    result->filter_index = header[3];
++    ret = 1;
++done:
++    if (disabled) { EnableWindow(request->owner, TRUE); SetActiveWindow(request->owner); }
++    if (thread) CloseHandle(thread);
++    if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
++    if (*input) DeleteFileW(input);
++    if (*output) DeleteFileW(output);
++    free(argv[0]); HeapFree(GetProcessHeap(), 0, argv[1]); HeapFree(GetProcessHeap(), 0, argv[2]);
++    HeapFree(GetProcessHeap(), 0, unix_folder); free(folder); free(data);
++    if (ret != 1) macsw_free_file_panel(result);
++    return ret;
++}
++
++static WCHAR *ansi_string(const char *text)
++{
++    int count;
++    WCHAR *ret;
++    if (!text) return NULL;
++    count = MultiByteToWideChar(CP_ACP, 0, text, -1, NULL, 0);
++    ret = malloc(count * sizeof(WCHAR));
++    if (ret) MultiByteToWideChar(CP_ACP, 0, text, -1, ret, count);
++    return ret;
++}
++
++int macsw_file_name(void *original, BOOL unicode, BOOL save)
++{
++    OPENFILENAMEW *ofn = original, wide;
++    OPENFILENAMEA *ansi = original;
++    COMDLG_FILTERSPEC filters[128];
++    struct macsw_panel_request request = {0};
++    struct macsw_panel_result result;
++    const WCHAR *filter;
++    WCHAR *converted_filter = NULL, *buffer = NULL;
++    DWORD supported = OFN_EXPLORER | OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
++                      OFN_OVERWRITEPROMPT | OFN_ALLOWMULTISELECT | OFN_NOCHANGEDIR | OFN_DONTADDTORECENT |
++                      OFN_ENABLESIZING | OFN_FORCESHOWHIDDEN | OFN_LONGNAMES;
++    UINT count = 0, i, length, offset, ext;
++    int ret;
++    // Custom hooks/templates and special actions retain the complete Wine dialog.
++    if ((ofn->Flags & ~supported) || ofn->lpstrCustomFilter || !ofn->lpstrFile || !ofn->nMaxFile ||
++        (save && (ofn->Flags & OFN_ALLOWMULTISELECT))) return -1;
++    if (!unicode)
++    {
++        wide = *ofn;
++        wide.lpstrTitle = ansi_string(ansi->lpstrTitle);
++        wide.lpstrInitialDir = ansi_string(ansi->lpstrInitialDir);
++        wide.lpstrFile = ansi_string(ansi->lpstrFile);
++        wide.lpstrDefExt = ansi_string(ansi->lpstrDefExt);
++        if (ansi->lpstrFilter)
++        {
++            const char *p = ansi->lpstrFilter;
++            int size;
++            while (*p) p += strlen(p) + 1;
++            size = MultiByteToWideChar(CP_ACP, 0, ansi->lpstrFilter, p + 1 - ansi->lpstrFilter, NULL, 0);
++            converted_filter = malloc(size * sizeof(WCHAR));
++            if (converted_filter) MultiByteToWideChar(CP_ACP, 0, ansi->lpstrFilter, p + 1 - ansi->lpstrFilter, converted_filter, size);
++        }
++        wide.lpstrFilter = converted_filter;
++        ofn = &wide;
++    }
++    filter = ofn->lpstrFilter;
++    while (filter && *filter && count < ARRAY_SIZE(filters))
++    {
++        filters[count].pszName = filter; filter += lstrlenW(filter) + 1;
++        filters[count++].pszSpec = filter; filter += lstrlenW(filter) + 1;
++    }
++    request.owner = ofn->hwndOwner; request.save = save;
++    request.flags = ((ofn->Flags & OFN_ALLOWMULTISELECT) ? 1 : 0) | ((ofn->Flags & OFN_FORCESHOWHIDDEN) ? 4 : 0);
++    request.title = ofn->lpstrTitle; request.directory = ofn->lpstrInitialDir;
++    request.name = ofn->lpstrFile; request.extension = ofn->lpstrDefExt;
++    request.filters = filters; request.filter_count = count;
++    request.filter_index = count ? min(max(ofn->nFilterIndex, 1), count) : 0;
++    COMDLG32_SetCommDlgExtendedError(0);
++    ret = macsw_show_file_panel(&request, &result);
++    if (ret != 1) goto done;
++    // Explorer-style multiselect: directory\0name\0name\0\0.
++    if (result.count > 1)
++    {
++        WCHAR *parent = wcsrchr(result.paths[0], '\\');
++        if (!(ofn->Flags & OFN_EXPLORER) || !parent) { ret = 0; goto invalid; }
++        offset = parent - result.paths[0] + 1;
++        length = offset + 1;
++        for (i = 0; i < result.count; ++i)
++        {
++            if (wcsrchr(result.paths[i], '\\') - result.paths[i] + 1 != offset ||
++                wcsnicmp(result.paths[i], result.paths[0], offset)) { ret = 0; goto invalid; }
++            length += lstrlenW(result.paths[i] + offset) + 1;
++        }
++        buffer = calloc(length, sizeof(WCHAR));
++        if (!buffer) { ret = 0; goto done; }
++        memcpy(buffer, result.paths[0], (offset - 1) * sizeof(WCHAR));
++        length = offset;
++        for (i = 0; i < result.count; ++i)
++        {
++            lstrcpyW(buffer + length, result.paths[i] + offset);
++            length += lstrlenW(buffer + length) + 1;
++        }
++        length++; ext = 0;
++    }
++    else
++    {
++        length = lstrlenW(result.paths[0]) + 1;
++        buffer = malloc((length + 1) * sizeof(WCHAR));
++        if (!buffer) { ret = 0; goto done; }
++        memcpy(buffer, result.paths[0], length * sizeof(WCHAR)); buffer[length] = 0;
++        offset = PathFindFileNameW(buffer) - buffer;
++        ext = PathFindExtensionW(buffer) - buffer;
++        ext = buffer[ext] ? ext + 1 : 0;
++        if (ofn->Flags & OFN_ALLOWMULTISELECT) length++;
++    }
++    if (unicode ? length > ofn->nMaxFile : WideCharToMultiByte(CP_ACP, 0, buffer, length, NULL, 0, NULL, NULL) > ofn->nMaxFile)
++    {
++        if (ofn->nMaxFile * (unicode ? sizeof(WCHAR) : 1) >= sizeof(WORD))
++            *(WORD *)((OPENFILENAMEW *)original)->lpstrFile = min(length, 65535);
++        COMDLG32_SetCommDlgExtendedError(FNERR_BUFFERTOOSMALL); ret = 0; goto done;
++    }
++    if (unicode) memcpy(((OPENFILENAMEW *)original)->lpstrFile, buffer, length * sizeof(WCHAR));
++    else WideCharToMultiByte(CP_ACP, 0, buffer, length, ansi->lpstrFile, ansi->nMaxFile, NULL, NULL);
++    ((OPENFILENAMEW *)original)->nFilterIndex = result.filter_index;
++    ((OPENFILENAMEW *)original)->nFileOffset = unicode ? offset : WideCharToMultiByte(CP_ACP, 0, buffer, offset, NULL, 0, NULL, NULL);
++    ((OPENFILENAMEW *)original)->nFileExtension = !ext ? 0 : unicode ? ext : WideCharToMultiByte(CP_ACP, 0, buffer, ext, NULL, 0, NULL, NULL);
++    if (ofn->lpstrFileTitle && ofn->nMaxFileTitle)
++    {
++        if (unicode) lstrcpynW(ofn->lpstrFileTitle, PathFindFileNameW(result.paths[0]), ofn->nMaxFileTitle);
++        else WideCharToMultiByte(CP_ACP, 0, PathFindFileNameW(result.paths[0]), -1, ansi->lpstrFileTitle, ansi->nMaxFileTitle, NULL, NULL);
++    }
++    goto done;
++invalid:
++    COMDLG32_SetCommDlgExtendedError(FNERR_INVALIDFILENAME);
++done:
++    macsw_free_file_panel(&result);
++    free(buffer); free(converted_filter);
++    if (!unicode) { free((void *)wide.lpstrTitle); free((void *)wide.lpstrInitialDir); free(wide.lpstrFile); free((void *)wide.lpstrDefExt); }
++    return ret;
++}
+diff --git a/dlls/comdlg32/native_item_panel.inc b/dlls/comdlg32/native_item_panel.inc
+new file mode 100644
+--- /dev/null
++++ b/dlls/comdlg32/native_item_panel.inc
+@@ -0,0 +1,242 @@
++/* Included after the regular dialog implementation: native UI, original SW callbacks. */
++struct macsw_item_context
++{
++    FileDialogImpl *dialog;
++    HWND controls[256];
++    UINT count;
++    WCHAR *name;
++};
++
++static BOOL macsw_control_visible(HWND child, HWND root)
++{
++    while (child && child != root)
++    {
++        if (!(GetWindowLongW(child, GWL_STYLE) & WS_VISIBLE)) return FALSE;
++        child = GetParent(child);
++    }
++    return child == root;
++}
++
++static UINT macsw_control_type(HWND hwnd)
++{
++    WCHAR name[64];
++    DWORD style = GetWindowLongW(hwnd, GWL_STYLE);
++    GetClassNameW(hwnd, name, ARRAY_SIZE(name));
++    if (!lstrcmpiW(name, L"Button"))
++    {
++        switch (style & BS_TYPEMASK)
++        {
++        case BS_PUSHBUTTON: case BS_DEFPUSHBUTTON: return 1;
++        case BS_CHECKBOX: case BS_AUTOCHECKBOX: case BS_3STATE: case BS_AUTO3STATE: return 3;
++        case BS_RADIOBUTTON: case BS_AUTORADIOBUTTON: return 6;
++        default: return 0;
++        }
++    }
++    if (!lstrcmpiW(name, L"ComboBox") && (style & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) return 2;
++    if (!lstrcmpiW(name, L"Static")) return 4;
++    if (!lstrcmpiW(name, L"Edit")) return 5;
++    return 0;
++}
++
++static BOOL CALLBACK macsw_collect_control(HWND hwnd, LPARAM lparam)
++{
++    struct macsw_item_context *ctx = (void *)lparam;
++    HWND parent;
++    int id = GetDlgCtrlID(hwnd);
++    WCHAR name[64];
++    // Only SW/customization controls, never shell navigation or the built-in fields.
++    for (parent = GetParent(hwnd); parent && parent != ctx->dialog->dlg_hwnd; parent = GetParent(parent))
++    {
++        GetClassNameW(parent, name, ARRAY_SIZE(name));
++        if (!lstrcmpiW(name, L"ExplorerBrowserControl") || !lstrcmpiW(name, L"ToolbarWindow32")) return TRUE;
++    }
++    if (!parent || !macsw_control_visible(hwnd, ctx->dialog->dlg_hwnd) || !macsw_control_type(hwnd)) return TRUE;
++    if (GetParent(hwnd) == ctx->dialog->dlg_hwnd &&
++        (id == IDOK || id == IDCANCEL || id == IDC_FILENAME || id == IDC_FILETYPE ||
++         id == IDC_FILENAMESTATIC || id == IDC_FILETYPESTATIC || id == pshHelp || id == psh1)) return TRUE;
++    if (ctx->count < ARRAY_SIZE(ctx->controls)) ctx->controls[ctx->count++] = hwnd;
++    return TRUE;
++}
++
++static BOOL macsw_write_word(HANDLE file, DWORD value)
++{
++    DWORD size;
++    return WriteFile(file, &value, sizeof(value), &size, NULL) && size == sizeof(value);
++}
++static BOOL macsw_write_text(HANDLE file, const WCHAR *value)
++{
++    DWORD size, bytes = (lstrlenW(value) + 1) * sizeof(WCHAR);
++    return WriteFile(file, value, bytes, &size, NULL) && size == bytes;
++}
++
++static BOOL macsw_write_controls(void *context, HANDLE file)
++{
++    struct macsw_item_context *ctx = context;
++    UINT i, j, count, type;
++    WCHAR label[4096];
++    ctx->count = 0;
++    EnumChildWindows(ctx->dialog->dlg_hwnd, macsw_collect_control, (LPARAM)ctx);
++    if (!macsw_write_word(file, ctx->count)) return FALSE;
++    for (i = 0; i < ctx->count; ++i)
++    {
++        HWND hwnd = ctx->controls[i];
++        type = macsw_control_type(hwnd);
++        count = type == 2 ? SendMessageW(hwnd, CB_GETCOUNT, 0, 0) : 0;
++        if (count > 1024) return FALSE;
++        GetWindowTextW(hwnd, label, ARRAY_SIZE(label));
++        if (!macsw_write_word(file, (UINT)(ULONG_PTR)hwnd) || !macsw_write_word(file, type) ||
++            !macsw_write_word(file, IsWindowEnabled(hwnd)) ||
++            !macsw_write_word(file, type == 2 ? SendMessageW(hwnd, CB_GETCURSEL, 0, 0) : SendMessageW(hwnd, BM_GETCHECK, 0, 0)) ||
++            !macsw_write_word(file, count) || !macsw_write_text(file, label)) return FALSE;
++        for (j = 0; j < count; ++j)
++        {
++            if (SendMessageW(hwnd, CB_GETLBTEXTLEN, j, 0) >= ARRAY_SIZE(label)) return FALSE;
++            SendMessageW(hwnd, CB_GETLBTEXT, j, (LPARAM)label);
++            if (!macsw_write_text(file, label)) return FALSE;
++        }
++    }
++    return TRUE;
++}
++
++static void macsw_item_action(void *context, UINT code, UINT id, UINT value, const WCHAR *text)
++{
++    struct macsw_item_context *ctx = context;
++    FileDialogImpl *This = ctx->dialog;
++    UINT i;
++    if (code == 4)
++    {
++        HWND combo = GetDlgItem(This->dlg_hwnd, IDC_FILETYPE);
++        if (value >= This->filterspec_count) return;
++        set_file_name(This, text);
++        SendMessageW(combo, CB_SETCURSEL, value, 0);
++        SendMessageW(This->dlg_hwnd, WM_COMMAND, MAKEWPARAM(IDC_FILETYPE, CBN_SELCHANGE), (LPARAM)combo);
++        return;
++    }
++    for (i = 0; i < ctx->count; ++i)
++    {
++        HWND hwnd = ctx->controls[i];
++        UINT type = macsw_control_type(hwnd);
++        if ((UINT)(ULONG_PTR)hwnd != id || !IsChild(This->dlg_hwnd, hwnd) || !IsWindowEnabled(hwnd)) continue;
++        if (type != 5) set_file_name(This, text);
++        TRACE("Native control type %u, id %d, value %u\n", type, GetDlgCtrlID(hwnd), value);
++        if (type == 1 || type == 3 || type == 6)
++        {
++            /* BM_CLICK simulates mouse coordinates and can be discarded by
++             * these hidden/clipped controls. Deliver the original notification
++             * directly; radio-list selection remains owned by Wine/SW. */
++            if (type == 6 && (GetWindowLongW(hwnd, GWL_STYLE) & BS_TYPEMASK) == BS_AUTORADIOBUTTON)
++            {
++                HWND parent = GetParent(hwnd), item = hwnd;
++                UINT visited = 0;
++                /* Direct SW controls use the standard automatic radio group,
++                 * not IFileDialogCustomize's RadioButtonList handler. */
++                do
++                {
++                    if ((GetWindowLongW(item, GWL_STYLE) & BS_TYPEMASK) == BS_AUTORADIOBUTTON)
++                        SendMessageW(item, BM_SETCHECK, item == hwnd ? BST_CHECKED : BST_UNCHECKED, 0);
++                    item = GetNextDlgGroupItem(parent, item, FALSE);
++                } while (item && item != hwnd && ++visited < 256);
++            }
++            if (type == 3)
++            {
++                UINT style = GetWindowLongW(hwnd, GWL_STYLE) & BS_TYPEMASK;
++                UINT checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0);
++                checked = (style == BS_AUTO3STATE || style == BS_3STATE) ? (checked + 1) % 3 : !checked;
++                SendMessageW(hwnd, BM_SETCHECK, checked, 0);
++            }
++            SendMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(hwnd), BN_CLICKED), (LPARAM)hwnd);
++        }
++        else if (type == 2 && value < SendMessageW(hwnd, CB_GETCOUNT, 0, 0))
++        {
++            SendMessageW(hwnd, CB_SETCURSEL, value, 0);
++            SendMessageW(GetParent(hwnd), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(hwnd), CBN_SELCHANGE), (LPARAM)hwnd);
++        }
++        else if (type == 5) SetWindowTextW(hwnd, text);
++        break;
++    }
++}
++
++static void macsw_refresh_item(void *context, struct macsw_panel_request *request)
++{
++    struct macsw_item_context *ctx = context;
++    FileDialogImpl *This = ctx->dialog;
++    CoTaskMemFree(ctx->name);
++    ctx->name = NULL;
++    get_file_name(This, &ctx->name);
++    request->name = ctx->name && ctx->name[0] && !wcspbrk(ctx->name, L"*?") ? ctx->name :
++                    This->macsw_document_filename;
++    if (request->name) request->name = PathFindFileNameW(request->name);
++    request->extension = This->default_ext;
++    request->filter_index = This->filterspec_count ? This->filetypeindex + 1 : 0;
++}
++
++static HRESULT macsw_item_results(FileDialogImpl *This, struct macsw_panel_result *result)
++{
++    LPITEMIDLIST *pidls = calloc(result->count, sizeof(*pidls));
++    IShellItemArray *items = NULL;
++    HRESULT hr = pidls ? S_OK : E_OUTOFMEMORY;
++    UINT i;
++    if (pidls)
++    {
++        for (i = 0; i < result->count; ++i)
++            if (!(pidls[i] = SHSimpleIDListFromPath(result->paths[i]))) { hr = E_FAIL; break; }
++        if (SUCCEEDED(hr)) hr = SHCreateShellItemArrayFromIDLists(result->count, (PCIDLIST_ABSOLUTE *)pidls, &items);
++        for (i = 0; i < result->count; ++i) ILFree(pidls[i]);
++        free(pidls);
++    }
++    if (SUCCEEDED(hr))
++    {
++        if (This->psia_results) IShellItemArray_Release(This->psia_results);
++        This->psia_results = items;
++        if (This->psia_selection) IShellItemArray_Release(This->psia_selection);
++        This->psia_selection = items; IShellItemArray_AddRef(items);
++        This->filetypeindex = result->filter_index ? result->filter_index - 1 : 0;
++        set_file_name(This, result->paths[0]);
++        hr = events_OnFileOk(This);
++    }
++    return hr;
++}
++
++static LRESULT macsw_custom_panel(FileDialogImpl *This)
++{
++    struct macsw_panel_request request = {0};
++    struct macsw_panel_result result;
++    struct macsw_item_context ctx = {0};
++    WCHAR *directory = NULL;
++    IShellItem *folder = This->psi_folder ? This->psi_folder : This->psi_setfolder;
++    HRESULT hr = S_OK;
++    int answer;
++    const DWORD supported = FOS_OVERWRITEPROMPT | FOS_STRICTFILETYPES | FOS_NOCHANGEDIR |
++        FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_ALLOWMULTISELECT | FOS_PATHMUSTEXIST |
++        FOS_FILEMUSTEXIST | FOS_NOREADONLYRETURN | FOS_NOTESTFILECREATE | FOS_DONTADDTORECENT |
++        FOS_FORCESHOWHIDDEN | FOS_NODEREFERENCELINKS;
++    if (This->hmenu_opendropdown || (This->options & ~supported)) return FALSE;
++    if (folder) IShellItem_GetDisplayName(folder, SIGDN_FILESYSPATH, &directory);
++    ctx.dialog = This;
++    /* DialogBox already disables the application owner. Keep this hidden
++     * dialog enabled: SW handles WM_ENABLE by disabling its custom controls. */
++    request.save = This->dlg_type == ITEMDLG_TYPE_SAVE;
++    request.flags = ((This->options & FOS_ALLOWMULTISELECT) ? 1 : 0) |
++                    ((This->options & FOS_PICKFOLDERS) ? 2 : 0) |
++                    ((This->options & FOS_FORCESHOWHIDDEN) ? 4 : 0) |
++                    ((This->options & FOS_NODEREFERENCELINKS) ? 8 : 0);
++    request.title = This->custom_title; request.directory = directory;
++    request.filters = This->filterspecs; request.filter_count = This->filterspec_count;
++    request.context = &ctx; request.write_controls = macsw_write_controls;
++    request.action = macsw_item_action; request.refresh = macsw_refresh_item;
++    ShowWindow(This->dlg_hwnd, SW_HIDE);
++    do
++    {
++        answer = macsw_show_file_panel(&request, &result);
++        if (answer == 1) hr = macsw_item_results(This, &result);
++        macsw_free_file_panel(&result);
++    } while (answer == 1 && hr == S_FALSE);
++    CoTaskMemFree(directory); CoTaskMemFree(ctx.name);
++    if (answer == -1)
++    {
++        This->macsw_suppress_show = FALSE;
++        ShowWindow(This->dlg_hwnd, SW_SHOW);
++    }
++    else EndDialog(This->dlg_hwnd, answer ? hr : HRESULT_FROM_WIN32(ERROR_CANCELLED));
++    return TRUE;
++}

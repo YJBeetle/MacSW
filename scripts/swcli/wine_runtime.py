@@ -44,6 +44,11 @@ FILE_MANAGER_MODULES = {
     "WineExplorerX86ModuleSHA256": "lib/wine/i386-windows/explorer.exe",
 }
 FILE_MANAGER_IDENTITY_KEYS = ("WineNativeFileManagerPatchSHA256", *FILE_MANAGER_MODULES)
+FILE_PANEL_MODULES = {
+    "WineComdlg32X64ModuleSHA256": "lib/wine/x86_64-windows/comdlg32.dll",
+    "WineComdlg32X86ModuleSHA256": "lib/wine/i386-windows/comdlg32.dll",
+}
+FILE_PANEL_IDENTITY_KEYS = ("WineNativeFilePanelPatchSHA256", *FILE_PANEL_MODULES)
 
 # Older baseline receipts predate these modules. New manifests must bind the
 # entire extension group; partial declarations never weaken verification.
@@ -72,11 +77,17 @@ def identity(contents):
         raise RuntimeError("App 的 Toolbox 运行时身份不完整。")
     if any(key in values for key in FILE_MANAGER_IDENTITY_KEYS) and not all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
         raise RuntimeError("App 的 Finder 桥接运行时身份不完整。")
+    if any(key in values for key in FILE_PANEL_IDENTITY_KEYS) and not all(values.get(key) for key in FILE_PANEL_IDENTITY_KEYS):
+        raise RuntimeError("App 的原生文件面板运行时身份不完整。")
     return values
 
 
 def verify_app(contents, values):
     modules = dict(MODULES)
+    if any(key in values for key in FILE_PANEL_IDENTITY_KEYS):
+        if not all(values.get(key) for key in FILE_PANEL_IDENTITY_KEYS):
+            raise RuntimeError("App 的原生文件面板运行时身份不完整。")
+        modules.update(FILE_PANEL_MODULES)
     if any(key in values for key in MSXML_IDENTITY_KEYS):
         if not all(values.get(key) for key in MSXML_IDENTITY_KEYS):
             raise RuntimeError("App 的 MSXML 运行时身份不完整。")
@@ -230,6 +241,10 @@ def environment(contents, prefix):
                   WINESERVER=str(wine / "bin/wineserver"), WINEDEBUG="-all", WINE_MONO_AOT="none",
                   LANG="zh_CN.UTF-8", LC_ALL="zh_CN.UTF-8")
     result["MACSW_NATIVE_FILE_MANAGER"] = "1"
+    panel = contents / "Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
+    result.pop("MACSW_NATIVE_FILE_PANEL", None)
+    if panel.is_file() and os.access(panel, os.X_OK):
+        result["MACSW_NATIVE_FILE_PANEL"] = str(panel)
     return result
 
 
@@ -256,14 +271,20 @@ def deploy_file_manager(contents, prefix):
     # wineboot -u can retain builtin files with the same Wine version. Publish
     # these explicitly while this prefix's server is stopped, never in place.
     for arch, directory in (("x86_64-windows", "system32"), ("i386-windows", "syswow64")):
-        for module in ("shell32.dll", "explorer.exe"):
+        values = identity(contents)
+        modules = []
+        if all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
+            modules.extend(("shell32.dll", "explorer.exe"))
+        if all(values.get(key) for key in FILE_PANEL_IDENTITY_KEYS):
+            modules.append("comdlg32.dll")
+        for module in modules:
             source = contents / "Frameworks/wine/lib/wine" / arch / module
             targets = [prefix / "drive_c/windows" / directory / module]
             if arch == "x86_64-windows" and module == "explorer.exe":
                 targets.append(prefix / "drive_c/windows/explorer.exe")
             for target in targets:
                 if not target.parent.resolve().is_relative_to(prefix.resolve()):
-                    raise RuntimeError("Finder 桥接目标目录指向容器外部。")
+                    raise RuntimeError("文件面板/Finder 桥接目标目录指向容器外部。")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
                     staging = Path(stream.name)
@@ -281,7 +302,7 @@ def boot(contents, prefix, log):
     values = identity(contents)
     verify_app(contents, values)
     run(contents, prefix, [r"C:\windows\system32\wineboot.exe", "-u"], log)
-    if all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS):
+    if all(values.get(key) for key in FILE_MANAGER_IDENTITY_KEYS) or all(values.get(key) for key in FILE_PANEL_IDENTITY_KEYS):
         stop(contents, prefix, log)
         deploy_file_manager(contents, prefix)
     runtime = contents / "Frameworks/wine"

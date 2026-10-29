@@ -5,6 +5,7 @@ WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${WORKSPACE_ROOT}/scripts/lib/config.sh"
 
 APP_NAME="MacSW"
+bash "${WORKSPACE_ROOT}/scripts/build_native_file_panel.sh"
 BUILD_ROOT="${WORKSPACE_ROOT}/build"
 FINAL_APP_DIR="${MACSW_APP_OUTPUT:-${BUILD_ROOT}/app/${APP_NAME}.app}"
 LAUNCHER_BIN="${BUILD_ROOT}/bootstrap/MacSW"
@@ -61,7 +62,7 @@ for PACKAGE_INPUT in "${LAUNCHER_BIN}" "${APP_ICON}" "${MACSW_LICENSE}" "${MACSW
 done
 unset PACKAGE_INPUT
 for ARCH in x86_64-windows i386-windows; do
-    for MODULE in shell32.dll explorer.exe; do
+    for MODULE in shell32.dll explorer.exe comdlg32.dll; do
         require_file "${FILE_MANAGER_PATCH_DIR}/${ARCH}/${MODULE}"
     done
 done
@@ -95,6 +96,8 @@ FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 
 echo "==> Assembling ${APP_NAME}.app..."
 mkdir -p "${MAC_OS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
+mkdir -p "${CONTENTS_DIR}/Helpers"
+ditto "${BUILD_ROOT}/native/MacSWFilePanel.app" "${CONTENTS_DIR}/Helpers/MacSWFilePanel.app"
 cp "${LAUNCHER_BIN}" "${MAC_OS_DIR}/MacSW"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
 python3 "${WORKSPACE_ROOT}/scripts/package_updater.py" --app "${APP_DIR}" \
@@ -204,7 +207,7 @@ cp "${COMBASE_PATCH}" "${COMBASE_TARGET}"
 cp "${COMCTL32_V6_PATCH}" "${COMCTL32_V6_TARGET}"
 cp "${MSXML3_PATCH}" "${MSXML3_TARGET}"
 for ARCH in x86_64-windows i386-windows; do
-    for MODULE in shell32.dll explorer.exe; do
+    for MODULE in shell32.dll explorer.exe comdlg32.dll; do
         cp "${FILE_MANAGER_PATCH_DIR}/${ARCH}/${MODULE}" "${FRAMEWORKS_DIR}/wine/lib/wine/${ARCH}/${MODULE}"
     done
 done
@@ -250,6 +253,11 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :AppVersion string ${APP_VERSION}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :AppBuild string ${APP_BUILD}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineNativeFileManagerPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineNativeFilePanelPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0017-comdlg32-native-file-panels.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
+for SPEC in 'x86_64-windows WineComdlg32X64ModuleSHA256' 'i386-windows WineComdlg32X86ModuleSHA256'; do
+    read -r ARCH KEY <<< "$SPEC"
+    /usr/libexec/PlistBuddy -c "Add :${KEY} string $(shasum -a 256 "${FRAMEWORKS_DIR}/wine/lib/wine/${ARCH}/comdlg32.dll" | awk '{print $1}')" "${BUILD_MANIFEST}"
+done
 for SPEC in 'x86_64-windows shell32.dll WineShell32X64ModuleSHA256' \
             'i386-windows shell32.dll WineShell32X86ModuleSHA256' \
             'x86_64-windows explorer.exe WineExplorerX64ModuleSHA256' \

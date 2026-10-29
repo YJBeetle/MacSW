@@ -130,7 +130,12 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WineScreenReadbackPatchSHA256' "${BUI
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMSXMLSchemaPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0014-msxml-schema-cache-namespace.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WinePEMappingPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0015-ntdll-probe-executable-file-mappings.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFileManagerPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFilePanelPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0017-comdlg32-native-file-panels.patch" | awk '{print $1}')"
+test -x "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
+codesign --verify --strict "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app"
 for SPEC in 'x86_64-windows shell32.dll WineShell32X64ModuleSHA256' \
+            'x86_64-windows comdlg32.dll WineComdlg32X64ModuleSHA256' \
+            'i386-windows comdlg32.dll WineComdlg32X86ModuleSHA256' \
             'i386-windows shell32.dll WineShell32X86ModuleSHA256' \
             'x86_64-windows explorer.exe WineExplorerX64ModuleSHA256' \
             'i386-windows explorer.exe WineExplorerX86ModuleSHA256'; do
