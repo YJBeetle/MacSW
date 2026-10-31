@@ -104,10 +104,21 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                 let alert = NSAlert()
                 alert.messageText = forUpdate ? "暂不能安装 MacSW 更新" : "未能退出 MacSW"
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "好")
+                if forUpdate {
+                    alert.addButton(withTitle: "好")
+                } else {
+                    alert.informativeText += "\n\n强制退出将直接关闭 MacSW，未结束的 SOLIDWORKS 或容器进程可能仍在运行。"
+                    alert.addButton(withTitle: "取消")
+                    let forceQuit = alert.addButton(withTitle: "强制退出")
+                    forceQuit.hasDestructiveAction = true
+                    forceQuit.keyEquivalent = ""
+                }
                 NSApp.activate(ignoringOtherApps: true)
-                alert.runModal()
-                app.reply(toApplicationShouldTerminate: false)
+                let response = alert.runModal()
+                // Bypass failed cleanup only for an explicit normal-quit choice.
+                // Sparkle installation must still pass its termination protection.
+                app.reply(toApplicationShouldTerminate: !forUpdate && !installationPending &&
+                          response == .alertSecondButtonReturn)
             }
         }
         return .terminateLater
