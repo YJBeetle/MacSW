@@ -88,6 +88,11 @@ class WineUpgradeTests(unittest.TestCase):
         for directory in ("system32", "syswow64"):
             self.assertEqual((self.prefix / "drive_c/windows" / directory / "comdlg32.dll").read_bytes(), b"fixture-module")
 
+    def test_tools_disable_host_menu_builder_instead_of_inheriting_overrides(self):
+        with patch.dict("os.environ", {"WINEDLLOVERRIDES": "winemenubuilder.exe=n,b;concrt140=b"}):
+            env = RUNTIME.environment(self.new, self.prefix)
+        self.assertEqual(env["WINEDLLOVERRIDES"], "winemenubuilder.exe=d")
+
     def test_panel_environment_uses_only_the_current_bundled_helper(self):
         helper = self.new / "Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
         with patch.dict("os.environ", {"MACSW_NATIVE_FILE_PANEL": "/untrusted/helper"}):
