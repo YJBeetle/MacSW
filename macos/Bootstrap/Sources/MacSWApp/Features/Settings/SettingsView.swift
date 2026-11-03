@@ -272,6 +272,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            CommandLineToolsSection()
             Section("容器进程") {
                 ProcessTable(processes: runtime.processes)
                 HStack {

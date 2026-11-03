@@ -75,6 +75,14 @@ state before trying again.
 
 ## SWCLI quick start
 
+In **Settings → Maintenance → Command-line tools**, choose **Install to PATH**
+to make `sw-cli` available in your terminal via `/usr/local/bin/sw-cli`.
+This links to the current App; updates at the same location update the command too.
+The same section can uninstall the link without removing the App or bottle.
+Before moving the App, uninstall the command and reinstall it from the new location.
+An existing command from another location is left untouched. Your shell must include
+`/usr/local/bin` in `PATH`; the full App path below remains available.
+
 The bundled `sw-cli` provides document and part automation. **Start the daemon
 before document operations**: `document` and `part` commands do not implicitly launch SOLIDWORKS.
 

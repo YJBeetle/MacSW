@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A PATH entry can be an absolute or relative chain of symbolic links.
+# Resolve the launcher itself before locating the sealed App resources.
+SOURCE="${BASH_SOURCE[0]}"
+LINK_COUNT=0
+while [ -L "${SOURCE}" ]; do
+    LINK_COUNT=$((LINK_COUNT + 1))
+    if [ "${LINK_COUNT}" -gt 40 ]; then
+        echo "MacSW sw-cli symbolic link chain is too long." >&2
+        exit 1
+    fi
+    SOURCE_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+    SOURCE="$(/usr/bin/readlink "${SOURCE}")"
+    case "${SOURCE}" in
+        /*) ;;
+        *) SOURCE="${SOURCE_DIR}/${SOURCE}" ;;
+    esac
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 CONTENTS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WINE_ROOT="${CONTENTS_DIR}/Frameworks/wine"
 WINELOADER="${WINE_ROOT}/bin/wineloader"
