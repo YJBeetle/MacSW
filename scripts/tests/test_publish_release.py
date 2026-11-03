@@ -67,6 +67,17 @@ class PublicationTests(unittest.TestCase):
                 publisher.fetch_artifact({'id': 7, 'digest': 'sha256:' + 'a' * 64}, path)
             self.assertEqual(list(path.parent.iterdir()), [path])
 
+    def test_draft_lookup_resumes_existing_release_without_creating_duplicates(self):
+        draft = {'id': 12, 'tag_name': 'v0.1.8', 'draft': True}
+        other = {'id': 11, 'tag_name': 'v0.1.7', 'draft': False}
+        with patch.object(publisher, 'api', return_value=[draft, other]) as request:
+            self.assertEqual(publisher.release_for_tag('v0.1.8'), draft)
+            request.assert_called_once_with(publisher.ROOT + '/releases?per_page=100')
+        with patch.object(publisher, 'api', return_value=[other]):
+            self.assertIsNone(publisher.release_for_tag('v0.1.8'))
+        with patch.object(publisher, 'api', return_value=[draft, draft]), self.assertRaises(RuntimeError):
+            publisher.release_for_tag('v0.1.8')
+
     def test_service_asset_receipts_require_exact_set_size_and_digest(self):
         expected = {'app.zip': {'sha256': 'a' * 64, 'size': 3}}
         release = {'assets': [{'name': 'app.zip', 'size': 3, 'digest': 'sha256:' + 'a' * 64}]}

@@ -214,6 +214,16 @@ def prepare_assets(candidate, archive, build_zip, provenance, values, destinatio
     return {p.name: {'sha256': digest(p), 'size': p.stat().st_size} for p in destination.iterdir()}
 
 
+def release_for_tag(tag):
+    # GitHub's /releases/tags/{tag} lookup only returns published releases.
+    # The authenticated list also contains drafts, including a resumable upload.
+    matches = [release for release in api(f'{ROOT}/releases?per_page=100')
+               if release['tag_name'] == tag]
+    if len(matches) > 1:
+        raise RuntimeError('Multiple releases use the requested tag')
+    return matches[0] if matches else None
+
+
 def verify_uploaded(release, expected):
     assets = release['assets']
     if len(assets) != len(expected) or {a['name'] for a in assets} != set(expected):
@@ -297,7 +307,7 @@ def publish(signing_run_id, output):
         api(f'{ROOT}/git/refs', body={'ref': 'refs/tags/' + tag, 'sha': sha})
     elif existing_tag['object']['type'] != 'commit' or existing_tag['object']['sha'] != sha:
         raise RuntimeError('Release tag already points to another commit; refusing to move it')
-    release = api(f'{ROOT}/releases/tags/{tag}', optional=True)
+    release = release_for_tag(tag)
     if release is None:
         latest = api(f'{ROOT}/releases/latest', optional=True)
         if latest and tuple(map(int, latest['tag_name'].removeprefix('v').split('.'))) >= tuple(map(int, values['APP_VERSION'].split('.'))):
@@ -316,7 +326,7 @@ def publish(signing_run_id, output):
         missing = [assets / name for name in sorted(expected) if name not in names]
         if missing:
             run(['gh', 'release', 'upload', tag, '--repo', REPOSITORY, *missing], timeout=900)
-        release = api(f'{ROOT}/releases/tags/{tag}')
+        release = api(f"{ROOT}/releases/{release['id']}")
         verify_uploaded(release, expected)
         release = api(f"{ROOT}/releases/{release['id']}", body={'draft': False, 'make_latest': 'false'}, method='PATCH')
     verify_uploaded(release, expected)
