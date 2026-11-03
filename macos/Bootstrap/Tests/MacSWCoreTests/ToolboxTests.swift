@@ -85,7 +85,8 @@ final class ToolboxTests: XCTestCase {
         XCTAssertEqual(process.arguments, ["/sw/sldtoolboxupdater.exe", #"C:\SWData"#, #"Z:\media with spaces\Toolbox"#, "TRUE"])
         XCTAssertEqual(process.environment?["WINE_MONO_AOT"], "none")
         XCTAssertEqual(WineService.shared.environment(winePrefix: prefix)["WINE_MONO_AOT"], "interp")
-        XCTAssertNil(process.environment?["WINEDLLOVERRIDES"])
+        // Host shortcut integration stays disabled; native VC++ overrides must not leak into the updater.
+        XCTAssertEqual(process.environment?["WINEDLLOVERRIDES"], "winemenubuilder.exe=d")
     }
 
     func testDataLocationIsVersionIndependentAndOnlyReadsGeneralSettings() {
