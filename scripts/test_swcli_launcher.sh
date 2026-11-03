@@ -3,6 +3,8 @@ set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
+# Match the launcher's physical paths (macOS /var and /tmp are directory links).
+TEST_ROOT="$(cd "${TEST_ROOT}" && pwd -P)"
 trap 'rm -rf -- "${TEST_ROOT}"' EXIT
 
 CONTENTS_DIR="${TEST_ROOT}/MacSW.app/Contents"
@@ -146,6 +148,24 @@ test "$(cd /tmp && "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" model.SLDPRT
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" 'C:\model.SLDPRT')" = 'C:\model.SLDPRT'
 test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" \
     "${PREFIX}/drive_c/models/part with spaces.SLDPRT")" = 'C:\models\part with spaces.SLDPRT'
+
+# The installed PATH command must locate this App through absolute, relative,
+# and directory symlinks, preserve cwd, and forward quoted arguments unchanged.
+GLOBAL_BIN="${TEST_ROOT}/global bin ' 中文"
+mkdir -p "${GLOBAL_BIN}"
+ln -s "${LAUNCHER}" "${GLOBAL_BIN}/sw-cli"
+: > "${LOG_FILE}"
+PATH="${GLOBAL_BIN}:${PATH}" sw-cli document inspect --document active --json
+grep -Fq -- '-m swcli document inspect --document active --json' "${LOG_FILE}"
+grep -Fq "native translator=${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" "${LOG_FILE}"
+rm "${GLOBAL_BIN}/sw-cli"
+ln -s '../MacSW.app/Contents/MacOS/sw-cli' "${GLOBAL_BIN}/launcher"
+ln -s launcher "${GLOBAL_BIN}/sw-cli"
+ln -s "${GLOBAL_BIN}" "${TEST_ROOT}/bin-alias"
+: > "${LOG_FILE}"
+(cd "${PREFIX}" && "${TEST_ROOT}/bin-alias/sw-cli" document inspect --document 'a file;$(literal)' --json)
+grep -Fq -- '-m swcli document inspect --document a file;$(literal) --json' "${LOG_FILE}"
+grep -Fq "native translator=${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" "${LOG_FILE}"
 
 # Lifecycle paths also use real bottle mappings, rather than hard-coding Z:.
 rm "${PREFIX}/dosdevices/z:"
