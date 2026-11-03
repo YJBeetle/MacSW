@@ -11,17 +11,23 @@
 会同步调用 `CreateProcessW` 启动 winemenubuilder。助手负责宿主桌面／菜单及文件关联集成，
 Recent 路径本身会被助手忽略。它不是 SOLIDWORKS 模型保存所需的组件。
 
-MacSW 已自行处理 Finder 文件关联，因此统一设置
-`WINEDLLOVERRIDES=winemenubuilder.exe=d`。App 的普通工具和 SOLIDWORKS 环境、
-CLI、安装／升级运行时工具、运行门禁及本地探针均使用这一禁用项。
-Recent 的 Windows 内部记录仍正常写入；未关闭 SOLIDWORKS 的最近文件功能。
-这消除了本次已捕获的触发路径，尚未证明底层 fork 阻塞涉及的具体锁或 Rosetta 根因。
+MacSW 已自行处理 Finder 文件关联，不需要 Wine 的宿主快捷方式集成。
+最初设置 `WINEDLLOVERRIDES=winemenubuilder.exe=d` 后，助手成功运行数为 0，
+但 Wine 仍然会先进入 `NtCreateUserProcess` 并调用 fork，再在加载阶段拒绝这个可执行文件。
+第三次现场在保存 `BatteryShield.SLDPRT` 时复现相同阻塞，证实单独禁用 DLL 不足以避免触发。
+因此不能用“助手成功运行数为零”作为修复验收标准。
+
+`0018-shell32-disable-host-menu-builder.patch` 在 shell32 的 `run_winemenubuilder`
+入口直接返回成功，移除该函数里的 `CreateProcessW` 调用。Windows Recent 记录和链接
+仍正常写入，但不再请求生成宿主桌面／菜单或文件关联。原来的 DLL 禁用项保留，
+用于其他直接启动该可执行文件的入口。
+这移除了文档打开／保存时已捕获的触发路径；底层 fork 锁或 Rosetta 根因尚未确定。
 
 ## 检查
 
-独立 Wine 容器中，x86 和 x64 都验证 Recent 注册表记录及 `.lnk` 的真实目标路径：
-启用助手的对照组确实创建助手进程；禁用组创建数为 0，Recent 数据保持正确。
-可重新运行：
+独立 Wine 容器中，x86 和 x64 都验证 Recent 注册表记录及 `.lnk` 的真实目标路径。
+新标准是 `NtCreateUserProcess` 请求数和成功创建数都为 0。
+可重新运行已打包的新 App：
 
 ```sh
 python3 -B scripts/diagnostics/verify_recent_docs.py \
@@ -29,6 +35,8 @@ python3 -B scripts/diagnostics/verify_recent_docs.py \
   --evidence /private/tmp/macsw-recent-docs-evidence
 ```
 
+验证未打包模块时增加 `--shell32-dir dist/winemac-11.16`；
+可增加 `--baseline-app /path/to/old/MacSW.app`，证明旧版即使禁用 DLL，仍会发起创建请求。
 需安装两个 MinGW 编译器。脚本仅操作临时容器，结束时停止该容器的 wineserver。
 
 在禁用前，Git HEAD 模型及首次现场的磁盘模型副本各完成 3 次 API 保存，
