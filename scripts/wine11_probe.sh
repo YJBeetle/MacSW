@@ -10,7 +10,7 @@ unset WINEDLLPATH CX_ROOT DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
 export WINEDEBUG="${WINEDEBUG:-+timestamp,+pid,+tid,+seh,+loaddll}"
 # Match the existing Swift launcher for the installed Microsoft VC++ runtime.
 # Keep Wine 11's own mscoree and graphics implementation for this isolated test.
-export WINEDLLOVERRIDES="${PROBE_DLL_OVERRIDES:-atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b}"
+export WINEDLLOVERRIDES="${PROBE_DLL_OVERRIDES:-atiadlxx=d;winemenubuilder.exe=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b}"
 export WINEPREFIX="$ROOT/prefixes/sw-wine11-baseline"
 case "${1:-}" in
   init) exec "$WINELOADER" cmd /c ver ;;

@@ -62,7 +62,8 @@ def verify(app, evidence, *, bootstrap_only=False):
                     'MACSW_WINELOADER','MACSW_APP_NAME'):
             env.pop(key,None)
         env.update(WINEPREFIX=str(prefix),WINELOADER=str(loader),WINESERVER=str(server),
-                   WINEDEBUG='err+all',WINE_MONO_AOT='interp',LANG='zh_CN.UTF-8',LC_ALL='zh_CN.UTF-8')
+                   WINEDEBUG='err+all',WINE_MONO_AOT='interp',WINEDLLOVERRIDES='winemenubuilder.exe=d',
+                   LANG='zh_CN.UTF-8',LC_ALL='zh_CN.UTF-8')
         def windows(path):
             # A prefix created by Wine has its own Z: mapping; do not assume
             # that the user's main prefix has one.

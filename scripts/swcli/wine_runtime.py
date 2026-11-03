@@ -239,6 +239,7 @@ def environment(contents, prefix):
     wine = contents / "Frameworks/wine"
     result.update(WINEPREFIX=str(prefix), WINELOADER=str(wine / "lib/wine/x86_64-unix/MacSW"),
                   WINESERVER=str(wine / "bin/wineserver"), WINEDEBUG="-all", WINE_MONO_AOT="none",
+                  WINEDLLOVERRIDES="winemenubuilder.exe=d",
                   LANG="zh_CN.UTF-8", LC_ALL="zh_CN.UTF-8")
     result["MACSW_NATIVE_FILE_MANAGER"] = "1"
     panel = contents / "Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"

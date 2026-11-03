@@ -31,7 +31,7 @@ unset MACSW_NATIVE_FILE_PANEL
 if [ -x "${CONTENTS_DIR}/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel" ]; then
     export MACSW_NATIVE_FILE_PANEL="${CONTENTS_DIR}/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
 fi
-export WINEDLLOVERRIDES="atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b"
+export WINEDLLOVERRIDES="atiadlxx=d;winemenubuilder.exe=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b"
 
 to_windows_path() {
     "${NATIVE_PATH_HELPER}" "$1"

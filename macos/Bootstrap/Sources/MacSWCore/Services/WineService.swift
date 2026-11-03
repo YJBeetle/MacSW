@@ -114,6 +114,8 @@ public final class WineService: @unchecked Sendable {
         environment["LANG"] = "zh_CN.UTF-8"
         environment["LC_ALL"] = "zh_CN.UTF-8"
         environment["WINEDEBUG"] = "-all"
+        // MacSW owns host integration; menu-builder forks can stall document open/save.
+        environment["WINEDLLOVERRIDES"] = "winemenubuilder.exe=d"
         environment["MACSW_NATIVE_FILE_MANAGER"] = "1"
         let panel = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel")
         environment.removeValue(forKey: "MACSW_NATIVE_FILE_PANEL")
@@ -122,7 +124,7 @@ public final class WineService: @unchecked Sendable {
         }
         environment["WINE_MONO_AOT"] = solidWorks ? "none" : "interp"
         if solidWorks {
-            environment["WINEDLLOVERRIDES"] = (["atiadlxx=d"] + Self.vcLibraries.map { "\($0)=n,b" })
+            environment["WINEDLLOVERRIDES"] = (["atiadlxx=d", "winemenubuilder.exe=d"] + Self.vcLibraries.map { "\($0)=n,b" })
                 .joined(separator: ";")
         }
         return environment

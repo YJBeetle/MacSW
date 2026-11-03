@@ -1016,7 +1016,7 @@ class RuntimeGate:
         loader = contents / "Frameworks/wine/bin/wineloader"
         self.env.update(WINELOADER=str(loader), WINESERVER=str(loader.with_name("wineserver")),
                         LANG="zh_CN.UTF-8", LC_ALL="zh_CN.UTF-8", WINE_MONO_AOT="none",
-                        WINEDLLOVERRIDES="atiadlxx=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b")
+                        WINEDLLOVERRIDES="atiadlxx=d;winemenubuilder.exe=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b")
         arguments = [resources / "runtime/PythonNative/bin/python3", "-I", "-B", resources / "bin/wine_runtime.py",
                      "launch", "--contents", contents, "--prefix", self.prefix, "--", loader,
                      r"C:\MacSW\Python311\python.exe", self.windows_path(staged),
