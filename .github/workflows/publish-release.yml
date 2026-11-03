@@ -1,0 +1,62 @@
+name: Publish verified MacSW Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing_run_id:
+        description: 'Successful signing workflow run, including macOS 15 bootstrap'
+        type: string
+        required: true
+  workflow_run:
+    workflows: ['Developer ID Direct Distribution (manual)']
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'YJBeetle/MacSW' &&
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    environment: macsw-release
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: macsw-release-publication
+      cancel-in-progress: false
+    steps:
+      - name: Checkout trusted publication code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test publication guards without credentials
+        run: python3 -m unittest discover -s scripts/tests -p test_publish_release.py
+
+      - name: Publish only the verified original signing candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACSW_SIGNING_RUN_ID: ${{ inputs.signing_run_id || github.event.workflow_run.id }}
+        run: |
+          python3 -B scripts/ci/publish-release.py \
+            --signing-run-id "$MACSW_SIGNING_RUN_ID" \
+            --output "$RUNNER_TEMP/macsw-publication"
+
+      - name: Upload compact public publication receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-publication-receipt
+          archive: true
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/macsw-publication/public-verified.json
+          retention-days: 14
