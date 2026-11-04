@@ -1,0 +1,43 @@
+Subject: [PATCH] msxml3: Preserve no-namespace elements in XML serialization.
+
+Emit an empty default namespace when an unqualified element with no
+namespace would otherwise inherit a nonempty default namespace.
+
+--- a/dlls/msxml3/node.c
++++ b/dlls/msxml3/node.c
+@@ -1940,7 +1940,17 @@
+     struct node_dump_ns *ns;
+ 
+     if (!node->uri)
++    {
++        if (node->type == NODE_ELEMENT && !node->prefix)
++        {
++            LIST_FOR_EACH_ENTRY_REV(ns, &context->namespaces, struct node_dump_ns, entry)
++            {
++                if (!ns->prefix)
++                    return ns->depth == context->depth || !ns->uri || !*ns->uri;
++            }
++        }
+         return true;
++    }
+ 
+     /* The xmlns:xml namespace is predefined. */
+     if (is_same_namespace_prefix(node, L"xml"))
+@@ -1949,7 +1959,7 @@
+     LIST_FOR_EACH_ENTRY_REV(ns, &context->namespaces, struct node_dump_ns, entry)
+     {
+         if (is_same_namespace_prefix(node, ns->prefix))
+-            return !wcscmp(node->uri, ns->uri);
++            return is_same_uri(node, ns->uri);
+     }
+ 
+     return false;
+@@ -1965,7 +1975,7 @@
+         node_dump_append(context, node->prefix, SysStringLen(node->prefix));
+     }
+     node_dump_append(context, L"=\"", 2);
+-    node_dump_append(context, node->uri, SysStringLen(node->uri));
++    if (node->uri) node_dump_append(context, node->uri, SysStringLen(node->uri));
+     node_dump_append(context, L"\"", 1);
+ }
+ 

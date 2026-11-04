@@ -60,6 +60,58 @@ done:
     if(doc) IXMLDOMDocument2_Release(doc);
     if(schema) IXMLDOMDocument2_Release(schema);
 }
+static void test_serialization(void)
+{
+    IXMLDOMDocument2 *doc = NULL;
+    IXMLDOMElement *root = NULL, *section = NULL, *property = NULL;
+    IXMLDOMNode *found = NULL;
+    BSTR xml = NULL, query = NULL;
+    VARIANT_BOOL loaded = VARIANT_FALSE;
+    CLSID clsid;
+
+    puts("case=serialize-empty-default-namespace");
+    if (!check(CLSIDFromProgID(L"Msxml2.DOMDocument.6.0", &clsid), "serialize-clsid")) goto done;
+    if (!check(CoCreateInstance(&clsid, NULL, CLSCTX_INPROC_SERVER, &doc_iid, (void **)&doc),
+               "serialize-create")) goto done;
+    xml = SysAllocString(L"<root xmlns='urn:root'><existing/></root>");
+    if (!check(IXMLDOMDocument2_loadXML(doc, xml, &loaded), "serialize-load")) goto done;
+    if (loaded != VARIANT_TRUE) { ++failures; goto done; }
+    SysFreeString(xml);
+    xml = NULL;
+
+    if (!check(IXMLDOMDocument2_get_documentElement(doc, &root), "serialize-root")) goto done;
+    query = SysAllocString(L"propertySection");
+    if (!check(IXMLDOMDocument2_createElement(doc, query, &section), "serialize-section")) goto done;
+    SysFreeString(query);
+    query = SysAllocString(L"property");
+    if (!check(IXMLDOMDocument2_createElement(doc, query, &property), "serialize-property")) goto done;
+    if (!check(IXMLDOMElement_appendChild(section, (IXMLDOMNode *)property, NULL),
+               "serialize-append-property")) goto done;
+    if (!check(IXMLDOMElement_appendChild(root, (IXMLDOMNode *)section, NULL),
+               "serialize-append-section")) goto done;
+    if (!check(IXMLDOMDocument2_get_xml(doc, &xml), "serialize-xml")) goto done;
+    if (!check(IXMLDOMDocument2_loadXML(doc, xml, &loaded), "serialize-reload")) goto done;
+    if (loaded != VARIANT_TRUE) { ++failures; goto done; }
+
+    SysFreeString(query);
+    query = SysAllocString(L"//propertySection/property");
+    if (!check(IXMLDOMDocument2_selectSingleNode(doc, query, &found), "serialize-xpath")) goto done;
+    if (!found)
+    {
+        puts("FAIL unqualified property became namespaced after XML round trip");
+        ++failures;
+    }
+
+done:
+    if (found) IXMLDOMNode_Release(found);
+    if (property) IXMLDOMElement_Release(property);
+    if (section) IXMLDOMElement_Release(section);
+    if (root) IXMLDOMElement_Release(root);
+    if (doc) IXMLDOMDocument2_Release(doc);
+    SysFreeString(xml);
+    SysFreeString(query);
+}
+
 int main(void)
 {
     if (FAILED(CoInitialize(NULL))) return 2;
@@ -71,6 +123,7 @@ int main(void)
     test("explicit-target",L"<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:macsw:probe'><xs:element name='root' type='xs:int'/></xs:schema>",L"<root xmlns='urn:macsw:probe'>42</root>",L"urn:macsw:probe",1);
     test("default-xsd-namespace",L"<schema xmlns='http://www.w3.org/2001/XMLSchema'><element name='root' type='int'/></schema>",L"<root xmlns='urn:macsw:probe'>42</root>",L"urn:macsw:probe",1);
     test("local-empty-namespace",L"<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:simpleType name='Value'><xs:restriction base='xs:int'/></xs:simpleType><xs:element name='root' type='Value' xmlns=''/></xs:schema>",L"<root xmlns='urn:macsw:probe'>42</root>",L"urn:macsw:probe",1);
+    test_serialization();
     CoUninitialize();
     wchar_t module_path[1024];
     HMODULE module=GetModuleHandleW(L"msxml3.dll");

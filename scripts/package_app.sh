@@ -297,6 +297,7 @@ done
 /usr/libexec/PlistBuddy -c "Add :WineFontLinkPatchSHA256 string ${FONTLINK_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineScreenReadbackPatchSHA256 string ${SCREEN_READBACK_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMSXMLSchemaPatchSHA256 string ${MSXML_SCHEMA_PATCH_SHA256}" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineMSXMLSerializationPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0020-msxml-preserve-empty-element-namespace.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WinePEMappingPatchSHA256 string ${PE_MAPPING_PATCH_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMSXML3ModuleSHA256 string ${MSXML3_MODULE_SHA256}" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMacOpenGLPatchSHA256 string ${WINEMAC_OPENGL_PATCH_SHA256}" "${BUILD_MANIFEST}"
