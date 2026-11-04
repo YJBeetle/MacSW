@@ -270,6 +270,7 @@ WINE_LOADER_SHA256="$(shasum -a 256 "${BRANDED_WINE_LOADER}" | awk '{print $1}')
 /usr/libexec/PlistBuddy -c "Add :WineNativeFileManagerPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineNativeFilePanelPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0017-comdlg32-native-file-panels.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
 /usr/libexec/PlistBuddy -c "Add :WineMenuBuilderPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0018-shell32-disable-host-menu-builder.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
+/usr/libexec/PlistBuddy -c "Add :WineWriteBuffersPatchSHA256 string $(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0019-ntdll-serialize-process-write-buffer-flush.patch" | awk '{print $1}')" "${BUILD_MANIFEST}"
 for SPEC in 'x86_64-windows WineComdlg32X64ModuleSHA256' 'i386-windows WineComdlg32X86ModuleSHA256'; do
     read -r ARCH KEY <<< "$SPEC"
     /usr/libexec/PlistBuddy -c "Add :${KEY} string $(shasum -a 256 "${FRAMEWORKS_DIR}/wine/lib/wine/${ARCH}/comdlg32.dll" | awk '{print $1}')" "${BUILD_MANIFEST}"

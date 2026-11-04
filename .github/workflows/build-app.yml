@@ -64,6 +64,7 @@ on:
       - 'native/macsw_file_panel.m'
       - 'native/macsw_quicklook.m'
       - 'native/wine_file_panel_probe.c'
+      - 'native/wine_write_buffers_probe.c'
       - 'resources/**'
       - '.gitmodules'
       - 'Dependencies/SWCLI'
@@ -186,6 +187,21 @@ jobs:
             build/archive/MacSW-*-macOS.zip
             dist/${{ steps.build-config.outputs.wine_source_asset }}
             dist/${{ steps.build-config.outputs.mono_source_asset }}
+          retention-days: 14
+
+      - name: Verify concurrent Wine process write-buffer barriers
+        run: |
+          python3 scripts/diagnostics/verify_write_buffers.py \
+            --app build/app/MacSW.app --evidence build/write-buffers-evidence
+
+      - name: Upload process write-buffer barrier evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-write-buffers
+          archive: true
+          path: build/write-buffers-evidence
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Verify packaged native file dialog bridge
