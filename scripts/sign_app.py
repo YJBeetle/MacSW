@@ -25,8 +25,10 @@ SPARKLE_ROOT = "Contents/Frameworks/Sparkle.framework"
 SPARKLE_VERSION = SPARKLE_ROOT + "/Versions/B"
 FILE_PANEL_BUNDLE = "Contents/Helpers/MacSWFilePanel.app"
 FILE_PANEL_EXECUTABLE = FILE_PANEL_BUNDLE + "/Contents/MacOS/MacSWFilePanel"
-QUICKLOOK_BUNDLE = "Contents/PlugIns/MacSWQuickLook.appex"
-QUICKLOOK_EXECUTABLE = QUICKLOOK_BUNDLE + "/Contents/MacOS/MacSWQuickLook"
+QUICKLOOK_TARGETS = {
+    f"Contents/PlugIns/{name}.appex/Contents/MacOS/{name}": f"Contents/PlugIns/{name}.appex"
+    for name in ("MacSWQuickLook", "MacSWThumbnail")
+}
 SPARKLE_TARGETS = {
     SPARKLE_VERSION + "/Sparkle": SPARKLE_ROOT,
     SPARKLE_VERSION + "/Autoupdate": SPARKLE_VERSION + "/Autoupdate",
@@ -38,7 +40,7 @@ SPARKLE_BUNDLES = {SPARKLE_ROOT, *(target for target in SPARKLE_TARGETS.values()
                                  if target.endswith((".app", ".xpc")))}
 EXECUTABLES = {
     FILE_PANEL_EXECUTABLE: "default",
-    QUICKLOOK_EXECUTABLE: "quicklook",
+    **dict.fromkeys(QUICKLOOK_TARGETS, "quicklook"),
     "Contents/MacOS/MacSW": "app",
     "Contents/MacOS/7zz": "default",
     WINE_ROOT + "/bin/wine": "wine",
@@ -123,7 +125,7 @@ def inventory(app):
             continue
         if path.is_dir():
             if (path.suffix in (".app", ".framework", ".xpc", ".bundle", ".appex")
-                    and relative not in SPARKLE_BUNDLES | {FILE_PANEL_BUNDLE, QUICKLOOK_BUNDLE}):
+                    and relative not in SPARKLE_BUNDLES | {FILE_PANEL_BUNDLE, *QUICKLOOK_TARGETS.values()}):
                 raise RuntimeError("Nested code bundle needs an explicit signing policy: " + relative)
             if relative.startswith("Contents/Frameworks/") and not relative.startswith(SPARKLE_ROOT) and "." in path.name:
                 raise RuntimeError("Dotted data directory in native code location: " + relative)
@@ -139,8 +141,8 @@ def inventory(app):
         if relative == FILE_PANEL_EXECUTABLE and kind == 2:
             result.append({"path": relative, "target": FILE_PANEL_BUNDLE, "type": kind, "policy": "default"})
             continue
-        if relative == QUICKLOOK_EXECUTABLE and kind == 2:
-            result.append({"path": relative, "target": QUICKLOOK_BUNDLE, "type": kind, "policy": "quicklook"})
+        if relative in QUICKLOOK_TARGETS and kind == 2:
+            result.append({"path": relative, "target": QUICKLOOK_TARGETS[relative], "type": kind, "policy": "quicklook"})
             continue
         if kind == 2 and relative in EXECUTABLES:
             policy = EXECUTABLES[relative]

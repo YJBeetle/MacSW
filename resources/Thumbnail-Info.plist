@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>MacSWThumbnail</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.yjbeetle.macsw.thumbnail</string>
+	<key>CFBundleName</key>
+	<string>MacSW Thumbnails</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.quicklook.thumbnail</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>MacSWSolidWorksThumbnail</string>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>QLThumbnailMinimumDimension</key>
+			<integer>32</integer>
+			<key>QLSupportedContentTypes</key>
+			<array>
+				<string>com.yjbeetle.macsw.solidworks-part</string>
+				<string>com.yjbeetle.macsw.solidworks-assembly</string>
+				<string>com.yjbeetle.macsw.solidworks-drawing</string>
+				<string>com.solidworks.edrawingsmac</string>
+			</array>
+		</dict>
+	</dict>
+</dict>
+</plist>

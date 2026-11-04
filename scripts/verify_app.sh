@@ -142,6 +142,8 @@ test -x "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFile
 codesign --verify --strict "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app"
 test -x "${CONTENTS_DIR}/PlugIns/MacSWQuickLook.appex/Contents/MacOS/MacSWQuickLook"
 codesign --verify --strict "${CONTENTS_DIR}/PlugIns/MacSWQuickLook.appex"
+test -x "${CONTENTS_DIR}/PlugIns/MacSWThumbnail.appex/Contents/MacOS/MacSWThumbnail"
+codesign --verify --strict "${CONTENTS_DIR}/PlugIns/MacSWThumbnail.appex"
 for SPEC in 'x86_64-windows shell32.dll WineShell32X64ModuleSHA256' \
             'x86_64-windows comdlg32.dll WineComdlg32X64ModuleSHA256' \
             'i386-windows comdlg32.dll WineComdlg32X86ModuleSHA256' \

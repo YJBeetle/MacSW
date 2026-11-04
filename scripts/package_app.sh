@@ -98,17 +98,22 @@ echo "==> Assembling ${APP_NAME}.app..."
 mkdir -p "${MAC_OS_DIR}" "${RESOURCES_DIR}" "${FRAMEWORKS_DIR}"
 mkdir -p "${CONTENTS_DIR}/Helpers"
 ditto "${BUILD_ROOT}/native/MacSWFilePanel.app" "${CONTENTS_DIR}/Helpers/MacSWFilePanel.app"
-QUICKLOOK="${CONTENTS_DIR}/PlugIns/MacSWQuickLook.appex"
-mkdir -p "${QUICKLOOK}/Contents/MacOS"
-cp "${WORKSPACE_ROOT}/resources/QuickLook-Info.plist" "${QUICKLOOK}/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_BUILD}" "${QUICKLOOK}/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${APP_VERSION}" "${QUICKLOOK}/Contents/Info.plist"
-/usr/bin/clang -fobjc-arc -fapplication-extension -Wall -Wextra -Werror \
-    -arch arm64 -arch x86_64 -mmacosx-version-min="${MACOS_DEPLOYMENT_TARGET}" \
-    "${WORKSPACE_ROOT}/native/macsw_quicklook.m" -framework Foundation -framework ImageIO \
-    -framework QuickLookUI -framework UniformTypeIdentifiers -lz -Wl,-e,_NSExtensionMain \
-    -o "${QUICKLOOK}/Contents/MacOS/MacSWQuickLook"
-/usr/bin/codesign --force --sign - --entitlements "${WORKSPACE_ROOT}/resources/signing/quicklook.plist" "${QUICKLOOK}"
+build_quicklook_extension() {
+    local name="$1" plist="$2" extension="${CONTENTS_DIR}/PlugIns/$1.appex"
+    shift 2
+    mkdir -p "${extension}/Contents/MacOS"
+    cp "${WORKSPACE_ROOT}/resources/${plist}" "${extension}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${APP_BUILD}" "${extension}/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${APP_VERSION}" "${extension}/Contents/Info.plist"
+    /usr/bin/clang -fobjc-arc -fapplication-extension -Wall -Wextra -Werror \
+        -arch arm64 -arch x86_64 -mmacosx-version-min="${MACOS_DEPLOYMENT_TARGET}" \
+        "${WORKSPACE_ROOT}/native/macsw_quicklook.m" -framework Foundation -framework ImageIO \
+        -framework CoreGraphics -lz -Wl,-e,_NSExtensionMain "$@" \
+        -o "${extension}/Contents/MacOS/${name}"
+    /usr/bin/codesign --force --sign - --entitlements "${WORKSPACE_ROOT}/resources/signing/quicklook.plist" "${extension}"
+}
+build_quicklook_extension MacSWQuickLook QuickLook-Info.plist -framework QuickLookUI -framework UniformTypeIdentifiers
+build_quicklook_extension MacSWThumbnail Thumbnail-Info.plist -DMACSW_QUICKLOOK_THUMBNAIL -framework QuickLookThumbnailing
 cp "${LAUNCHER_BIN}" "${MAC_OS_DIR}/MacSW"
 cp "${WORKSPACE_ROOT}/resources/Info.plist.in" "${CONTENTS_DIR}/Info.plist"
 python3 "${WORKSPACE_ROOT}/scripts/package_updater.py" --app "${APP_DIR}" \
