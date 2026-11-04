@@ -139,6 +139,8 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFileManagerPatchSHA256' "${
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFilePanelPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0017-comdlg32-native-file-panels.patch" | awk '{print $1}')"
 test -x "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"
 codesign --verify --strict "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app"
+test -x "${CONTENTS_DIR}/PlugIns/MacSWQuickLook.appex/Contents/MacOS/MacSWQuickLook"
+codesign --verify --strict "${CONTENTS_DIR}/PlugIns/MacSWQuickLook.appex"
 for SPEC in 'x86_64-windows shell32.dll WineShell32X64ModuleSHA256' \
             'x86_64-windows comdlg32.dll WineComdlg32X64ModuleSHA256' \
             'i386-windows comdlg32.dll WineComdlg32X86ModuleSHA256' \

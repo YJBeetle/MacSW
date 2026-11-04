@@ -188,8 +188,12 @@ class SigningInventoryTests(unittest.TestCase):
             self.assertEqual(plistlib.loads((PROJECT / "resources/signing" / (policy + ".plist")).read_bytes()),
                              expected)
         self.assertEqual(signing.ENTITLEMENTS["default"], {})
+        sandboxed = {name for name, policy in signing.ENTITLEMENTS.items()
+                     if "com.apple.security.app-sandbox" in policy}
+        self.assertEqual(sandboxed, {"quicklook"})
+        self.assertEqual(signing.ENTITLEMENTS["quicklook"], {"com.apple.security.app-sandbox": True})
         for forbidden in ("com.apple.security.cs.disable-library-validation",
-                          "com.apple.security.get-task-allow", "com.apple.security.app-sandbox",
+                          "com.apple.security.get-task-allow",
                           "com.apple.security.cs.allow-dyld-environment-variables"):
             self.assertFalse(any(forbidden in policy for policy in signing.ENTITLEMENTS.values()))
 

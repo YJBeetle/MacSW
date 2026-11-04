@@ -25,6 +25,8 @@ SPARKLE_ROOT = "Contents/Frameworks/Sparkle.framework"
 SPARKLE_VERSION = SPARKLE_ROOT + "/Versions/B"
 FILE_PANEL_BUNDLE = "Contents/Helpers/MacSWFilePanel.app"
 FILE_PANEL_EXECUTABLE = FILE_PANEL_BUNDLE + "/Contents/MacOS/MacSWFilePanel"
+QUICKLOOK_BUNDLE = "Contents/PlugIns/MacSWQuickLook.appex"
+QUICKLOOK_EXECUTABLE = QUICKLOOK_BUNDLE + "/Contents/MacOS/MacSWQuickLook"
 SPARKLE_TARGETS = {
     SPARKLE_VERSION + "/Sparkle": SPARKLE_ROOT,
     SPARKLE_VERSION + "/Autoupdate": SPARKLE_VERSION + "/Autoupdate",
@@ -36,6 +38,7 @@ SPARKLE_BUNDLES = {SPARKLE_ROOT, *(target for target in SPARKLE_TARGETS.values()
                                  if target.endswith((".app", ".xpc")))}
 EXECUTABLES = {
     FILE_PANEL_EXECUTABLE: "default",
+    QUICKLOOK_EXECUTABLE: "quicklook",
     "Contents/MacOS/MacSW": "app",
     "Contents/MacOS/7zz": "default",
     WINE_ROOT + "/bin/wine": "wine",
@@ -47,6 +50,7 @@ LIBRARY_ROOTS = (WINE_ROOT + "/lib/",
                  "Contents/Resources/SWCLI/runtime/PythonNative/lib/")
 ENTITLEMENTS = {
     "default": {},
+    "quicklook": {"com.apple.security.app-sandbox": True},
     "app": {"com.apple.security.automation.apple-events": True},
     # PE code / Mono JIT memory is not signed Mach-O and does not use MAP_JIT.
     # Keep library validation enabled: all native dependencies share one Team.
@@ -118,7 +122,8 @@ def inventory(app):
                 raise RuntimeError("External, absolute or broken bundle link: " + relative)
             continue
         if path.is_dir():
-            if path.suffix in (".app", ".framework", ".xpc", ".bundle") and relative not in SPARKLE_BUNDLES | {FILE_PANEL_BUNDLE}:
+            if (path.suffix in (".app", ".framework", ".xpc", ".bundle", ".appex")
+                    and relative not in SPARKLE_BUNDLES | {FILE_PANEL_BUNDLE, QUICKLOOK_BUNDLE}):
                 raise RuntimeError("Nested code bundle needs an explicit signing policy: " + relative)
             if relative.startswith("Contents/Frameworks/") and not relative.startswith(SPARKLE_ROOT) and "." in path.name:
                 raise RuntimeError("Dotted data directory in native code location: " + relative)
@@ -133,6 +138,9 @@ def inventory(app):
             continue
         if relative == FILE_PANEL_EXECUTABLE and kind == 2:
             result.append({"path": relative, "target": FILE_PANEL_BUNDLE, "type": kind, "policy": "default"})
+            continue
+        if relative == QUICKLOOK_EXECUTABLE and kind == 2:
+            result.append({"path": relative, "target": QUICKLOOK_BUNDLE, "type": kind, "policy": "quicklook"})
             continue
         if kind == 2 and relative in EXECUTABLES:
             policy = EXECUTABLES[relative]

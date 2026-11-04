@@ -62,6 +62,7 @@ on:
       - 'native/mono_btls_probe.cs'
       - 'native/msxml_schema_namespace_probe.c'
       - 'native/macsw_file_panel.m'
+      - 'native/macsw_quicklook.m'
       - 'native/wine_file_panel_probe.c'
       - 'resources/**'
       - '.gitmodules'
