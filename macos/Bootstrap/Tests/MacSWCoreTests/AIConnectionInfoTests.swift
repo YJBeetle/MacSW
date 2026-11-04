@@ -12,31 +12,24 @@ final class AIConnectionInfoTests: XCTestCase {
         XCTAssertEqual(information.cli.path, app.path + "/Contents/MacOS/sw-cli")
         XCTAssertEqual(
             information.skillDirectory.path,
-            app.path + "/Contents/Resources/SWCLI/runtime/PythonNative/lib/python3.11/site-packages/swcli/skills/swcli"
+            app.path + "/Contents/Resources/SWCLI/skills/macsw"
         )
         XCTAssertEqual(information.skillEntry.path, information.skillDirectory.path + "/SKILL.md")
         XCTAssertEqual(information.usageGuide.path, information.skillDirectory.path + "/references/usage.md")
         XCTAssertEqual(information.pathHelper.path, app.path + "/Contents/Resources/SWCLI/bin/swcli-path")
-        for url in [app, information.cli, information.skillDirectory, information.skillEntry,
-                    information.usageGuide, information.pathHelper, paths.bottle, paths.logs] {
+        XCTAssertEqual(information.apiGuide.path, information.skillDirectory.path + "/references/solidworks-api.md")
+        for url in [information.cli, information.skillDirectory, paths.bottle] {
             XCTAssertTrue(information.text.contains(url.path), url.path)
         }
         XCTAssertFalse(information.text.contains("/Applications/MacSW.app"))
     }
 
-    func testOnlyDiscoveryCommandsAreIncludedAndPathsAreQuoted() {
-        let information = AIConnectionInfo(bundleURL: app, paths: paths)
-        let prefix = "env MACSW_WINEPREFIX='/tmp/MacSW AI support/bottle' SWCLI_ENDPOINT='127.0.0.1:18495' '/Volumes/External Apps/My MacSW.app/Contents/MacOS/sw-cli'"
-        XCTAssertEqual(information.discoveryCommands, [
-            prefix + " version --json",
-            prefix + " daemon status --json",
-            prefix + " capabilities --json"
-        ])
-        XCTAssertFalse(information.discoveryCommands.contains { $0.contains("daemon start") || $0.contains("daemon stop") })
-        XCTAssertTrue(information.text.contains("不代表 daemon 或 SOLIDWORKS 已启动"))
-        XCTAssertTrue(information.text.contains("复制时未执行任何检查命令"))
-        XCTAssertTrue(information.text.contains("安装整个 skill 文件夹，保留 references"))
-        XCTAssertTrue(information.text.contains("不假定存在 Z:"))
+    func testPromptInstallsUserSkillWithoutOperatingDocuments() {
+        let text = AIConnectionInfo(bundleURL: app, paths: paths).text
+        XCTAssertTrue(text.contains("用户级技能目录"))
+        XCTAssertTrue(text.contains("references/local-connection.md"))
+        XCTAssertFalse(text.contains("daemon start"))
+        XCTAssertFalse(text.contains("document open"))
     }
 
     func testSingleQuotesAndShellMetacharactersRemainData() {
@@ -45,27 +38,17 @@ final class AIConnectionInfoTests: XCTestCase {
             paths: AppPaths(appSupportDirectory: URL(fileURLWithPath: "/tmp/User's support")),
             environment: ["SWCLI_ENDPOINT": "agent's;$(echo unsafe)"]
         )
-        let command = information.discoveryCommands[0]
+        let command = information.text
         XCTAssertTrue(command.contains("MACSW_WINEPREFIX='/tmp/User'\\''s support/bottle'"))
         XCTAssertTrue(command.contains("SWCLI_ENDPOINT='agent'\\''s;$(echo unsafe)'"))
         XCTAssertTrue(command.contains("'/tmp/Agent'\\''s $(echo unsafe) `app`.app/Contents/MacOS/sw-cli'"))
-    }
-
-    func testPromptSeparatesReadinessFromLifecycleAuthorization() {
-        let text = AIConnectionInfo(bundleURL: app, paths: paths).text
-        for guidance in ["host_connected=true", "worker_alive=true", "recovery_required=false",
-                         "host 非空", "启动 SWCLI daemon", "恢复 SWCLI daemon", "不可见启动",
-                         "复制这段接入信息本身不是", "--attach-existing", "daemon restart",
-                         "命令尚未执行", "不要改用其他命令绕过审批"] {
-            XCTAssertTrue(text.contains(guidance), guidance)
-        }
     }
 
     func testEndpointMatchesConfiguredEnvironmentAndEmptyUsesDefault() {
         let environment = ["SWCLI_ENDPOINT": "127.0.0.1:19000"]
         let information = AIConnectionInfo(bundleURL: app, paths: paths, environment: environment)
         XCTAssertEqual(information.endpoint, "127.0.0.1:19000")
-        XCTAssertTrue(information.discoveryCommands.allSatisfy { $0.contains("SWCLI_ENDPOINT='127.0.0.1:19000'") })
+        XCTAssertTrue(information.text.contains("SWCLI_ENDPOINT='127.0.0.1:19000'"))
         XCTAssertEqual(
             AIConnectionInfo(bundleURL: app, paths: paths, environment: ["SWCLI_ENDPOINT": ""]).endpoint,
             AIConnectionInfo.defaultEndpoint

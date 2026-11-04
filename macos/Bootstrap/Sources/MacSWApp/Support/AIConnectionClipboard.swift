@@ -30,7 +30,7 @@ enum AIConnectionClipboard {
                 throw CopyError.missingResource(executable)
             }
         }
-        for document in [information.skillEntry, information.usageGuide] {
+        for document in [information.skillEntry, information.usageGuide, information.apiGuide] {
             guard files.isReadableFile(atPath: document.path) else {
                 throw CopyError.missingResource(document)
             }

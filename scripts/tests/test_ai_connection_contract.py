@@ -59,14 +59,18 @@ class AIConnectionContractTests(unittest.TestCase):
         for forbidden in ("AppKit", "FileManager", "Process(", "CommandRunner", "AppPaths.live"):
             self.assertNotIn(forbidden, info)
 
-    def test_advertised_skill_is_checked_against_current_pinned_source(self):
+    def test_advertised_skill_and_pinned_guide_are_packaged_and_verified(self):
         info = (SOURCES / "MacSWCore/Models/AIConnectionInfo.swift").read_text()
+        package = (PROJECT / "scripts/package_app.sh").read_text()
         verify = (PROJECT / "scripts/verify_app.sh").read_text()
-        relative = re.search(r'"runtime/PythonNative/([^"]+/skills/swcli)"', info).group(1)
-        for document in ("SKILL.md", "references/usage.md"):
-            packaged = "${SWCLI_NATIVE_RUNTIME}/" + relative + "/" + document
-            self.assertIn('test -s "' + packaged + '"', verify)
-            self.assertIn('cmp "${WORKSPACE_ROOT}/Dependencies/SWCLI/src/swcli/skills/swcli/' + document + '"', verify)
+        self.assertIn('"skills/macsw"', info)
+        self.assertIn('"${WORKSPACE_ROOT}/resources/skills/macsw" "${RESOURCES_DIR}/SWCLI/skills/"', package)
+        self.assertIn('"${SWCLI_DIR}/skills/macsw"', verify)
+        for document in ("SKILL.md", "references/solidworks-api.md"):
+            self.assertTrue((PROJECT / "resources/skills/macsw" / document).is_file())
+            self.assertIn('cmp "${WORKSPACE_ROOT}/resources/skills/macsw/' + document + '"', verify)
+        self.assertIn('"${SWCLI_NATIVE_SITE_PACKAGES}/swcli/skills/swcli/references/usage.md"', package)
+        self.assertIn('"${MACSW_SKILL}/references/usage.md"', verify)
 
 
 if __name__ == "__main__":
