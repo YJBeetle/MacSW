@@ -1,6 +1,6 @@
 # MCP daemon utilities 启动器修复
 
-MacSW 的 SWCLI 固定到 3eba5c42776c6714d1a36a6458fab47aa7c3ff6d（0.1.0a16），包含 1204621 的 Windows 单元断言修复和新的宿主启动器管道 EOF 修复。纯原生客户端包装脚本与单独 Wine daemon utilities 的边界保持。
+MacSW 的 SWCLI 源码固定到 769677ac6a2bdfb00e108c1606f419c0ef8e5f34（0.1.0a16）；它的产品源码与 3eba5c42776c6714d1a36a6458fab47aa7c3ff6d 逐字节相同，额外仅有 tag 发布 CI、脚本、测试和文档。本机已安装 App 的真实 SWCLI 接受来源仍明确为 3eba5c4，包含 1204621 的 Windows 单元断言修复和新的宿主启动器管道 EOF 修复。纯原生客户端包装脚本与单独 Wine daemon utilities 的边界保持。
 
 DockerSW [42116004763](https://github.com/YJBeetle/DockerSW/actions/runs/42116004763) 的宿主实际已开始工作，但常驻 Wine 后代继承了启动器的 stdout/stderr，PIPE 捕获等到启动预算结束才返回，随后入口退出中断容器测试（137）。现改用私有临时文件，只等待启动器进程；启动预算、原生时限、无失败重试及宿主所有权检查不变。完整源码 1600 项单元测试通过，21 skip。
 
@@ -18,6 +18,27 @@ SSH workspaceroot 隔离 Wine 11.16 / Windows Python 3.11.9 最小复现：PIPE 
 
 5 项新增 Swift 离线用例、shell 包装契约和 MacSW 主产品编译通过。完整 Core 测试 238 项通过；Python 离线测试 365 项、1 skip 通过。首次失败的本次空宿主已核对 PID/同 prefix 路径并用标准 wine_runtime.py stop 清理，未 Unix 强杀或重试原生失败。修复后的实际启停接受结果单独记录。
 
-原始失败 start.json SHA-256：ba9e4ab625f67c853f8e45809450410fd1188b25efcba72b5dbb007a52a9832c。
+原始失败 start-license-blocked.json SHA-256：ba9e4ab625f67c853f8e45809450410fd1188b25efcba72b5dbb007a52a9832c。
 只读 license-observation.json SHA-256：e1bf279c9eed02a9a8a79f1e5f8fb155e7a7e46fd9bc380849fc773a8cb96d74。
 迁移证据 bottle-migration-evidence.json SHA-256：ca01e06fe378a4b2e8278f01739b5a14c8f2fc5cbd36a4a6e02799f0beecd3be。
+
+## 修复后的默认 MacSW App 真实 MCP 接受
+
+MacSW 功能源码 fd9402633b23bba83fe75b23a023e07e8d37cb75；默认 /Applications/MacSW.app 的主二进制重新构建并同 Team Developer ID 验签。它是本机 arm64 debug 验证包，未重新申请公证、未发布。App 的双 Python 与默认 bottle 仍固定真实 SWCLI 3eba5c4，72 个源码/资源文件逐字节匹配；没有为了纯 CI 改动重部署另一个产品版本。原始 App 与之前本地包均有独立备份。
+
+- 更新后握手、五工具发现与离线 status 不启动 SW。
+- 只进行一次有针对性的显式 start，45.602 秒就绪；owned/hidden SW 的 Windows PID404（macOS PID62776），实时 top-level-windows 观察确认隐藏，无用户或其他 SW。文档列表 schema 与真实空列表读取通过。
+- 第一条 stdio 连接退出后宿主保留。第二条连接确认同一 PID404、空文档，显式 stop 返回 success。
+- stop 后同一 MCP 仍能返回结构化 status；TCP 关闭竞态先返回 ConnectionReset/unknown，原 harness 错误地要求立即 false，原失败断言及回执保留未修改。随后独立新连接只做一次只读 status，确认 stopped/端口拒绝连接，SW/pythonw 均已退出；没有重启、重做 CAD 或重试原生调用。
+- 新准备入口自动复用本地托管许可服务；没有手工启动或重配许可。daemon stop 只管理其 SW/daemon，共享的 lmgrd、SW_D 和 wineserver 按现有规则保留，许可端口仍可用。
+
+这验证了真实默认 App/bottle、宿主准备和 MCP 生命周期，不替代完整 CAD 矩阵。原始成功与失败接受记录、独立终态、源码/签名摘要以及 SHA256SUMS 保留在 /private/tmp/macsw-mcp-local-20261106/success-fd94026-3eba5c4。
+
+| 原件 | SHA-256 |
+| --- | --- |
+| start.json | 4205839434f0d9b0acb2cdc30ab4986249212cbc22f9cf14e427191eb99899cf |
+| reconnect-stop.json（保留瞬时 unknown 断言） | 77684b2570da870c5d4641b06e91ade02a612d17321dc43c39d69f30f777ec73 |
+| after-stop-status.json（独立只读终态） | bc85d73c6207bf46dd44406da7bc6abfe098171d424344b6ce0f5d14e3e93b62 |
+| installed-license-fix.json | 20750f948cd46d37e42f84753a856a39739d0d0f8c8ed2ce6e575a068297218c |
+| final-source-proof.json | a68b6bc54b3dd8b469a0819fdc8d573ef29b2348a0569803c99701c49d34bd09 |
+| summary.json | 0ebe200dbf618832119943bbcc5e326775775bb3e3ae5818b9e38263ce75ec10 |
