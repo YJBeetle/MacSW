@@ -11,9 +11,10 @@ public struct AppPaths: Sendable {
     public let logs: URL
     public let managedFlexNet: URL
 
-    public init(appSupportDirectory: URL) {
+    public init(appSupportDirectory: URL, bottle: URL? = nil) {
         self.appSupportDirectory = appSupportDirectory.standardizedFileURL
-        self.bottle = self.appSupportDirectory.appendingPathComponent("bottle", isDirectory: true)
+        self.bottle = (bottle ?? self.appSupportDirectory.appendingPathComponent("bottle", isDirectory: true))
+            .standardizedFileURL
         self.logs = self.appSupportDirectory.appendingPathComponent("logs", isDirectory: true)
         self.managedFlexNet = self.bottle.appendingPathComponent(Self.managedFlexNetRelativePath, isDirectory: true)
     }

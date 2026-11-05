@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import MacSWCore
 import SwiftUI
 
@@ -30,6 +31,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
+enum MacSWEntryPoint {
+    @MainActor
+    static func main() async {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.first == SWCLIDaemonPreparation.argument {
+            do {
+                try await SWCLIDaemonPreparation.run(arguments: arguments)
+                exit(EXIT_SUCCESS)
+            } catch {
+                let message = "MacSW daemon preparation failed: \(error.localizedDescription)\n"
+                FileHandle.standardError.write(Data(message.utf8))
+                exit(EXIT_FAILURE)
+            }
+        }
+        MacSWApplication.main()
+    }
+}
+
 struct MacSWApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var bootstrap: BootstrapStore

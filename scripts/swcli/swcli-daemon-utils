@@ -79,8 +79,20 @@ require_windows_runtime() {
     SWCLI_PATH_HELPER_WIN="$(to_windows_path "${SWCLI_RESOURCES}/bin/swcli_path.exe")"
 }
 
+prepare_daemon_host() {
+    local app_binary="${CONTENTS_DIR}/MacOS/MacSW"
+    if [ ! -x "${app_binary}" ]; then
+        echo "MacSW daemon preparation executable is missing; reinstall MacSW." >&2
+        return 1
+    fi
+    MACSW_WINEPREFIX="${WINEPREFIX}" "${app_binary}" --prepare-swcli-daemon >&2
+}
+
 run_windows_windowless_cli() {
     require_windows_runtime
+    if [ "${action}" != doctor ]; then
+        prepare_daemon_host || return $?
+    fi
     local output_file output_windows status
     output_file="$(mktemp "${TMPDIR:-/tmp}/macsw-swcli.XXXXXX")"
     output_windows="$(to_windows_path "${output_file}")"
@@ -116,6 +128,7 @@ esac
 export SWCLI_DAEMON_UTILS_ACTIVE=1
 if [ "${action}" = serve ]; then
     require_windows_runtime
+    prepare_daemon_host
     exec env \
         SWCLI_PATH_TRANSLATE_CMD="${SWCLI_PATH_HELPER_WIN}" \
         SWCLI_POSIX_CWD_WIN="$(to_windows_path "${PWD}")" \

@@ -32,6 +32,11 @@ touch "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli_path.exe"
 touch "${PREFIX}/drive_c/MacSW/Python311/python.exe"
 touch "${PREFIX}/drive_c/MacSW/Python311/pythonw.exe"
 
+cat > "${CONTENTS_DIR}/MacOS/MacSW" <<'EOF'
+#!/usr/bin/env bash
+printf 'prepare prefix=%s args=%s\n' "${MACSW_WINEPREFIX:-}" "$*" >> "${SWCLI_TEST_LOG}"
+exit "${SWCLI_TEST_PREPARE_STATUS:-0}"
+EOF
 cat > "${CONTENTS_DIR}/Frameworks/wine/bin/wineloader" <<'EOF'
 #!/usr/bin/env bash
 printf 'windows translator=%s aot=%s overrides=%s lang=%s lc_all=%s loader=%s server=%s args=%s\n' \
@@ -76,6 +81,7 @@ printf 'utils=%s\n' "${SWCLI_DAEMON_UTILS:-}" >> "${SWCLI_TEST_LOG}"
 EOF
 chmod +x \
     "${CONTENTS_DIR}/MacOS/sw-cli" \
+    "${CONTENTS_DIR}/MacOS/MacSW" \
     "${CONTENTS_DIR}/Frameworks/wine/bin/wineloader" \
     "${CONTENTS_DIR}/Frameworks/wine/bin/wineserver" \
     "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" \
@@ -96,6 +102,7 @@ for arguments in '--help' 'version --json' 'daemon status --json' 'daemon status
     grep -Fq "utils=${UTILS}" "${LOG_FILE}"
     ! grep -Fq 'windows ' "${LOG_FILE}"
     ! grep -Fq 'sync prefix=' "${LOG_FILE}"
+    ! grep -Fq 'prepare prefix=' "${LOG_FILE}"
 done
 : > "${LOG_FILE}"
 "${LAUNCHER}" --endpoint 127.0.0.1:19500 daemon start --json
@@ -122,6 +129,9 @@ grep -Fq 'windows translator=Z:' "${LOG_FILE}"
 grep -Fq 'pythonw.exe -c' "${LOG_FILE}"
 grep -Fq 'daemon start --endpoint 127.0.0.1:19500 --json' "${LOG_FILE}"
 grep -Fq 'delegated=1' "${LOG_FILE}"
+grep -Fq "prepare prefix=${PREFIX} args=--prepare-swcli-daemon" "${LOG_FILE}"
+test "$(grep -c 'prepare prefix=' "${LOG_FILE}")" = 1
+test "$(grep -n 'prepare prefix=' "${LOG_FILE}" | cut -d: -f1)" -lt "$(grep -n 'windows translator=' "${LOG_FILE}" | cut -d: -f1)"
 grep -Fq 'aot=none' "${LOG_FILE}"
 grep -Fq 'overrides=atiadlxx=d;winemenubuilder.exe=d;concrt140=n,b;msvcp140=n,b;msvcp140_1=n,b;msvcp140_2=n,b;msvcp140_atomic_wait=n,b;msvcp140_codecvt_ids=n,b;vcruntime140=n,b;vcruntime140_1=n,b;vcomp140=n,b;mfc140u=n,b' "${LOG_FILE}"
 grep -Fq 'lang=zh_CN.UTF-8 lc_all=zh_CN.UTF-8' "${LOG_FILE}"
@@ -129,12 +139,29 @@ grep -Fq "loader=${CONTENTS_DIR}/Frameworks/wine/bin/wineloader server=${CONTENT
 ! grep -Fq 'native ' "${LOG_FILE}"
 : > "${LOG_FILE}"
 "${UTILS}" serve --port 18496
+grep -Fq "prepare prefix=${PREFIX} args=--prepare-swcli-daemon" "${LOG_FILE}"
 grep -Fq 'C:\MacSW\Python311\python.exe -m swcli daemon serve --port 18496' "${LOG_FILE}"
 ! grep -Fq 'pythonw.exe' "${LOG_FILE}"
 : > "${LOG_FILE}"
 "${LAUNCHER}" document list --json
 ! grep -Fq 'windows ' "${LOG_FILE}"
 grep -Fq -- '-m swcli document list --json' "${LOG_FILE}"
+
+# Only explicit lifecycle start/serve/restart prepares the native prerequisite.
+: > "${LOG_FILE}"
+"${UTILS}" restart --json >/dev/null
+grep -Fq "prepare prefix=${PREFIX} args=--prepare-swcli-daemon" "${LOG_FILE}"
+: > "${LOG_FILE}"
+"${UTILS}" doctor --json >/dev/null
+! grep -Fq 'prepare prefix=' "${LOG_FILE}"
+: > "${LOG_FILE}"
+if SWCLI_TEST_PREPARE_STATUS=42 "${UTILS}" start --json; then
+    echo 'utils ignored native daemon preparation failure' >&2; exit 1
+else
+    test "$?" = 42
+fi
+grep -Fq 'prepare prefix=' "${LOG_FILE}"
+! grep -Fq 'windows translator=' "${LOG_FILE}"
 
 TMP_PHYSICAL="$(cd /tmp && pwd -P)"
 EXPECTED_TMP="Z:${TMP_PHYSICAL//\//\\}\\model.SLDPRT"
