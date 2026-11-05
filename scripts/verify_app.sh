@@ -54,6 +54,8 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${INFO_PLIST}")" = "https
 otool -L "${CONTENTS_DIR}/MacOS/MacSW" | grep -q '@rpath/Sparkle.framework/'
 test -x "${CONTENTS_DIR}/MacOS/7zz"
 test -x "${SWCLI_LAUNCHER}"
+test -x "${SWCLI_DIR}/bin/swcli-daemon-utils"
+cmp "${WORKSPACE_ROOT}/scripts/swcli/swcli-daemon-utils" "${SWCLI_DIR}/bin/swcli-daemon-utils"
 test -L "${SWCLI_LAUNCHER}"
 test "$(readlink "${SWCLI_LAUNCHER}")" = "../Resources/sw-cli"
 test -f "${SWCLI_LAUNCHER_RESOURCE}"
@@ -83,12 +85,14 @@ cmp "${WORKSPACE_ROOT}/resources/skills/macsw/references/solidworks-api.md" \
     "${MACSW_SKILL}/references/solidworks-api.md"
 cmp "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/skills/swcli/references/usage.md" \
     "${MACSW_SKILL}/references/usage.md"
+cmp "${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages/swcli/skills/swcli/references/mcp.md" \
+    "${MACSW_SKILL}/references/mcp.md"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/jsonschema/__init__.py"
 test -f "${SWCLI_RUNTIME}/Lib/site-packages/rpds/rpds.cp311-win_amd64.pyd"
 test "$(shasum -a 256 "${SWCLI_DIR}/wheels.tsv" | awk '{print $1}')" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIWheelManifestSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
 PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -B -c \
-    'import attrs, jsonschema, referencing, rpds, typing_extensions; from swcli.operation_schemas import operation_schemas; [jsonschema.Draft202012Validator.check_schema(schema) for schema in operation_schemas().values()]'
+    'import attrs, jsonschema, referencing, rpds, typing_extensions, mcp.server.stdio; from swcli.mcp import tool_definitions; from swcli.operation_schemas import operation_schemas; [jsonschema.Draft202012Validator.check_schema(schema) for schema in operation_schemas().values()]'
 grep -Fxq 'Lib\site-packages' "${SWCLI_RUNTIME}/python311._pth"
 grep -Fxq 'import site' "${SWCLI_RUNTIME}/python311._pth"
 test -f "${SWCLI_DIR}/licenses/SWCLI-LICENSE"

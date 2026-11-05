@@ -165,11 +165,15 @@ cp -p "${SWCLI_NATIVE_PATH_HELPER}" "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
 cp -p "${SWCLI_NATIVE_PATH_SCRIPT}" "${RESOURCES_DIR}/SWCLI/bin/swcli_path.py"
 cp -p "${SWCLI_RUNTIME_SYNC}" "${RESOURCES_DIR}/SWCLI/bin/swcli_runtime.py"
 cp -p "${WORKSPACE_ROOT}/scripts/swcli/wine_runtime.py" "${RESOURCES_DIR}/SWCLI/bin/wine_runtime.py"
+cp -p "${WORKSPACE_ROOT}/scripts/swcli/swcli-daemon-utils" "${RESOURCES_DIR}/SWCLI/bin/swcli-daemon-utils"
+chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli-daemon-utils"
 cp -p "${WORKSPACE_ROOT}/scripts/swcli/open_document.py" "${RESOURCES_DIR}/SWCLI/bin/open_document.py"
 mkdir -p "${RESOURCES_DIR}/SWCLI/skills"
 cp -R "${WORKSPACE_ROOT}/resources/skills/macsw" "${RESOURCES_DIR}/SWCLI/skills/"
 cp -p "${SWCLI_NATIVE_SITE_PACKAGES}/swcli/skills/swcli/references/usage.md" \
     "${RESOURCES_DIR}/SWCLI/skills/macsw/references/usage.md"
+cp -p "${SWCLI_NATIVE_SITE_PACKAGES}/swcli/skills/swcli/references/mcp.md" \
+    "${RESOURCES_DIR}/SWCLI/skills/macsw/references/mcp.md"
 chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli-path"
 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -I -B "${SWCLI_RUNTIME_SYNC}" \
     --contents "${CONTENTS_DIR}" --build-manifest \

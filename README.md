@@ -102,6 +102,16 @@ skill installation using its own mechanism and your authorization; MacSW does
 not change agent settings. Copying runs no discovery commands, starts no Wine or
 SOLIDWORKS, creates no bottle, and does not establish daemon readiness.
 
+The development SWCLI integration also supports MCP stdio through the App's
+`Contents/MacOS/sw-cli mcp serve`. The App wrapper forwards arguments unchanged and supplies `SWCLI_DAEMON_UTILS`;
+MCP initialization/status never starts Wine or SW. Explicit MCP lifecycle tools
+can start/reuse or stop the daemon, with the same document and ownership guards
+as the CLI. Startup may take several minutes. Native macOS Python bundles the
+checksum-locked MCP SDK; Wine Python stays dedicated to swclid/COM. See the
+packaged `macsw/references/mcp.md` guide. These source changes do not update an
+already installed App until a new App is built and installed.
+
+
 These examples assume `/Applications/MacSW.app`; change the first line for another location.
 
 ```bash
