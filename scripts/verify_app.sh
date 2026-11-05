@@ -137,6 +137,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :WineMSXMLSchemaPatchSHA256' "${BUILD_
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineMSXMLSerializationPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0020-msxml-preserve-empty-element-namespace.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WinePEMappingPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0015-ntdll-probe-executable-file-mappings.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineWriteBuffersPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0019-ntdll-serialize-process-write-buffer-flush.patch" | awk '{print $1}')"
+test "$(/usr/libexec/PlistBuddy -c 'Print :WineDisplayTopologyPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0021-winemac-refresh-display-topology.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFileManagerPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0016-shell-native-file-manager.patch" | awk '{print $1}')"
 test "$(/usr/libexec/PlistBuddy -c 'Print :WineNativeFilePanelPatchSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${WORKSPACE_ROOT}/patches/wine-crossover/0017-comdlg32-native-file-panels.patch" | awk '{print $1}')"
 test -x "${APP_DIR}/Contents/Helpers/MacSWFilePanel.app/Contents/MacOS/MacSWFilePanel"

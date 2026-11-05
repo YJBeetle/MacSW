@@ -1,0 +1,46 @@
+diff --git a/dlls/winemac.drv/cocoa_app.m b/dlls/winemac.drv/cocoa_app.m
+index 102a5b7..d039c54 100644
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -2192,6 +2192,13 @@ static NSString* WineLocalizedString(unsigned int stringID)
+         });
+     }
+
++    - (void)applicationDidChangeScreenParameters:(NSNotification *)notification
++    {
++        /* AppKit may update NSScreen after the CoreGraphics callback. Invalidate
++           the coordinate cache again using the settled Cocoa screen geometry. */
++        [self cgDisplay:kCGNullDirectDisplay wasReconfiguredWithFlags:0];
++    }
++
+     - (void)applicationDidFinishLaunching:(NSNotification *)notification
+     {
+         CGDisplayRegisterReconfigurationCallback(DisplayReconfigCallback, NULL);
+diff --git a/dlls/winemac.drv/display.c b/dlls/winemac.drv/display.c
+index 2b2c55d..c66d2e3 100644
+--- a/dlls/winemac.drv/display.c
++++ b/dlls/winemac.drv/display.c
+@@ -1039,7 +1039,23 @@ void macdrv_displays_changed(const macdrv_event *event)
+        process it (by sending it to the desktop window). */
+     if (event->displays_changed.activating ||
+         NtUserGetWindowThread(hwnd, NULL) == GetCurrentThreadId())
++    {
+         NtUserCallNoParam(NtUserCallNoParam_DisplayModeChanged);
++
++        /* The desktop refresh updates the shared monitor cache, but does not
++           notify application windows. Only its owner broadcasts the native
++           change; activation merely synchronizes the activated process. */
++        if (!event->displays_changed.activating)
++        {
++            DEVMODEW mode = { .dmSize = sizeof(mode) };
++
++            if (!NtUserEnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &mode, 0))
++                return;
++            NtUserMessageCall(HWND_BROADCAST, WM_DISPLAYCHANGE, mode.dmBitsPerPel,
++                              MAKELPARAM(mode.dmPelsWidth, mode.dmPelsHeight),
++                              NULL, NtUserSendNotifyMessage, FALSE);
++        }
++    }
+ }
+
+ UINT macdrv_UpdateDisplayDevices(const struct gdi_device_manager *device_manager, void *param)
