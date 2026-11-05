@@ -169,12 +169,14 @@ Wine 及其派生补丁使用 LGPL-2.1-or-later。App 包含许可证与精确�
 
 ## 验证
 
-GitHub Actions 分成两个 job：`build` 分步执行 `make test` 和 `make archive`；
-`runtime-test` 依赖构建成功，下载并校验本轮 App 归档及 CI helper，在另一台 runner
-执行安装与运行门禁，不重新编译 App。安装／运行失败不改变已成功的构建 job 状态，
-但整个工作流仍会失败。`make ci` 保留为开发时合并执行测试与归档的便捷入口。
-本仓库 master 的相关 push 自动执行隔离安装与运行门禁，
-可手动选择 `verify_solidworks` 和验证阶段；PR / fork 不使用私有资源。
+GitHub Actions 的日常 master push 先由 `checks` 执行 `make test`，
+再由 `Build & package` 构建、校验和归档 App；日常不运行真实 SOLIDWORKS 安装/功能测试。
+`runtime-test` 在手动选择 `verify_solidworks=true` 后执行；未来版本 tag 是另一
+显式入口，先通过无秘密的版本／master 祖先检查，再自动运行可见冒烟和隐藏完整两档。
+两档使用独立 runner、证据目录和 artifact，下载并校验同轮 App 和 CI helper，
+不重新编译 App。任一失败仍使工作流失败；tag 两档成功后才自动签名、公证及发布。
+详见[版本 tag 发布](direct-distribution.md#版本-tag-自动发布)。
+`make ci` 保留为开发时合并测试和归档的便捷入口，PR/fork 不使用私有资源。
 真实安装、缓存恢复、启动、连续建模和尺寸验证分别取证；不使用日常主容器。
 共享 CAD 操作与断言由 SWCLI 维护，MacSW 负责宿主准备、真实路径转换和证据收集。
 通用建模和尺寸门禁必须在同一 daemon / SOLIDWORKS 实例中顺序执行，不以中途重启绕过失败。

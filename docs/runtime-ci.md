@@ -1,24 +1,46 @@
 # MacSW 真实安装与运行 CI
 
-`Build & Package MacSW.app` 在本仓库 `master` push 时自动执行 macOS/Wine
-真实验证，手动触发时可使用 `verify_solidworks=true`。
-使用 GitHub 托管的 Apple Silicon
-`macos-14` runner、仓库固定版本的 Wine/Mono/SWCLI，以及打包后的 App。
+`Build & Package MacSW.app` 的日常 `master` push 只运行轻量 `checks`：
+Swift/Python/SWCLI 单元测试及包装脚本检查，然后保留 `Build & package` 构建和验证 App。
+日常 push 不安装或运行 SOLIDWORKS，不读取私有安装资源。要执行真实 SOLIDWORKS
+安装/运行，需在手动 master 运行中
+显式设置 `verify_solidworks=true`。未来 `v<APP_VERSION>` tag push 是发布入口：
+先由不接触秘密的 `tag-policy` 检查源码版本及 master 祖先，再自动运行两档完整门禁。
+
+使用 GitHub 托管的 Apple Silicon `macos-15` runner、仓库固定版本的
+Wine/Mono/SWCLI，以及同次运行打包后的原始 App。
 `runtime_stage=install` 只执行真实安装和私有夹具准备，不等待共享建模入口；
 `runtime_stage=full` 表示执行选定运行测试，并不表示 CAD full 档。
-工作流不响应 PR，且 job 层再次限制事件类型。
-带私有资源的验证只允许本仓库 `master` push 或 master 的手动选择执行，fork、PR
-或其他 ref 不能执行。tag 发布仍只构建和打包，不调用私有安装/运行步骤。
-push 使用默认介质、夹具、简体中文和 `full` 阶段，运行轻量可见冒烟。
+工作流不响应 PR。私有资源仅允许本仓库 master 的显式手动运行，或通过版本与
+master 祖先政策检查的本仓库版本 tag 访问；任意 tag、fork、PR 和其他 ref 无法放行。
+
+完整隐藏 CAD 验证的手动示例（不会自动签名或发布）：
+
+```bash
+gh workflow run build-app.yml --ref master \
+  -f verify_solidworks=true -f runtime_stage=full \
+  -f runtime_profile=hidden-full -f diagnostic_test_set=all
+```
 
 `runtime_profile` 有两个互斥入口，替代原来的 `runtime_suite`：
 
 - `visible-smoke`（默认）：独立共享 `verify-visible.py` 入口。新建独占可见
   CLI／SW 会话，只读打开官方 Part、inspect、关闭并确认空文档，正常停止 daemon，
   然后确认 SW 进程消失。不创建模型、不重建、不保存、不导出、不运行尺寸或 Toolbox。
-- `hidden-full`（仅手动）：共享 `verify-runtime-sets.py --suite full --mode hidden`，
+- `hidden-full`（开发时手动，版本 tag 自动）：共享 `verify-runtime-sets.py --suite full --mode hidden`，
   默认跑隐藏完整 19 组。每组启动新的 CLI／SW，会核对归属、进程退出和文档清场，
   组内不重启；失败续用→Front 直径保留同一宿主。
+
+
+版本 tag 的 runtime matrix 固定为 `visible-smoke` 和 `hidden-full`，分别在独立
+runner 运行，不在同一宿主串联或扩长时限。证据分别写入
+`evidence/visible-smoke/`、`evidence/hidden-full/`，上传
+`MacSW-SOLIDWORKS-runtime-evidence-<profile>`；安装证据仍保留在 evidence 根目录。
+脱敏和截图准入检查递归覆盖两个子目录，失败禁止上传。每个 job 仍为 360 分钟，
+可见步骤 30 分钟、隐藏步骤 330 分钟，原生 600 秒和每组 1800 秒不变。
+tag 没有手动输入，固定 `diagnostic_test_set=all`、`diagnostic_visible=false`、
+renderer `auto`。两份原始 runtime.json 的实际完整覆盖、宿主/进程清理与 GitHub
+artifact 摘要由无秘密签名前置 job 再核，不用单个 job 绿灯代替真实回执。
 
 手动 `hidden-full` 可额外选择 `diagnostic_test_set=drawing-save|drawing-save-as|drawings`，
 仅聚焦一组现有断言，不调整超时或重试原生调用。默认 `all` 保持完整计划。

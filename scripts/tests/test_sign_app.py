@@ -420,11 +420,11 @@ class NativeBundleLayoutTests(unittest.TestCase):
             modules.mkdir(parents=True)
             (modules / "swcli.py").write_text(
                 "import json, os, sys\n"
-                "print(json.dumps({'args': sys.argv[1:], 'loader': os.environ['WINELOADER'], "
-                "'server': os.environ['WINESERVER'], 'path_helper': os.environ['SWCLI_PATH_TRANSLATE_CMD']}))\n")
+                "print(json.dumps({'args': sys.argv[1:], 'host_platform': os.environ['SWCLI_HOST_PLATFORM'], "
+                "'daemon_utils': os.environ['SWCLI_DAEMON_UTILS'], 'path_helper': os.environ['SWCLI_PATH_TRANSLATE_CMD']}))\n")
             expected = {"args": ["version", "--json"],
-                        "loader": str(contents / "Frameworks/wine/bin/wineloader"),
-                        "server": str(contents / "Frameworks/wine/bin/wineserver"),
+                        "host_platform": "macos-wine",
+                        "daemon_utils": str(contents / "Resources/SWCLI/bin/swcli-daemon-utils"),
                         "path_helper": str(contents / "Resources/SWCLI/bin/swcli-path")}
             for entry in (launcher, resource):
                 with self.subTest(entry=entry.relative_to(contents)):
@@ -949,7 +949,7 @@ class CredentialTests(unittest.TestCase):
                 run.assert_not_called()
                 cleanup.assert_called_once()
 
-    def test_signing_workflow_is_manual_protected_and_no_release(self):
+    def test_signing_workflow_is_trusted_manual_or_tag_followup_without_direct_release(self):
         workflow = (PROJECT / ".github/workflows/sign-app.yml").read_text()
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("environment: macsw-release", workflow)
@@ -967,9 +967,9 @@ class CredentialTests(unittest.TestCase):
         self.assertIn("NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}", workflow)
         self.assertIn("NOTARY_ISSUER_ID: ${{ vars.NOTARY_ISSUER_ID }}", workflow)
         signing_job = workflow.split("  verify-signed-bootstrap:", 1)[0]
-        self.assertEqual(workflow.count("uses: actions/upload-artifact@v7"), 3)
+        self.assertEqual(workflow.count("uses: actions/upload-artifact@v7"), 4)
         uploads = signing_job.split("uses: actions/upload-artifact@v7")[1:]
-        self.assertEqual(len(uploads), 2)
+        self.assertEqual(len(uploads), 3)
         for upload in uploads:
             self.assertNotIn("macsw-signing-credentials", upload)
             self.assertNotIn("notary-submission.zip", upload)

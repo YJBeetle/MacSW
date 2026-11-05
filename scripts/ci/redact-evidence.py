@@ -59,7 +59,7 @@ def main():
     # Binary screenshots cannot be text-redacted. Admit only hashed captures
     # from hosted CAD stages. Full desktop images were explicitly authorized;
     # neither installation nor credential/licensing setup is an allowed stage.
-    for image in (directory / "screenshots").glob("*.png"):
+    for image in directory.rglob("*.png"):
         if image.is_symlink() or image.with_suffix(".json").is_symlink():
             raise RuntimeError("Screenshot symlink")
         receipt = json.loads(image.with_suffix(".json").read_text())

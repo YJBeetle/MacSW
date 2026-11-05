@@ -1,8 +1,8 @@
-"""Publish original accepted CI assets; never rebuild or re-sign the App.
+"""Publish original signed, notarized and bootstrap-verified CI assets.
 
-Only a successful trusted signing run and its corresponding visible-smoke build
-can publish. Release-only commits may follow the payload commit; any change to
-an App/runtime input requires a new build and signing run.
+Tagged candidates bind both native profiles and their own immutable source
+version; later master progress does not relabel them. Manual signing keeps the
+original release-only source-drift guard. Never rebuild, re-sign or clobber.
 """
 import argparse
 import base64
@@ -92,12 +92,16 @@ def fetch_artifact(item, path):
 
 def validate_signing_run(record, jobs):
     if (record.get('path') != '.github/workflows/sign-app.yml' or
-            record.get('head_branch') != 'master' or record.get('event') != 'workflow_dispatch' or
+            record.get('head_branch') != 'master' or record.get('event') not in ('workflow_dispatch', 'workflow_run') or
             record.get('status') != 'completed' or record.get('conclusion') != 'success' or
             record.get('repository', {}).get('full_name') != REPOSITORY or
             record.get('head_repository', {}).get('full_name') != REPOSITORY or
             not re.fullmatch(r'[0-9a-f]{40}', record.get('head_sha', '')) or
-            len(jobs) != 2 or {j['name'] for j in jobs} != {'sign-and-notarize', 'verify-signed-bootstrap'} or
+            len(jobs) not in (2, 3) or len({j['name'] for j in jobs}) != len(jobs)
+            or {j['name'] for j in jobs} not in
+                ({'sign-and-notarize', 'verify-signed-bootstrap'},
+                 {'verify-source', 'sign-and-notarize', 'verify-signed-bootstrap'})
+            or (record.get('event') == 'workflow_run' and len(jobs) != 3) or
             any(j['conclusion'] != 'success' for j in jobs)):
         raise RuntimeError('Both trusted signing and macOS 15 bootstrap jobs must pass')
 
@@ -161,7 +165,7 @@ def verify_feed(candidate, archive, info):
              '-inkey', root / 'public.der', '-in', archive, '-sigfile', root / 'signature'], timeout=120)
 
 
-def validate_candidate(candidate, archive, values, sha):
+def validate_candidate(candidate, archive, values, sha, *, source_public_key=None):
     version = values['APP_VERSION']
     if (candidate / (archive.name + '.sha256')).read_text().split() != [digest(archive), archive.name]:
         raise RuntimeError('Final archive checksum mismatch')
@@ -176,12 +180,16 @@ def validate_candidate(candidate, archive, values, sha):
         if (info['CFBundleShortVersionString'] != version or info['CFBundleVersion'] != values['APP_BUILD'] or
                 manifest['SWCLIVersion'] != values['SWCLI_VERSION'] or
                 manifest['SWCLISourceCommit'] != values['SWCLI_SOURCE_COMMIT'] or
-                info['SUPublicEDKey'] != (PROJECT / 'config/sparkle-public-key.txt').read_text().strip() or
+                info['SUPublicEDKey'] != (source_public_key if source_public_key is not None else
+                                           (PROJECT / 'config/sparkle-public-key.txt').read_text().strip()) or
                 info['SUFeedURL'] != f'https://github.com/{REPOSITORY}/releases/latest/download/appcast.xml'):
             raise RuntimeError('Candidate identity differs from the reviewed source')
     provenance = json.loads((candidate / 'provenance.json').read_text())
+    tag_release = provenance.get('release_tag')
+    runtime_result = ('visible-smoke-and-hidden-full-passed' if tag_release else 'visible-smoke-passed')
     if (provenance.get('repository') != REPOSITORY or provenance.get('source_commit') != sha or
-            provenance.get('runtime_verification') != {'required': True, 'result': 'visible-smoke-passed'}):
+            (tag_release and tag_release != 'v' + version) or
+            provenance.get('runtime_verification') != {'required': True, 'result': runtime_result}):
         raise RuntimeError('Candidate did not pass the required visible smoke at this source')
     verify_feed(candidate, archive, info)
     return provenance, result['id']
@@ -262,6 +270,41 @@ def ensure_newer_release(latest, values):
         raise RuntimeError('New Sparkle build number must increase')
 
 
+def candidate_source(record, candidate_zip):
+    # workflow_run's head SHA is default-branch workflow code. The signed payload
+    # source is carried in the hash-bound candidate and checked again below.
+    with zipfile.ZipFile(candidate_zip) as bundle:
+        if bundle.namelist().count('provenance.json') != 1:
+            raise RuntimeError('Missing or duplicate signing source provenance')
+        source = json.loads(bundle.read('provenance.json'))
+    sha, release_tag = source.get('source_commit', ''), source.get('release_tag')
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        raise RuntimeError('Invalid signed source SHA')
+    if record['event'] == 'workflow_run':
+        if not release_tag:
+            raise RuntimeError('Automatic signing must bind a verified version tag')
+        signing.policy.validate_tag(release_tag, sha)
+    elif sha != record["head_sha"] or release_tag:
+        raise RuntimeError('Manual signing source differs from its exact master run')
+    return sha, release_tag
+
+
+def publication_source(sha, release_tag):
+    if release_tag:
+        signing.policy.validate_tag(release_tag, sha)
+        values = signing.policy.source_versions(sha)
+        public_key = signing.policy.git("show", sha + ":config/sparkle-public-key.txt").strip()
+        # Full acceptance is long-running; later master payload changes do not
+        # relabel an already verified immutable tagged candidate.
+        try:
+            notes = signing.policy.git("show", sha + ":docs/releases/" + release_tag + ".md")
+        except subprocess.CalledProcessError:
+            notes = None
+        return values, public_key, notes
+    publisher_matches(sha)
+    return versions(), None, None
+
+
 def publish(signing_run_id, output):
     if (os.environ.get('GITHUB_REPOSITORY') != REPOSITORY or
             os.environ.get('GITHUB_REF') != 'refs/heads/master' or
@@ -272,23 +315,29 @@ def publish(signing_run_id, output):
     record = api(f'{ROOT}/actions/runs/{signing_run_id}')
     jobs = collection(f'{ROOT}/actions/runs/{signing_run_id}/jobs', 'jobs')
     validate_signing_run(record, jobs)
-    sha = record['head_sha']
-    publisher_matches(sha)
-    values = versions()
+    signing_sha = record['head_sha']
+    artifact = select_artifact(collection(f'{ROOT}/actions/runs/{signing_run_id}/artifacts', 'artifacts'),
+                               'MacSW-Developer-ID-candidate', signing_run_id, signing_sha)
+    candidate_zip = output / 'candidate-artifact.zip'
+    fetch_artifact(artifact, candidate_zip)
+    sha, release_tag = candidate_source(record, candidate_zip)
+    values, source_public_key, source_notes = publication_source(sha, release_tag)
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', values['APP_VERSION']) or not re.fullmatch(r'[1-9][0-9]*', values['APP_BUILD']):
         raise RuntimeError('Invalid stable version/build')
     tag = 'v' + values['APP_VERSION']
-    artifact = select_artifact(collection(f'{ROOT}/actions/runs/{signing_run_id}/artifacts', 'artifacts'),
-                               'MacSW-Developer-ID-candidate', signing_run_id, sha)
-    candidate_zip = output / 'candidate-artifact.zip'
-    fetch_artifact(artifact, candidate_zip)
     candidate = output / 'candidate'
     archive = unpack_candidate(candidate_zip, candidate, values['APP_VERSION'])
-    provenance, notary_id = validate_candidate(candidate, archive, values, sha)
+    provenance, notary_id = validate_candidate(candidate, archive, values, sha, source_public_key=source_public_key)
     build_id = str(provenance['build_run_id'])
     build = api(f'{ROOT}/actions/runs/{build_id}')
-    signing.validate_run(build, sha)
-    signing.validate_jobs(collection(f'{ROOT}/actions/runs/{build_id}/jobs', 'jobs'))
+    signing.validate_run(build, sha, release_tag=release_tag)
+    signing.validate_jobs(collection(f'{ROOT}/actions/runs/{build_id}/jobs', 'jobs'), release_tag=release_tag)
+    if release_tag:
+        actual_profiles = signing.runtime_proofs(
+            collection(f'{ROOT}/actions/runs/{build_id}/artifacts', 'artifacts'), output, build_id, sha,
+            plan=signing.source_runtime_plan(sha))
+        if provenance.get('runtime_profiles') != actual_profiles:
+            raise RuntimeError('Runtime profile proofs differ from signing provenance')
     original = select_artifact(collection(f'{ROOT}/actions/runs/{build_id}/artifacts', 'artifacts'),
                                'MacSW-macOS-App', build_id, sha)
     if original['id'] != provenance['artifact_id'] or original['digest'] != provenance['artifact_digest']:
@@ -298,15 +347,25 @@ def publish(signing_run_id, output):
     assets = output / 'assets'
     expected = prepare_assets(candidate, archive, build_zip, provenance, values, assets)
     notes = PROJECT / f'docs/releases/{tag}.md'
-    body = notes.read_text() if notes.exists() else f'MacSW {values["APP_VERSION"]} · build {values["APP_BUILD"]}\n\nSource: {sha}\nSWCLI: {values["SWCLI_VERSION"]}\n\nDeveloper ID signed and notarized. See SHA256SUMS and release-info.zip.'
+    body = (source_notes if release_tag else notes.read_text() if notes.exists() else None) or f'MacSW {values["APP_VERSION"]} · build {values["APP_BUILD"]}\n\nSource: {sha}\nSWCLI: {values["SWCLI_VERSION"]}\n\nDeveloper ID signed and notarized. See SHA256SUMS and release-info.zip.'
     if api(f'{ROOT}/git/ref/heads/master')['object']['sha'] != os.environ['GITHUB_SHA']:
         raise RuntimeError('Master advanced during publication; use its current reviewed workflow')
     ensure_newer_release(api(f'{ROOT}/releases/latest', optional=True), values)
     existing_tag = api(f'{ROOT}/git/ref/tags/{tag}', optional=True)
     if existing_tag is None:
+        if release_tag:
+            raise RuntimeError('Verified version tag disappeared; refusing to recreate it')
         api(f'{ROOT}/git/refs', body={'ref': 'refs/tags/' + tag, 'sha': sha})
-    elif existing_tag['object']['type'] != 'commit' or existing_tag['object']['sha'] != sha:
-        raise RuntimeError('Release tag already points to another commit; refusing to move it')
+    else:
+        target = existing_tag['object']
+        for _ in range(8):
+            if target['type'] == 'commit':
+                break
+            if target['type'] != 'tag':
+                raise RuntimeError('Release tag does not identify a commit')
+            target = api(f"{ROOT}/git/tags/{target['sha']}")['object']
+        if target['type'] != 'commit' or target['sha'] != sha:
+            raise RuntimeError('Release tag already points to another commit; refusing to move it')
     release = release_for_tag(tag)
     if release is None:
         latest = api(f'{ROOT}/releases/latest', optional=True)

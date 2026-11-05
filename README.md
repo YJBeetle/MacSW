@@ -173,11 +173,23 @@ make app
 The output is `build/app/MacSW.app`. The first build downloads and verifies pinned
 dependencies; later builds reuse the `dist/` cache. See the
 [development guide](docs/development.md) for tests, packaging, installer internals,
-and Wine fixes. GitHub Actions runs `make test` and `make archive` as separate steps
-in the `build` job. An independent `runtime-test` job downloads this run's App and
-performs isolated real installation/runtime validation without recompiling it.
-Relevant master pushes in this repository run automatically; manual triggering is
-also supported. PRs do not access private runtime resources.
+and Wine fixes. Relevant master pushes first run the `checks` job:
+Swift/Python/SWCLI unit tests and launcher/script checks via `make test`, then
+`Build & package` creates and verifies the App. Pushes do not install or run
+SOLIDWORKS and do not access private installation/runtime resources. Version-tag
+pushes are the exception described below. Set `verify_solidworks=true` on a manual master run to
+also install/restore SOLIDWORKS and run the selected runtime tests. For full CAD
+coverage choose `runtime_stage=full`, `runtime_profile=hidden-full` and
+`diagnostic_test_set=all`; the default runtime profile is visible smoke.
+The independent `runtime-test` job consumes this same run's verified App and
+helpers without recompiling them. PRs do not execute these workflows.
+
+A future `v<APP_VERSION>` tag pushed from a master-reachable commit automatically
+runs both visible smoke and hidden full acceptance on separate runners, then
+signs/notarizes the same original App and publishes only after signed bootstrap
+and original-asset checks pass. A secret-free tag policy runs first; tag runs
+cannot select a diagnostic subset or skip runtime checks. See
+[Direct Distribution](docs/direct-distribution.md#版本-tag-自动发布).
 
 ## Documentation
 

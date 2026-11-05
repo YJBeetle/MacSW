@@ -52,10 +52,11 @@ CI 四份原始 JSON 和 ZIP `.sha256` 仍保留，仅公开 Release 的 JSON �
 解包或上传大文件；不需要 Apple／Sparkle 私钥，只有此发布 job 使用
 `contents: write` 创建标签和 Release，其他工作流权限不变。
 
-发布脚本同时检查签名、公证和 macOS 15 初始化两个 job、原始构建的轻量
-可见冒烟、相同源码 SHA、GitHub artifact 摘要、最终包 SHA-256、版本和
-Ed25519 更新签名。允许签发后仅新增发布脚本／工作流／对应测试／发布说明；
-任何 App、运行时、构建配置或其他签发流程输入变化均要求重新构建签发。
+发布脚本检查签名、公证、macOS 15 初始化、原始构建运行及其来源。tag 自动链路
+还要求成功的无秘密 verify-source job 和两档真实 runtime 证明。两种入口均核对
+GitHub artifact 摘要、最终包 SHA-256、版本和 Ed25519 更新签名。手动签发后仅允许
+新增发布脚本／工作流／对应测试／发布说明；tag 链路始终读取已验证 tag 本身的
+配置、公钥、说明和固定 SWCLI 计划，master 之后推进不会把旧原包标为新版本。
 因此接入发布自动化时可以使用已验收的原包，而不能拿旧包发布新功能。
 
 先创建草稿并上传六个附件，核对 GitHub 返回的附件大小和摘要，再公开但
@@ -79,8 +80,8 @@ Ed25519 更新签名。允许签发后仅新增发布脚本／工作流／对应
 重启及迁移端到端验收通过。发布前仍需该项验证，不以单测或公证替代。
 
 目标是 Mac App Store 之外的直接分发，而非 App Store 沙盒或商店上传。
-当前新增流程仅由 `sign-app.yml` 手动运行，生成 CI candidate，不创建
-GitHub Release，也不修改本机主 App、主容器或默认开发打包流程。
+`sign-app.yml` 可手动签发，或在版本 tag 完整构建／双档验收后自动签发；它本身
+生成 CI candidate，由后续发布工作流消费。不修改本机主 App 或主容器。
 
 ## 签发前的保护
 
@@ -109,16 +110,13 @@ Developer 角色即可，账户需开启双重认证后生成 App 专用密码�
 配置 Environment 保护后再存入 Secrets，导出私钥须由账号持有人确认。
 参考 [GitHub 临时钥匙串流程](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)。
 
-默认流程：同一个 master 提交先完成 Build & Package 的轻量可见冒烟，
-普通 master push 默认执行；手动选择 `verify_solidworks=true`、
-`runtime_stage=full`、`runtime_profile=visible-smoke` 也可。
-必须通过 runtime job 的 `Lightweight visible SOLIDWORKS smoke` 步骤；
-缺失、失败、跳过或重复的 job／步骤均拒绝。只构建或只安装成功不算通过。
-Mac 轻量冒烟显式给共享门禁传入 600 秒单请求预算（共享默认仍为 120 秒），
-保留 900 秒整轮保护、原始断言和失败即停止；证据必须确认实际使用了该预算。
-`runtime_profile=hidden-full` 是独立手动诊断，结果不作为签名／公证的前置条件，
-也不能拿该运行的构建产物替代轻量构建输入。签名仍检查选定轻量 run 成功、
-同一提交、可信来源及产物哈希；它不查询其他诊断 run。
+手动签发：同一个 master 提交先手动选择 `verify_solidworks=true`、
+`runtime_stage=full`、`runtime_profile=visible-smoke` 完成 Build & Package。
+普通 master push 仅运行单元检查和构建，不自动运行 SW。必须通过 runtime job 的
+`Lightweight visible SOLIDWORKS smoke` 步骤；缺失、失败、跳过或重复的 job／步骤
+均拒绝。只构建或只安装成功不算通过。旧的单一可见 job 与新的命名 matrix job
+都可被显式选作签名输入。手动 `hidden-full` 子集诊断不能代替可见签名前置条件。
+可见冒烟保持 600 秒单请求、900 秒整轮保护和原始断言；隐藏完整保留现有计划及预算。
 再手动运行 Developer ID Direct Distribution，传入该 build run ID。
 不接受其他提交、fork、PR、失败构建、仅安装验证或过期产物；核对服务端
 artifact SHA-256 后才解开 App ZIP。仍未配置凭据时流程应失败，不退化为
@@ -130,6 +128,36 @@ ad-hoc 签名，不跳过公证。
 中的 `runtime_verification.result` 标为 `skipped-by-manual-override`，不能据此
 宣称运行冒烟通过；Release 说明也应披露此边界。正式签名、公证、票据和签名包
 的原语／跨系统初始化校验不受此选项影响，后台安装测试可独立继续。
+该 override 不能用于版本 tag 自动签发，也不能通过自动发布器的必须验收门禁。
+
+## 版本 tag 自动发布
+
+未来版本先将 `APP_VERSION`、递增的 `APP_BUILD` 和对应源码合入 master，再推送
+`v<APP_VERSION>`（例如 `v0.1.11`）。该 tag 表示发布意图，自动顺序为：
+
+1. 无秘密政策 job 从可信 master 运行，检查仓库、tag／源码版本、精确 SHA 和
+   master 可达祖先；未经验证的任意 tag 不得读取安装凭据。
+2. 保留日常单元测试与 Build & package，并使用同轮原始 App，在独立 runner 上
+   跑可见冒烟、隐藏 full/all。两档证据路径与 artifact 按 profile 区分，不相互覆盖。
+3. Build workflow 完成后触发签名 workflow。先由无秘密 `verify-source` 从 master
+   校验源 run，再 checkout 精确 tag SHA 及其固定 SWCLI 子模块，核 App 身份、
+   原 artifact 摘要和两份 runtime 回执。不能使用 `workflow_run` 默认分支的
+   `GITHUB_SHA` 代替被验收的 tag SHA。tag 路径禁止 `skip_runtime_check`。
+4. 进入 `macsw-release` environment 后再次核对 live tag，防止审批等待期间移动；
+   之后执行原有 Developer ID、原语、公证、staple、Sparkle 签名与独立 bootstrap。
+   environment 若配置人工审批，仍按 GitHub 的保护要求等待，自动化不会绕过。
+5. 原发布器消费此签名 run 的原包，分别绑定 workflow 自身 SHA 与 payload 源 SHA，
+   再核双档原始证据、tag 和 artifact 摘要。tag 路径读取源 tag 的配置、公钥、说明
+   和 SWCLI gitlink 对应计划，允许 master 在耗时验收期间继续推进；不会读取
+   最新 master 的版本标记旧包。手动入口仍保留原来的纯发布变更白名单。
+6. 草稿补缺、冲突拒绝、Apple Accepted、公证票据、原始六资产及匿名下载验哈希
+   仍按原流程执行，公开下载验证后才设置 latest。失败不重签、不覆盖资产或回滚。
+
+`workflow_run` 后续流程只在默认分支存在这些工作流后生效；由另一个工作流的
+`GITHUB_TOKEN` 创建的 tag 不会再触发 push 流程，自动创建 tag 的发布机器人需使用
+合适的 GitHub App 身份。参见 [GitHub 触发规则](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)。
+本次接线不创建真实 tag／Release，不改变历史版本资产，也不宣称尚未运行的新 tag
+发布链路已经通过实际 Apple 或 SOLIDWORKS 验收。
 
 ## 嵌套代码和签名顺序
 
@@ -222,10 +250,9 @@ SOLIDWORKS GUI/CAD 门禁。当前完整 CAD CI 在原始 ad-hoc 构建上运行
 后，仍需在不改密封包的条件下验证签名 App 启动、实际 SW、终端权限和
 Toolbox/装配体保存重开，然后再接自动 Release 发布。
 
-`build-app.yml` 不再响应 tag 或写入 Release，已移除旧的未公证 ZIP 自动发布
-路径。普通 build artifact 不能称作正式签名包。发布仅消费签发工作流全部
-成功后的最终 ZIP；覆盖既有版本时也必须同步标签、校验和、公证日志及来源
-记录，不能混用旧 ZIP 与新清单。v0.1.0 修订包使用 build 2 区分初始包。
+`build-app.yml` 的版本 tag 入口只生产待验证原包和双档证据，不直接发布
+未公证 ZIP。普通 build artifact 不能称作正式签名包；发布仅消费签发工作流全部
+成功后的最终原始 ZIP。不覆盖已有版本的不匹配资产，不移动已存在的版本 tag。
 公开发布时还要同时保留对应 Wine/Mono source archives，不能因为换了签名
 ZIP 就丢掉现有开源运行时的源码分发。
 

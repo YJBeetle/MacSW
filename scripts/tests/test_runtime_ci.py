@@ -42,11 +42,12 @@ sync_spec.loader.exec_module(runtime_sync)
 class RuntimeWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.workflow = (PROJECT / ".github/workflows/build-app.yml").read_text()
+        self.checks = self.workflow.split("\n  checks:\n", 1)[1].split("\n  build:\n", 1)[0]
         self.build, self.runtime = self.workflow.split("\n  build:\n", 1)[1].split("\n  runtime-test:\n", 1)
 
     def test_official_actions_use_node24_versions_and_keep_archive_layout(self):
         actions = {
-            "actions/checkout@v7": 2,
+            "actions/checkout@v7": 4,
             "actions/cache@v6": 1,
             "actions/cache/restore@v6": 1,
             "actions/cache/save@v6": 1,
@@ -62,17 +63,31 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertNotIn("ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION", self.workflow)
 
     def test_build_and_runtime_have_independent_results_and_concurrency(self):
-        self.assertIn("run: make test", self.build)
+        self.assertIn("run: make test", self.checks)
+        self.assertNotIn("run: make test", self.build)
+        self.assertIn("needs: [checks, tag-policy]", self.build)
         self.assertIn("make archive", self.build)
-        self.assertLess(self.build.index("run: make test"), self.build.index("make archive"))
         self.assertNotIn("make ci", self.build)
-        self.assertIn("needs: build", self.runtime)
+        self.assertIn("needs: [build, tag-policy]", self.runtime)
         self.assertIn("group: macsw-build-${{ github.ref }}-${{ inputs.runtime_profile || 'visible-smoke' }}", self.build)
-        self.assertIn("group: macsw-solidworks-runtime-${{ inputs.runtime_profile || 'visible-smoke' }}", self.runtime)
+        self.assertIn("group: macsw-solidworks-runtime-${{ matrix.profile }}", self.runtime)
         self.assertIn("cancel-in-progress: false", self.runtime)
         self.assertNotIn("continue-on-error", self.workflow)
         self.assertNotIn("swift build", self.runtime)
         self.assertNotIn("make archive", self.runtime)
+
+    def test_push_builds_app_but_sw_runtime_requires_manual_opt_in(self):
+        self.assertIn("github.event_name == 'push'", self.checks)
+        self.assertIn("run: make test", self.checks)
+        self.assertIn("./Dependencies/SWCLI[mcp]", self.checks)
+        for heavy in ("make archive", "make app", "secrets.", "install-rosetta", "fetch_dependencies.sh"):
+            self.assertNotIn(heavy, self.checks)
+        build_guard = self.build.split("    steps:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", build_guard)
+        self.assertIn("github.event_name == 'push'", build_guard)
+        self.assertIn("needs: [checks, tag-policy]", build_guard)
+        self.assertIn("inputs.verify_solidworks", build_guard)
+        self.assertNotIn("secrets.", build_guard)
 
     def test_private_secrets_are_only_in_master_runtime_job(self):
         self.assertNotIn("secrets.RCLONE_CONFIG_B64", self.build)
@@ -80,7 +95,8 @@ class RuntimeWorkflowTests(unittest.TestCase):
         guard = self.runtime.split("    steps:", 1)[0]
         self.assertIn("github.repository == 'YJBeetle/MacSW'", guard)
         self.assertIn("github.ref == 'refs/heads/master'", guard)
-        self.assertIn("github.event_name == 'push'", guard)
+        self.assertIn("startsWith(github.ref, 'refs/tags/v')", guard)
+        self.assertIn("needs.tag-policy.result == 'success'", guard)
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.verify_solidworks", guard)
         self.assertNotIn("pull_request", self.workflow)
         self.assertIn("contents: read", guard)
@@ -88,7 +104,11 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertNotIn("Publish Release Assets", self.build)
         self.assertNotIn("softprops/action-gh-release", self.workflow)
         self.assertNotIn("contents: write", self.workflow)
-        self.assertNotIn("\n    tags:", self.workflow)
+        self.assertIn('tags: ["v*"]', self.workflow)
+        policy = self.workflow.split("  tag-policy:", 1)[1].split("  checks:", 1)[0]
+        self.assertIn("ref: master", policy)
+        self.assertIn("fetch-depth: 0", policy)
+        self.assertNotIn("secrets.", policy)
         self.assertNotIn("Publish Release Assets", self.runtime)
 
     def test_download_assets_cache_uses_dependency_identity_not_swcli_source_pin(self):
@@ -152,12 +172,12 @@ class RuntimeWorkflowTests(unittest.TestCase):
 
     def test_default_smoke_and_manual_hidden_diagnostics_are_disjoint(self):
         step = self.runtime.split("- name: Lightweight visible SOLIDWORKS smoke", 1)[1].split("- name:", 1)[0]
-        diagnostic = self.runtime.split("- name: Diagnostic CAD tests", 1)[1].split("- name:", 1)[0]
-        self.assertIn("(inputs.runtime_profile || 'visible-smoke') == 'visible-smoke'", step)
+        diagnostic = self.runtime.split("- name: Hidden SOLIDWORKS verification", 1)[1].split("- name:", 1)[0]
+        self.assertIn("matrix.profile == 'visible-smoke'", step)
         self.assertIn("--profile visible-smoke", step)
         self.assertIn("timeout-minutes: 30", step)
-        self.assertIn("github.event_name == 'workflow_dispatch'", diagnostic)
-        self.assertIn("inputs.runtime_profile == 'hidden-full'", diagnostic)
+        self.assertIn("matrix.profile == 'hidden-full'", diagnostic)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.diagnostic_test_set || 'all'", diagnostic)
         self.assertIn("--profile hidden-full", diagnostic)
         self.assertIn("diagnostic_args+=(--diagnostic-visible)", diagnostic)
         self.assertIn("Visible comparison requires a selected diagnostic set", diagnostic)
@@ -170,9 +190,12 @@ class RuntimeWorkflowTests(unittest.TestCase):
             self.assertIn("--renderer '${{ inputs.runtime_renderer || 'auto' }}'", selected)
         self.assertLess(ci.VISIBLE_TIMEOUT_SECONDS + ci.STARTUP_TIMEOUT_SECONDS + 30 + 120, 30 * 60)
         self.assertLess(ci.SETS_TIMEOUT_SECONDS["full"], 330 * 60)
-        self.assertNotIn("matrix:", self.runtime)
+        self.assertIn("matrix:", self.runtime)
+        self.assertIn('["visible-smoke","hidden-full"]', self.runtime)
+        self.assertIn('MacSW-runtime/evidence/${{ matrix.profile }}', step)
+        self.assertIn('MacSW-runtime/evidence/${{ matrix.profile }}', diagnostic)
         self.assertNotIn("SIGNING_", self.runtime)
-        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence\n", self.runtime)
+        self.assertIn("name: MacSW-SOLIDWORKS-runtime-evidence-${{ matrix.profile }}\n", self.runtime)
         self.assertIn("timeout-minutes: 360", self.runtime.split("steps:", 1)[0])
 
 
@@ -1066,8 +1089,8 @@ class RuntimeAdapterTests(unittest.TestCase):
             self.assertNotIn("daemon", arguments)
             self.assertEqual(arguments[arguments.index("--request-timeout") + 1], "600")
             self.assertIn("--timeout-backtrace", arguments)
-            wrapper = (PROJECT / "scripts/swcli/sw-cli").read_text()
-            self.assertIn('WINEDLLOVERRIDES="' + gate.env["WINEDLLOVERRIDES"] + '"', wrapper)
+            utilities = (PROJECT / "scripts/swcli/swcli-daemon-utils").read_text()
+            self.assertIn('WINEDLLOVERRIDES="' + gate.env["WINEDLLOVERRIDES"] + '"', utilities)
             self.assertEqual((gate.cwd / ci.NATIVE_DRAWING_GATE).read_bytes(), script.read_bytes())
             proof = {"completed": True, "success": not failed, "diagnostic_case": "drawing-native-reopen",
                      "coverage_scope": "direct-native-control", "full_acceptance_eligible": forged,

@@ -50,6 +50,7 @@ on:
         type: string
         default: 'chinese-simplified'
   push:
+    tags: ["v*"]
     branches:
       - master
     paths:
@@ -74,15 +75,60 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build & package
-    # No PR execution. Private runtime inputs are available only to a trusted
-    # master push or opt-in manual master run, never forks or arbitrary refs.
+  tag-policy:
+    name: Validate version tag before private runtime
+    if: ${{ github.repository == 'YJBeetle/MacSW' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 scripts/ci/tag-policy.py
+
+  checks:
+    name: Lightweight checks
     if: >-
       github.repository == 'YJBeetle/MacSW' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (!inputs.verify_solidworks ||
-       github.ref == 'refs/heads/master')
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+    steps:
+      - name: Checkout MacSW Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up test Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Prepare isolated SWCLI test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install './Dependencies/SWCLI[mcp]'
+          echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Run unit tests
+        run: make test
+
+  build:
+    name: Build & package
+    needs: [checks, tag-policy]
+    # Ordinary pushes keep App build/package checks. Private SW inputs require
+    # the opt-in runtime job below; PRs never execute it.
+    if: >-
+      always() && github.repository == 'YJBeetle/MacSW' &&
+      needs.checks.result == 'success' &&
+      ((github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) ||
+       (github.event_name == 'workflow_dispatch' && (!inputs.verify_solidworks || github.ref == 'refs/heads/master')) ||
+       (startsWith(github.ref, 'refs/tags/v') && needs.tag-policy.result == 'success'))
     runs-on: macos-15 # Apple Silicon runner
     timeout-minutes: 60
     outputs:
@@ -94,7 +140,7 @@ jobs:
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
-      MACSW_VERIFY_SOLIDWORKS: ${{ github.ref == 'refs/heads/master' && (github.event_name == 'push' || inputs.verify_solidworks) && 'true' || 'false' }}
+      MACSW_VERIFY_SOLIDWORKS: ${{ ((github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' && inputs.verify_solidworks) || needs.tag-policy.result == 'success') && 'true' || 'false' }}
 
     steps:
       - name: Checkout MacSW Repository
@@ -162,9 +208,6 @@ jobs:
           mkdir -p dist
           echo "==> 检查 Wine 运行时状态..."
           ls -lh dist/ || true
-
-      - name: Run unit tests
-        run: make test
 
       - name: Build, verify and archive MacSW.app
         run: |
@@ -263,20 +306,23 @@ jobs:
           retention-days: 14
 
   runtime-test:
-    name: SOLIDWORKS installation & runtime
-    needs: build
-    # Private resources must never be available to PRs, forks, tags or other refs.
+    name: SOLIDWORKS installation & runtime (${{ matrix.profile }})
+    needs: [build, tag-policy]
+    # Only explicit master dispatch or a secret-free validated upstream version tag.
     if: >-
-      github.repository == 'YJBeetle/MacSW' &&
-      github.ref == 'refs/heads/master' &&
-      (github.event_name == 'push' ||
-       (github.event_name == 'workflow_dispatch' && inputs.verify_solidworks))
+      always() && github.repository == 'YJBeetle/MacSW' && needs.build.result == 'success' &&
+      ((github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' && inputs.verify_solidworks) ||
+       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-policy.result == 'success'))
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["visible-smoke","hidden-full"]' || format('["{0}"]', inputs.runtime_profile || 'visible-smoke')) }}
     runs-on: macos-15
     timeout-minutes: 360
     permissions:
       contents: read
     concurrency:
-      group: macsw-solidworks-runtime-${{ inputs.runtime_profile || 'visible-smoke' }}
+      group: macsw-solidworks-runtime-${{ matrix.profile }}
       cancel-in-progress: false
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
@@ -294,7 +340,7 @@ jobs:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
           MACSW_RUNTIME_STAGE: ${{ inputs.runtime_stage || 'full' }}
-          MACSW_RUNTIME_PROFILE: ${{ inputs.runtime_profile || 'visible-smoke' }}
+          MACSW_RUNTIME_PROFILE: ${{ matrix.profile }}
         run: |
           test -n "$RCLONE_CONFIG_B64" || { echo 'Missing RCLONE_CONFIG_B64' >&2; exit 1; }
           test -n "$SW_SERIAL_SOLIDWORKS" || { echo 'Missing SW_SERIAL_SOLIDWORKS' >&2; exit 1; }
@@ -428,22 +474,22 @@ jobs:
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
       - name: Lightweight visible SOLIDWORKS smoke
-        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && (inputs.runtime_profile || 'visible-smoke') == 'visible-smoke'
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && matrix.profile == 'visible-smoke'
         timeout-minutes: 30
         run: |
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
-            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
+            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence/${{ matrix.profile }}" \
             --profile visible-smoke \
             --renderer '${{ inputs.runtime_renderer || 'auto' }}'
 
-      # A separate manual run/queue, never a prerequisite of signing or pushes.
-      - name: Diagnostic CAD tests (not a signing gate)
-        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && github.event_name == 'workflow_dispatch' && (inputs.runtime_stage || 'full') == 'full' && inputs.runtime_profile == 'hidden-full'
+      # Hidden full is manual for development and mandatory for version-tag releases.
+      - name: Hidden SOLIDWORKS verification
+        if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && matrix.profile == 'hidden-full'
         timeout-minutes: 330
         env:
-          MACSW_DIAGNOSTIC_SET: ${{ inputs.diagnostic_test_set || 'all' }}
-          MACSW_DIAGNOSTIC_VISIBLE: ${{ inputs.diagnostic_visible && 'true' || 'false' }}
+          MACSW_DIAGNOSTIC_SET: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_test_set || 'all' }}
+          MACSW_DIAGNOSTIC_VISIBLE: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_visible && 'true' || 'false' }}
         run: |
           diagnostic_args=()
           if test "$MACSW_DIAGNOSTIC_SET" != all; then
@@ -458,7 +504,7 @@ jobs:
           fi
           .venv/bin/python scripts/ci/verify-runtime.py \
             --app "$RUNNER_TEMP/MacSW-runtime/MacSW.app" \
-            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence" \
+            --evidence "$RUNNER_TEMP/MacSW-runtime/evidence/${{ matrix.profile }}" \
             --profile hidden-full \
             --renderer '${{ inputs.runtime_renderer || 'auto' }}' \
             ${diagnostic_args[@]+"${diagnostic_args[@]}"}
@@ -482,13 +528,13 @@ jobs:
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.redact-runtime.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
-          name: MacSW-SOLIDWORKS-runtime-evidence
+          name: MacSW-SOLIDWORKS-runtime-evidence-${{ matrix.profile }}
           archive: true
           path: |
             ${{ runner.temp }}/MacSW-runtime/evidence/*.json
             ${{ runner.temp }}/MacSW-runtime/evidence/*.log
             ${{ runner.temp }}/MacSW-runtime/evidence/**/*.json
             ${{ runner.temp }}/MacSW-runtime/evidence/**/*.log
-            ${{ runner.temp }}/MacSW-runtime/evidence/screenshots/*.png
+            ${{ runner.temp }}/MacSW-runtime/evidence/**/screenshots/*.png
           if-no-files-found: warn
           retention-days: 14
