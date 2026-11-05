@@ -4,6 +4,11 @@ public final class RegistryService: @unchecked Sendable {
     private let wine: WineService
     private static let pingFangFileName = "PingFang.ttc"
     private static let pingFangFaceName = "PingFang SC"
+    private static let uniscribeHanFallback = RegistryAssignment(
+        key: #"HKCU\Software\Wine\Uniscribe\Fallback"#,
+        name: "696e6168", // Wine encodes the OpenType script tag 'hani' as a DWORD.
+        value: pingFangFaceName
+    )
     static let macShortcutKey = #"HKCU\Software\Wine\Mac Driver"#
     static let macShortcutValueNames = [
         "LeftCommandIsCtrl", "RightCommandIsCtrl", "LeftOptionIsAlt", "RightOptionIsAlt"
@@ -82,18 +87,18 @@ public final class RegistryService: @unchecked Sendable {
             try await configureSolidWorksCompatibility(prefix: prefix)
             return .existingLinksUnreadable
         }
-        try await write(
-            Self.appleFontAssignments(existingTahomaLinks: existingLinks)
-                + Self.solidWorksCompatibilityAssignments,
-            prefix: prefix
-        )
+        var assignments = Self.appleFontAssignments(existingTahomaLinks: existingLinks)
+        if let hanFallback = try await missingUniscribeHanFallback(prefix: prefix) {
+            assignments.append(hanFallback)
+        }
+        try await write(assignments + Self.solidWorksCompatibilityAssignments, prefix: prefix)
         return .enabled
     }
 
-    /// App 启动时只修复 Tahoma 的缺字回退链接，不改动字体族替换或其他安装期设置。
+    /// App 启动时补齐缺失的 Tahoma 链接和 Uniscribe 汉字回退，保留现有自定义设置。
     /// 现有链接无法安全解析时不写入，以免丢失 Wine 已生成的回退项。
     @discardableResult
-    public func repairTahomaFontLinkIfNeeded(prefix: URL) async throws -> Bool {
+    public func repairAppleFontFallbackIfNeeded(prefix: URL) async throws -> Bool {
         let fontsKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts"#
         let linksKey = #"HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink"#
         let fontQuery = wine.makeProcess(arguments: ["reg", "query", fontsKey], prefix: prefix)
@@ -107,11 +112,23 @@ public final class RegistryService: @unchecked Sendable {
         guard let existingLinks = Self.tahomaLinks(fromQueryStatus: linksStatus, output: linksOutput) else {
             throw Self.registryError("无法安全读取现有 Tahoma 字体链接，未改写字体设置。")
         }
-        guard let assignment = Self.missingPingFangLinkAssignment(existingTahomaLinks: existingLinks) else {
-            return false
+        let assignments = [
+            Self.missingPingFangLinkAssignment(existingTahomaLinks: existingLinks),
+            try await missingUniscribeHanFallback(prefix: prefix)
+        ].compactMap { $0 }
+        try await write(assignments, prefix: prefix)
+        return !assignments.isEmpty
+    }
+
+    private func missingUniscribeHanFallback(prefix: URL) async throws -> RegistryAssignment? {
+        let fallback = Self.uniscribeHanFallback
+        let query = wine.makeProcess(arguments: ["reg", "query", fallback.key, "/v", fallback.name], prefix: prefix)
+        let (status, _) = try await wine.captureCancellable(query)
+        switch status {
+        case 0: return nil
+        case 1: return fallback
+        default: throw Self.registryError("读取 Wine Uniscribe 汉字回退失败（\(status)）。")
         }
-        try await write([assignment], prefix: prefix)
-        return true
     }
 
     private func importRegistry(_ assignments: [RegistryAssignment], prefix: URL) async throws {

@@ -85,7 +85,7 @@ public final class RuntimeStore: ObservableObject {
         }
         self.swcliDaemon = swcliDaemon ?? SWCLIDaemonStore(service: SWCLIDaemonService(bundleURL: Bundle.main.bundleURL, paths: paths))
         self.fontLinkRepair = fontLinkRepair ?? { prefix in
-            _ = try await RegistryService(wine: wine).repairTahomaFontLinkIfNeeded(prefix: prefix)
+            _ = try await RegistryService(wine: wine).repairAppleFontFallbackIfNeeded(prefix: prefix)
         }
         self.swcliPreparation = swcliPreparation ?? { prefix in
             try await Task.detached {
