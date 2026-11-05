@@ -83,7 +83,7 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (!inputs.verify_solidworks ||
        github.ref == 'refs/heads/master')
-    runs-on: macos-14 # Apple Silicon M-series Runner，原生极速编译 Swift 与封包
+    runs-on: macos-15 # Apple Silicon runner
     timeout-minutes: 60
     outputs:
       app_archive: ${{ steps.build-config.outputs.app_archive }}
@@ -271,7 +271,7 @@ jobs:
       github.ref == 'refs/heads/master' &&
       (github.event_name == 'push' ||
        (github.event_name == 'workflow_dispatch' && inputs.verify_solidworks))
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 360
     permissions:
       contents: read

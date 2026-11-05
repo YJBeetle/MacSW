@@ -22,7 +22,7 @@ jobs:
       github.repository == 'YJBeetle/MacSW' &&
       github.ref == 'refs/heads/master' &&
       github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     environment: macsw-release
     timeout-minutes: 60
     concurrency:
