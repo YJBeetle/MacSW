@@ -81,7 +81,7 @@ Wine 11.21 的 `flush_memory_dc` 仍按 `biSizeImage / 4 / width` 计算高度�
 - 软件渲染通过一次性进程环境选项启用；持久日志明确记录 SW PID 1780（`06f4`）的 `Apple Software Renderer` 和 `accelerated 0`。同一会话的真实 SW PDF 导出返回0，包含一张 544×618 图片，提取后与前一次软件配置导出像素完全一致；整页与提取图均检查正常。最终 PDF SHA256 `54b83759e6e7667813413bd7877813bf8bf3e1bde027032698517853c3798dc5`。
 - 软件诊断后已关闭测试文档并重启恢复默认 renderer；该选项未写入注册表或用户偏好。
 
-完整本机证据、脚本与日志位于 `/private/tmp/macsw-wine1121/integration/`。原生面板、中文输入和实际显示器拔插仍待用户交互确认，不能把 ABI 检查当作这些项目已验收。
+完整本机证据、脚本与日志位于 `/private/tmp/macsw-wine1121/integration/`。显示器物理拔插两轮记录 29 / 21 次通知，用户确认原先小区域拖动限制未再出现；窗口位置和最大化恢复差异另记在 `docs/display-hotplug.md`。原生面板和中文输入仍待用户交互确认，不能把 ABI 检查当作这些项目已验收。
 
 ### 0.2.0 定版边界
 
