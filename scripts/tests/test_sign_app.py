@@ -56,6 +56,32 @@ class SigningInventoryTests(unittest.TestCase):
         path.write_bytes(data)
         return path
 
+    def add_gstreamer(self):
+        self.file(signing.GSTREAMER_VERSION + "/GStreamer", thin(6))
+        for name in signing.GSTREAMER_EXECUTABLES:
+            self.file(name, thin(2))
+
+    def test_gstreamer_framework_has_explicit_policy_and_follows_its_helpers(self):
+        self.add_gstreamer()
+        entries = signing.inventory(self.app)
+        target = next(i for i, e in enumerate(entries) if e.get("target") == signing.GSTREAMER_ROOT)
+        self.assertTrue(all(i < target for i, e in enumerate(entries)
+                            if e["path"] in signing.GSTREAMER_EXECUTABLES))
+        self.assertTrue(all(e["policy"] == "default" for e in entries
+                            if e["path"].startswith(signing.GSTREAMER_ROOT)))
+
+    def test_gstreamer_missing_helper_and_unknown_executable_are_rejected(self):
+        self.add_gstreamer()
+        helper = self.app / (signing.GSTREAMER_VERSION + "/libexec/gstreamer-1.0/gst-plugin-scanner")
+        data = helper.read_bytes()
+        helper.unlink()
+        with self.assertRaisesRegex(RuntimeError, "Incomplete GStreamer"):
+            signing.inventory(self.app)
+        helper.write_bytes(data)
+        self.file(signing.GSTREAMER_VERSION + "/bin/unreviewed", thin(2))
+        with self.assertRaisesRegex(RuntimeError, "Unreviewed native"):
+            signing.inventory(self.app)
+
     def test_actual_headers_not_extensions_and_order(self):
         module = signing.WINE_ROOT + "/lib/wine/x86_64-unix/winemac.so"
         self.file(module, thin(6))

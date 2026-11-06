@@ -38,6 +38,18 @@ SPARKLE_TARGETS = {
 }
 SPARKLE_BUNDLES = {SPARKLE_ROOT, *(target for target in SPARKLE_TARGETS.values()
                                  if target.endswith((".app", ".xpc")))}
+GSTREAMER_ROOT = WINE_ROOT + "/lib/GStreamer.framework"
+GSTREAMER_VERSION = GSTREAMER_ROOT + "/Versions/1.0"
+GSTREAMER_TOOLS = (
+    "gst-validate-1.0", "gst-inspect-1.0", "gst-typefind-1.0", "gst-play-1.0",
+    "gdk-pixbuf-query-loaders", "gsettings", "glib-compile-schemas", "gdk-pixbuf-csource",
+    "gst-validate-media-check-1.0", "gst-validate-rtsp-server-1.0", "gst-validate-transcoding-1.0",
+    "gst-discoverer-1.0", "gio-querymodules", "gst-device-monitor-1.0", "ges-launch-1.0",
+    "json-glib-format", "gdbus", "json-glib-validate", "gst-launch-1.0",
+)
+GSTREAMER_BUNDLES = {GSTREAMER_ROOT}
+GSTREAMER_EXECUTABLES = {GSTREAMER_VERSION + "/bin/" + name for name in GSTREAMER_TOOLS} | {
+    GSTREAMER_VERSION + "/libexec/gstreamer-1.0/gst-plugin-scanner"}
 EXECUTABLES = {
     FILE_PANEL_EXECUTABLE: "default",
     **dict.fromkeys(QUICKLOOK_TARGETS, "quicklook"),
@@ -125,7 +137,7 @@ def inventory(app):
             continue
         if path.is_dir():
             if (path.suffix in (".app", ".framework", ".xpc", ".bundle", ".appex")
-                    and relative not in SPARKLE_BUNDLES | {FILE_PANEL_BUNDLE, *QUICKLOOK_TARGETS.values()}):
+                    and relative not in SPARKLE_BUNDLES | GSTREAMER_BUNDLES | {FILE_PANEL_BUNDLE, *QUICKLOOK_TARGETS.values()}):
                 raise RuntimeError("Nested code bundle needs an explicit signing policy: " + relative)
             if relative.startswith("Contents/Frameworks/") and not relative.startswith(SPARKLE_ROOT) and "." in path.name:
                 raise RuntimeError("Dotted data directory in native code location: " + relative)
@@ -135,6 +147,9 @@ def inventory(app):
             if relative.startswith("Contents/MacOS/"):
                 raise RuntimeError("Non-Mach-O file in native code directory; move it to Resources: " + relative)
             continue  # Scripts in Resources and other data are sealed by the outer App.
+        if relative == GSTREAMER_VERSION + "/GStreamer" and kind == 6:
+            result.append({"path": relative, "target": GSTREAMER_ROOT, "type": kind, "policy": "default"})
+            continue
         if relative in SPARKLE_TARGETS and kind == (6 if relative.endswith("/Sparkle") else 2):
             result.append({"path": relative, "target": SPARKLE_TARGETS[relative], "type": kind, "policy": "default"})
             continue
@@ -144,7 +159,9 @@ def inventory(app):
         if relative in QUICKLOOK_TARGETS and kind == 2:
             result.append({"path": relative, "target": QUICKLOOK_TARGETS[relative], "type": kind, "policy": "quicklook"})
             continue
-        if kind == 2 and relative in EXECUTABLES:
+        if kind == 2 and relative in GSTREAMER_EXECUTABLES:
+            policy = "default"
+        elif kind == 2 and relative in EXECUTABLES:
             policy = EXECUTABLES[relative]
         elif kind in (6, 8) and any(relative.startswith(root) for root in LIBRARY_ROOTS):
             policy = "default"
@@ -156,10 +173,14 @@ def inventory(app):
         raise RuntimeError("Required native executables are missing: " + ", ".join(sorted(set(EXECUTABLES) - found)))
     if (app / SPARKLE_ROOT).exists() and not set(SPARKLE_TARGETS).issubset(found):
         raise RuntimeError("Incomplete Sparkle framework or helper inventory")
+    if (app / GSTREAMER_ROOT).exists():
+        expected = GSTREAMER_EXECUTABLES | {GSTREAMER_VERSION + "/GStreamer"}
+        if not expected.issubset(found):
+            raise RuntimeError("Incomplete GStreamer framework or helper inventory")
     # All libraries/bundles first; standalone executables last. The App's main
     # executable is signed as part of the final outer bundle, not separately.
     return sorted(result, key=lambda item: (
-        3 if item.get("target") == SPARKLE_ROOT else 2 if "target" in item else int(item["type"] == 2), item["path"]))
+        3 if item.get("target") in (SPARKLE_ROOT, GSTREAMER_ROOT) else 2 if "target" in item else int(item["type"] == 2), item["path"]))
 
 
 def digest(path):
