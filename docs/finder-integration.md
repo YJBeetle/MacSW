@@ -46,3 +46,12 @@ four binaries through the explicit deployment path after wineboot retained its
 old same-version modules. The user confirmed, with a screenshot, Finder opening
 the demo directory and selecting `Finder 定位验证.txt`. This validates the
 temporary runtime; it does not claim that the installed signed App was replaced.
+
+## Wine 11.21 installed-container check (2026-11-06)
+
+The installed local development App and its upgraded default bottle passed the x64
+`api` and x86 `child` probes against a fixture with Chinese characters and spaces.
+The user confirmed Finder opened `Finder 定位验收` and selected `定位验收.txt`.
+Both probes returned `FINDER_BRIDGE_PASS`. This is installed-container GUI evidence,
+not Developer ID release/notarization acceptance. Details and evidence paths are
+recorded in [the Wine 11.21 integration report](wine-11.21-experiment.md).

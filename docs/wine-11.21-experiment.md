@@ -81,7 +81,7 @@ Wine 11.21 的 `flush_memory_dc` 仍按 `biSizeImage / 4 / width` 计算高度�
 - 软件渲染通过一次性进程环境选项启用；持久日志明确记录 SW PID 1780（`06f4`）的 `Apple Software Renderer` 和 `accelerated 0`。同一会话的真实 SW PDF 导出返回0，包含一张 544×618 图片，提取后与前一次软件配置导出像素完全一致；整页与提取图均检查正常。最终 PDF SHA256 `54b83759e6e7667813413bd7877813bf8bf3e1bde027032698517853c3798dc5`。
 - 软件诊断后已关闭测试文档并重启恢复默认 renderer；该选项未写入注册表或用户偏好。
 
-完整本机证据、脚本与日志位于 `/private/tmp/macsw-wine1121/integration/`。显示器物理拔插两轮记录 29 / 21 次通知，用户确认原先小区域拖动限制未再出现；窗口位置和最大化恢复差异另记在 `docs/display-hotplug.md`。原生面板和中文输入仍待用户交互确认，不能把 ABI 检查当作这些项目已验收。
+完整本机证据、脚本与日志位于 `/private/tmp/macsw-wine1121/integration/`。显示器物理拔插两轮记录 29 / 21 次通知，用户确认原先小区域拖动限制未再出现；窗口位置和最大化恢复差异另记在 `docs/display-hotplug.md`。随后用户完成了下述实际面板、中文输入和 Finder 交互验收；ABI 检查单独保留，不混作 GUI 证据。
 
 ### 0.2.0 定版边界
 
@@ -90,3 +90,20 @@ Wine 11.21 的 `flush_memory_dc` 仍按 `biSizeImage / 4 / width` 计算高度�
 当前固定 SWCLI c23792f/a16 已使用 `swcli` 命令，但仍使用旧 MCP 工具名。2026-11-06 只读核对远端主线 36e5799 的短工具名为 `status`、`daemon_start`、`daemon_stop`、`capabilities`、`execute`；对应公开版本与 MacSW 自有技能尚须对齐，不能只修改提示词使其引用当前包不存在的工具。
 
 当前只做本地集成提交与验收，不触发签发、发布或替换公开 Release。正式版本须在最终 CLI/skills 固定后重新跑相应 CI，验收签名、公证与发布产物。
+
+## 正式容器交互验收完成项（2026-11-06）
+
+用户在上述正式容器、本地 ad-hoc 构建中完成：
+
+1. 原生打开面板选择“以只读打开”，目标 `/private/tmp/MacSW-0.2-验收/验收零件.SLDPRT`；按精确路径枚举文档后，COM 返回 `IsOpenedReadOnly=true`、`GetSaveFlag=false`。
+2. 原生面板保存中文文件名，并再次确认同名覆盖。最终文件 59,779 字节，自动关闭重开错误/警告均0，结构读取成功。
+3. 格式选择 STEP AP214，“选项…”窗口打开正常；保存的 `中文导出验收.STEP` 为 13,484 字节，`FILE_SCHEMA` 为 `AUTOMOTIVE_DESIGN`，包含1个 `MANIFOLD_SOLID_BREP`。本轮没有额外声称所有 STEP 导入路径通过。
+4. 切到中文输入法后，模型区域空格能够弹出视图方向；在 Wine 的 SW“属性→摘要”标题框使用输入法输入“中文验收”正常，随后取消。此项由用户实际操作确认，原生 AppKit 文件名输入不替代 Wine IME 验收。
+5. 使用已安装的 x64 `SHOpenFolderAndSelectItems` 与 x86 相对 child PIDL 两条探针调用，均返回 `FINDER_BRIDGE_PASS`；用户确认 Finder 打开“Finder 定位验收”并选中“定位验收.txt”。
+6. 两轮显示器热插拔探针最终均正常退出。原始小区域拖动限制未再出现；窗口回屏与最大化保持差异见显示器报告，仍不写成完全通过。
+
+`integration/manual-acceptance.json` 汇总用户确认与对应原始文件。用户验收后 `document.list` 已为空，SW 保持默认渲染模式运行，未强制退出；两个诊断窗口已正常关闭。
+
+同时使用与正式 App 相同的 `CommandLineToolService.perform(.install)` 迁移全局命令：操作前为 `legacyInstalled`，系统管理员授权路径只执行目录/链接操作，操作后为 `installed`。旧的、确属本 App 的悬空 `/usr/local/bin/sw-cli` 已移除；`/usr/local/bin/swcli` 指向 `/Applications/MacSW.app/Contents/MacOS/swcli`，真实 `swcli version --json` 返回 a16。没有修改其他同名工具或执行 Wine/App/Python 作为 root。此为实际服务与系统授权路径验证，不冒充设置按钮的自动点击验收。
+
+剩余：长期稳定性/软件渲染内存趋势，以及 0.2.0 最终 CLI/MCP/skills 对齐后的重新构建与 CI。发布仍按用户要求暂停。
