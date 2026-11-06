@@ -25,6 +25,9 @@ NSUnbufferedIO=YES swift test \
     --config-path "${SWIFT_CONFIG_DIR}" \
     --security-path "${SWIFT_SECURITY_DIR}"
 
-PYTHONPATH="${WORKSPACE_ROOT}/Dependencies/SWCLI/src" \
-    python3 -m unittest discover \
-        -s "${WORKSPACE_ROOT}/Dependencies/SWCLI/tests" -p 'test_*.py'
+# Match the shared CLI's own test entry point: its smoke suites import
+# helpers through the repository's tests namespace.
+(
+    cd "${WORKSPACE_ROOT}/Dependencies/SWCLI"
+    PYTHONPATH="${PWD}/src" python3 -m unittest discover -s tests -p 'test_*.py'
+)
