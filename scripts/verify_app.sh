@@ -95,6 +95,18 @@ test "$(shasum -a 256 "${SWCLI_DIR}/wheels.tsv" | awk '{print $1}')" = "$(shasum
 test "$(/usr/libexec/PlistBuddy -c 'Print :SWCLIWheelManifestSHA256' "${BUILD_MANIFEST}")" = "$(shasum -a 256 "${SWCLI_WHEEL_MANIFEST}" | awk '{print $1}')"
 PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -B -c \
     'import attrs, jsonschema, referencing, rpds, typing_extensions, mcp.server.stdio; from swcli.mcp import tool_definitions; from swcli.operation_schemas import operation_schemas; [jsonschema.Draft202012Validator.check_schema(schema) for schema in operation_schemas().values()]'
+# Exercise the optional native image dependency, including its compiled codec.
+PYTHONDONTWRITEBYTECODE=1 "${SWCLI_NATIVE_RUNTIME}/bin/python3" -B - <<'PYIMAGE'
+import io
+from PIL import Image
+from swcli.mcp_artifacts import png_preview
+with Image.new("RGB", (2, 2), (24, 88, 160)) as source:
+    bmp = io.BytesIO()
+    source.save(bmp, format="BMP")
+with Image.open(io.BytesIO(png_preview(bmp.getvalue()))) as preview:
+    assert preview.format == "PNG" and preview.size == (2, 2)
+    assert preview.getpixel((0, 0)) == (24, 88, 160)
+PYIMAGE
 grep -Fxq 'Lib\site-packages' "${SWCLI_RUNTIME}/python311._pth"
 grep -Fxq 'import site' "${SWCLI_RUNTIME}/python311._pth"
 test -f "${SWCLI_DIR}/licenses/SWCLI-LICENSE"

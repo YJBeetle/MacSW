@@ -31,3 +31,6 @@ native sse_starlette-3.6.0-py3-none-any.whl e4dfa4d237d2712cb2b4d4918eda9b457cd6
 native starlette-1.10.0-py3-none-any.whl 478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4 https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
 native typing_inspection-0.4.5-py3-none-any.whl bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39 https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl
 native uvicorn-0.54.0-py3-none-any.whl 505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl
+
+# MCP BMP-to-PNG previews run only in native Python.
+native pillow-13.0.0-cp311-cp311-macosx_11_0_arm64.whl 37290fbef0c73e2d51d594eb78fded7dc7170d1c3ad0a890269e6fd8c8c4e061 https://files.pythonhosted.org/packages/0b/d2/2c12cb4fbb5d95f38d1001ff3d95fafcb830077018cba40e56a8f932dfbc/pillow-13.0.0-cp311-cp311-macosx_11_0_arm64.whl

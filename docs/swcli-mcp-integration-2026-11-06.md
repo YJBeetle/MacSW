@@ -1,9 +1,9 @@
 # SWCLI MCP host integration — 2026-11-06
 
-## Current source integration — SWCLI v0.2.1
+## Current source integration — SWCLI v0.2.2
 
-The development App sources pin the SWCLI v0.2.1 tag source commit
-`60c6f463560b2541a17f91e0d6c5d84fe317b8bd`. The executable command is `swcli`.
+The development App sources pin the SWCLI v0.2.2 tag source commit
+`d5746bf8ff7ed27fd6afcc2e6811385c0913c026`. The executable command is `swcli`.
 The five MCP tools are `status`, `daemon_start`, `daemon_stop`, `capabilities`
 and `execute`; the former `swcli_`-prefixed names are not the current contract.
 MacSW's own skill uses these names, and packaging copies the matching upstream
@@ -34,13 +34,19 @@ reusing an existing daemon does not change either setting. This Windows icon is
 separate from MacSW's native menu-bar controller. Hiding the icon leaves SW and
 the daemon running, while its stop action uses the same document/ownership guards.
 
-MCP 1.30.0 and 22 additional dependencies are included only in native Python,
+MCP 1.30.0 and its locked dependencies are included only in native Python,
 using exact wheel hashes/URLs in the existing offline manifest. Windows Python
 continues to run the daemon/COM worker without the SDK. The packaged MacSW skill
 links the source-pinned MCP guide, and App verification imports the native SDK
 without activating SW or starting a listener.
 
-## v0.2.1 packaged runtime acceptance
+Pillow 13.0.0 is checksum-locked for the native CPython 3.11 arm64 runtime
+only. v0.2.2 MCP converts daemon-supplied BMP bytes into PNG image content and
+embeds original CAD export bytes as file resources, up to the upstream 8 MiB
+limit. Packaging exercises an actual BMP-to-PNG conversion with its compiled
+codec. Windows Python still needs neither Pillow nor the MCP SDK.
+
+## Historical v0.2.1 packaged runtime acceptance
 
 The 0.2.0/build14 local candidate passes packaging and strict ad-hoc signature
 verification. Its native MCP client/SDK reached a real Wine SW33.5.0 host in an
@@ -76,4 +82,16 @@ or runtime acceptance.
 
 For that historical a16 integration, MacSW CI, App signing/build/install and
 native Wine SOLIDWORKS activation were not run. Its source-level integration and
-offline SDK checks do not claim those results or verify the current v0.2.1 candidate.
+offline SDK checks do not claim those results or verify the current v0.2.2 candidate.
+
+## v0.2.2 packaged dependency validation
+
+The final 0.2.0/build14 package identifies SWCLI 0.2.2. Its original pinned Pillow
+wheel passes SHA-256 verification. Native packaging verification executes a
+2x2 BMP-to-PNG conversion and checks pixels using the bundled compiled codec.
+The 31 MacSW SWCLI packaging checks and 27 upstream MCP tests pass using the
+actual packaged native Python and SDK, including image/file delivery over
+stdio/TCP and attachment error/limit boundaries. No tests are skipped in these
+two focused suites. The complete local App also passes strict ad-hoc signing
+verification with the additional Pillow native libraries inventoried.
+Final CI/Developer ID/notarization remain separate release gates.
