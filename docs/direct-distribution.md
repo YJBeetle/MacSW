@@ -39,6 +39,13 @@ stdin 传递，不在命令参数或临时文件中保存。更新 feed 记录�
 最低 macOS 版本、完整包长度、EdDSA 签名和不可变的 GitHub 标签下载地址。
 源包、公钥或构建配置变化都必须重新构建／公证，不能修改已密封的 App。
 
+更新窗口的正文来自签发源码中 `docs/releases/v<版本>.md`，按密封 App 的
+展示版本选择；缺少或空白说明会阻止生成 feed。使用 Sparkle 2.10.0 的原生 Markdown
+说明格式（`description sparkle:format="markdown"`），保留正文中的标题、列表、
+粗体、行内代码与链接，末尾补充对应 GitHub Release 的链接，避免只显示裸链接。
+更新窗口无需另行加载 GitHub 页面。此处只生成 feed，不改动最终签名 ZIP。
+参见 [Sparkle 内嵌发布说明](https://sparkle-project.org/documentation/publishing/#embedded-release-notes)。
+
 候选 artifact 增加 `appcast.xml`。签发和 macOS 15 初始化两个 job 都成功后，
 才能将 App ZIP、`appcast.xml`、`release-info.zip`、Wine/Mono 源码及包含这些
 附件的 `SHA256SUMS` 上传到 Release 草稿；核验齐备后才公开并设为 latest。

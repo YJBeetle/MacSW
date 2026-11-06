@@ -119,7 +119,7 @@ class PublicationTests(unittest.TestCase):
             archive.write_bytes(b'original')
             info = {'CFBundleShortVersionString': '0.1.8', 'CFBundleVersion': '10',
                     'LSMinimumSystemVersion': '13.0', 'SUPublicEDKey': base64.b64encode(b'k' * 32).decode()}
-            good = update.create_feed(info, archive.name, 8, base64.b64encode(b's' * 64).decode())
+            good = update.create_feed(info, archive.name, 8, base64.b64encode(b's' * 64).decode(), '- 已修复问题')
             (root / 'appcast.xml').write_bytes(good)
             with patch.object(publisher, 'run') as verify:
                 publisher.verify_feed(root, archive, info)

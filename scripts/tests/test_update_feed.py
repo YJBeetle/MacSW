@@ -1,6 +1,7 @@
 """No production update keys; validate feed and packaging contracts offline."""
 import base64
 import importlib.util
+import json
 from pathlib import Path
 import plistlib
 import tempfile
@@ -25,7 +26,7 @@ class UpdateFeedTests(unittest.TestCase):
     signature = base64.b64encode(bytes(64)).decode()
 
     def test_feed_uses_immutable_release_url_and_monotonic_build(self):
-        root = ET.fromstring(feed.create_feed(self.info, 'MacSW-0.1.3-macOS-signed.zip', 1234, self.signature))
+        root = ET.fromstring(feed.create_feed(self.info, 'MacSW-0.1.3-macOS-signed.zip', 1234, self.signature, "# 更新内容\n\n- 修复显示问题"))
         item = root.find('channel/item')
         self.assertEqual(item.find(feed.q('version')).text, '5')
         self.assertEqual(item.find(feed.q('shortVersionString')).text, '0.1.3')
@@ -39,11 +40,61 @@ class UpdateFeedTests(unittest.TestCase):
         for changes in [{'CFBundleShortVersionString': '0.1.3-beta'}, {'CFBundleVersion': '0'},
                         {'CFBundleVersion': '5\nmalformed'}]:
             with self.subTest(changes=changes), self.assertRaises(ValueError):
-                feed.create_feed(dict(self.info, **changes), 'MacSW-0.1.3-macOS-signed.zip', 1, self.signature)
+                feed.create_feed(dict(self.info, **changes), 'MacSW-0.1.3-macOS-signed.zip', 1, self.signature, '更新说明')
         for name, length, signature in [('other.zip', 1, self.signature), ('MacSW-0.1.3-macOS-signed.zip', 0, self.signature),
                                        ('MacSW-0.1.3-macOS-signed.zip', 1, 'invalid')]:
             with self.assertRaises(ValueError):
-                feed.create_feed(self.info, name, length, signature)
+                feed.create_feed(self.info, name, length, signature, '更新说明')
+
+    def test_markdown_notes_survive_xml_and_use_native_sparkle_format(self):
+        notes = ('# 更新说明\n\n- 新增 **原生面板**，使用 `swcli`。\n'
+                 '- 修复显示问题\n\n详情见 [文档](https://example.com/notes?a=1&b=2)。\n'
+                 '<script>alert("x")</script> & ]]> 原始文本')
+        xml = feed.create_feed(self.info, 'MacSW-0.1.3-macOS-signed.zip', 1234, self.signature, notes)
+        item = ET.fromstring(xml).find('channel/item')
+        description = item.find('description')
+        self.assertEqual(description.get(feed.q('format')), 'markdown')
+        self.assertEqual(description.text, notes + '\n\n[查看完整发布说明]('
+                         'https://github.com/YJBeetle/MacSW/releases/tag/v0.1.3)')
+        self.assertEqual(list(description), [])
+        self.assertEqual(item.findtext(feed.q('fullReleaseNotesLink')),
+                         'https://github.com/YJBeetle/MacSW/releases/tag/v0.1.3')
+        with self.assertRaisesRegex(ValueError, 'must not be empty'):
+            feed.create_feed(self.info, 'MacSW-0.1.3-macOS-signed.zip', 1234, self.signature, '  \n')
+
+    def test_prepare_embeds_exact_version_notes_and_keeps_final_archive_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / 'MacSW-0.1.3-macOS-signed.zip'
+            info = dict(self.info, SUPublicEDKey='fixture-public-key')
+            with zipfile.ZipFile(archive, 'w') as bundle:
+                bundle.writestr('MacSW.app/Contents/Info.plist', plistlib.dumps(info))
+            original = archive.read_bytes()
+            (root / 'notary-result.json').write_text(json.dumps({'status': 'Accepted', 'id': 'job'}))
+            (root / 'notary-log.json').write_text(json.dumps({'status': 'Accepted', 'jobId': 'job'}))
+            notes = root / 'notes'
+            notes.mkdir()
+            (notes / 'v0.1.3.md').write_text('- 当前版本修复', encoding='utf-8')
+            (notes / 'v9.9.9.md').write_text('- 不相关说明', encoding='utf-8')
+            with patch.object(feed, 'RELEASE_NOTES', notes), patch.dict(feed.os.environ, SPARKLE_PRIVATE_KEY=''), \
+                    patch.object(feed, 'sign_update', return_value=self.signature) as sign:
+                feed.prepare(root)
+                sign.assert_called_once_with(archive, 'fixture-public-key', '')
+            self.assertEqual(archive.read_bytes(), original)
+            rendered = ET.fromstring((root / 'appcast.xml').read_bytes()).findtext('channel/item/description')
+            self.assertIn('- 当前版本修复', rendered)
+            self.assertNotIn('不相关说明', rendered)
+            for content in (None, ' \n'):
+                (root / 'appcast.xml').unlink(missing_ok=True)
+                if content is None:
+                    (notes / 'v0.1.3.md').unlink()
+                else:
+                    (notes / 'v0.1.3.md').write_text(content)
+                with patch.object(feed, 'RELEASE_NOTES', notes), patch.object(feed, 'sign_update') as sign:
+                    with self.assertRaises((FileNotFoundError, ValueError)):
+                        feed.prepare(root)
+                    sign.assert_not_called()
+                self.assertFalse((root / 'appcast.xml').exists())
 
     def test_private_key_mismatch_fails_before_download_or_signing(self):
         from types import SimpleNamespace

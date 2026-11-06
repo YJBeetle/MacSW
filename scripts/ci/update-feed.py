@@ -23,11 +23,12 @@ SPARKLE_SHA256 = '17e28312b8e18ab7cdbbe09a6fb28cc55a5479ec6c371dbc07cdecd2a14fd9
 REPOSITORY = 'YJBeetle/MacSW'
 NAMESPACE = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 ET.register_namespace('sparkle', NAMESPACE)
+RELEASE_NOTES = Path(__file__).resolve().parents[2] / 'docs/releases'
 
 def q(name):
     return '{' + NAMESPACE + '}' + name
 
-def create_feed(info, filename, length, signature):
+def create_feed(info, filename, length, signature, release_notes):
     version = info['CFBundleShortVersionString']
     build = info['CFBundleVersion']
     if (not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) or
@@ -43,8 +44,13 @@ def create_feed(info, filename, length, signature):
     item = ET.SubElement(channel, 'item')
     ET.SubElement(item, 'title').text = 'MacSW ' + version
     ET.SubElement(item, 'link').text = release
-    # Plain text: no unsanitized Release HTML or third-party release notes.
-    ET.SubElement(item, 'description').text = '更新说明：' + release
+    if not release_notes.strip():
+        raise ValueError('Release notes must not be empty')
+    # Sparkle 2.9+ on macOS 12+ renders Markdown with native system styling.
+    # ElementTree preserves the source as text, including XML/HTML characters.
+    ET.SubElement(item, 'description', {q('format'): 'markdown'}).text = (
+        release_notes.strip() + f'\n\n[查看完整发布说明]({release})')
+    ET.SubElement(item, q('fullReleaseNotesLink')).text = release
     ET.SubElement(item, q('version')).text = build
     ET.SubElement(item, q('shortVersionString')).text = version
     ET.SubElement(item, q('minimumSystemVersion')).text = info['LSMinimumSystemVersion']
@@ -100,9 +106,17 @@ def prepare(output):
         raise RuntimeError('Only an accepted notarized candidate can enter the update feed')
     with zipfile.ZipFile(archive) as bundle:
         info = plistlib.loads(bundle.read('MacSW.app/Contents/Info.plist'))
+    # The signing job checks out the exact accepted build source. Select notes
+    # by the sealed App version, never GitHub latest or the current main branch.
+    version = info['CFBundleShortVersionString']
+    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+        raise ValueError('Invalid release notes version')
+    notes = (RELEASE_NOTES / f'v{version}.md').read_text(encoding='utf-8')
+    if not notes.strip():
+        raise ValueError('Release notes must not be empty')
     secret = os.environ.get('SPARKLE_PRIVATE_KEY', '').strip()
     signature = sign_update(archive, info['SUPublicEDKey'], secret)
-    (output / 'appcast.xml').write_bytes(create_feed(info, archive.name, archive.stat().st_size, signature))
+    (output / 'appcast.xml').write_bytes(create_feed(info, archive.name, archive.stat().st_size, signature, notes))
     print('Stable update feed generated for the final notarized ZIP; not published.')
 
 if __name__ == '__main__':
