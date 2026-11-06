@@ -66,7 +66,7 @@ struct MenuBarPanelView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("MacSW").font(.system(size: 13, weight: .semibold))
-            Text("Wine \(BuildInfo.wineVersion) · Mono \(BuildInfo.monoVersion)")
+            Text(BuildInfo.appVersion)
                 .font(.system(size: 10.5))
                 .foregroundStyle(.tertiary)
             Spacer()

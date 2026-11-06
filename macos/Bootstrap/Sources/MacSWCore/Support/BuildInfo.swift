@@ -10,6 +10,7 @@ public enum BuildInfo {
         return value
     }
 
+    public static let appVersion = bundleString("CFBundleShortVersionString", fallback: "开发版")
     public static let wineVersion = bundleString("MacSWWineVersion", fallback: "unknown")
     public static let monoVersion = bundleString("MacSWMonoVersion", fallback: "unknown")
     public static let monoPatchSHA256 = bundleString("MacSWMonoPatchSHA256", fallback: "unknown")
