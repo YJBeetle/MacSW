@@ -21,7 +21,8 @@ mkdir -p "${PREFIX}/dosdevices"
 ln -s ../drive_c "${PREFIX}/dosdevices/c:"
 ln -s / "${PREFIX}/dosdevices/z:"
 
-cp "${WORKSPACE_ROOT}/scripts/swcli/sw-cli" "${CONTENTS_DIR}/MacOS/sw-cli"
+cp "${WORKSPACE_ROOT}/scripts/swcli/swcli" "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli"
+ln -s ../Resources/SWCLI/bin/swcli "${CONTENTS_DIR}/MacOS/swcli"
 cp "${WORKSPACE_ROOT}/scripts/swcli/swcli-daemon-utils" "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-daemon-utils"
 chmod +x "${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-daemon-utils"
 cp "${WORKSPACE_ROOT}/scripts/swcli/swcli-path" \
@@ -80,7 +81,7 @@ printf 'native translator=%s args=%s\n' "${SWCLI_PATH_TRANSLATE_CMD:-}" "$*" >> 
 printf 'utils=%s\n' "${SWCLI_DAEMON_UTILS:-}" >> "${SWCLI_TEST_LOG}"
 EOF
 chmod +x \
-    "${CONTENTS_DIR}/MacOS/sw-cli" \
+    "${CONTENTS_DIR}/MacOS/swcli" \
     "${CONTENTS_DIR}/MacOS/MacSW" \
     "${CONTENTS_DIR}/Frameworks/wine/bin/wineloader" \
     "${CONTENTS_DIR}/Frameworks/wine/bin/wineserver" \
@@ -90,7 +91,7 @@ chmod +x \
 export MACSW_WINEPREFIX="${PREFIX}"
 export SWCLI_TEST_LOG="${LOG_FILE}"
 export SWCLI_TEST_PYTHON="$(command -v python3)"
-LAUNCHER="${CONTENTS_DIR}/MacOS/sw-cli"
+LAUNCHER="${CONTENTS_DIR}/MacOS/swcli"
 
 UTILS="${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-daemon-utils"
 # Public CLI parsing stays in native Python, including leading global options.
@@ -175,17 +176,17 @@ test "$("${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" \
 # and directory symlinks, preserve cwd, and forward quoted arguments unchanged.
 GLOBAL_BIN="${TEST_ROOT}/global bin ' 中文"
 mkdir -p "${GLOBAL_BIN}"
-ln -s "${LAUNCHER}" "${GLOBAL_BIN}/sw-cli"
+ln -s "${LAUNCHER}" "${GLOBAL_BIN}/swcli"
 : > "${LOG_FILE}"
-PATH="${GLOBAL_BIN}:${PATH}" sw-cli document inspect --document active --json
+PATH="${GLOBAL_BIN}:${PATH}" swcli document inspect --document active --json
 grep -Fq -- '-m swcli document inspect --document active --json' "${LOG_FILE}"
 grep -Fq "native translator=${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" "${LOG_FILE}"
-rm "${GLOBAL_BIN}/sw-cli"
-ln -s '../MacSW.app/Contents/MacOS/sw-cli' "${GLOBAL_BIN}/launcher"
-ln -s launcher "${GLOBAL_BIN}/sw-cli"
+rm "${GLOBAL_BIN}/swcli"
+ln -s '../MacSW.app/Contents/MacOS/swcli' "${GLOBAL_BIN}/launcher"
+ln -s launcher "${GLOBAL_BIN}/swcli"
 ln -s "${GLOBAL_BIN}" "${TEST_ROOT}/bin-alias"
 : > "${LOG_FILE}"
-(cd "${PREFIX}" && "${TEST_ROOT}/bin-alias/sw-cli" document inspect --document 'a file;$(literal)' --json)
+(cd "${PREFIX}" && "${TEST_ROOT}/bin-alias/swcli" document inspect --document 'a file;$(literal)' --json)
 grep -Fq -- '-m swcli document inspect --document a file;$(literal) --json' "${LOG_FILE}"
 grep -Fq "native translator=${CONTENTS_DIR}/Resources/SWCLI/bin/swcli-path" "${LOG_FILE}"
 grep -Fq "utils=${UTILS}" "${LOG_FILE}"

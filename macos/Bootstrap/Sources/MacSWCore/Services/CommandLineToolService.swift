@@ -5,6 +5,7 @@ public struct CommandLineToolService: Sendable {
     public enum State: Equatable, Sendable {
         case notInstalled
         case installed
+        case legacyInstalled
         case conflict(String)
     }
 
@@ -12,14 +13,24 @@ public struct CommandLineToolService: Sendable {
 
     public let launcher: URL
     public let command: URL
+    let legacyLauncher: URL
+    let legacyCommand: URL
 
     public init(bundleURL: URL = Bundle.main.bundleURL,
-                command: URL = URL(fileURLWithPath: "/usr/local/bin/sw-cli")) {
-        launcher = bundleURL.appendingPathComponent("Contents/MacOS/sw-cli").standardizedFileURL
+                command: URL = URL(fileURLWithPath: "/usr/local/bin/swcli")) {
+        launcher = bundleURL.appendingPathComponent("Contents/MacOS/swcli").standardizedFileURL
         self.command = command.standardizedFileURL
+        legacyLauncher = bundleURL.appendingPathComponent("Contents/MacOS/sw-cli").standardizedFileURL
+        legacyCommand = command.deletingLastPathComponent().appendingPathComponent("sw-cli").standardizedFileURL
     }
 
     public func status() -> State {
+        let current = entryStatus()
+        if case .conflict = current { return current }
+        return ownedLegacyTarget() == nil ? current : .legacyInstalled
+    }
+
+    private func entryStatus() -> State {
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: command.path)
             guard attributes[.type] as? FileAttributeType == .typeSymbolicLink else {
@@ -39,6 +50,15 @@ public struct CommandLineToolService: Sendable {
         }
     }
 
+    /// A dangling legacy link is still owned after the App removes its old launcher.
+    /// Never follow the link or infer ownership from another executable's name.
+    private func ownedLegacyTarget() -> String? {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: legacyCommand.path),
+              URL(fileURLWithPath: target, relativeTo: legacyCommand.deletingLastPathComponent())
+                .standardizedFileURL == legacyLauncher else { return nil }
+        return target
+    }
+
     public func perform(_ operation: Operation) async throws {
         try validate(operation)
         do {
@@ -56,15 +76,15 @@ public struct CommandLineToolService: Sendable {
     }
 
     private func validate(_ operation: Operation) throws {
-        if case let .conflict(detail) = status() { throw Self.failure(detail) }
+        if case let .conflict(detail) = entryStatus() { throw Self.failure(detail) }
         if operation == .install, !FileManager.default.isExecutableFile(atPath: launcher.path) {
-            throw Self.failure("当前 App 的 sw-cli 启动器缺失或不可执行，请重新安装 MacSW。")
+            throw Self.failure("当前 App 的 swcli 启动器缺失或不可执行，请重新安装 MacSW。")
         }
     }
 
     private func apply(_ operation: Operation) throws {
         try validate(operation)
-        switch (operation, status()) {
+        switch (operation, entryStatus()) {
         case (.install, .notInstalled):
             try FileManager.default.createDirectory(at: command.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
@@ -74,6 +94,12 @@ public struct CommandLineToolService: Sendable {
             try FileManager.default.removeItem(at: command)
         default:
             break
+        }
+        if let target = ownedLegacyTarget() {
+            guard (try? FileManager.default.destinationOfSymbolicLink(atPath: legacyCommand.path)) == target else {
+                throw Self.failure("旧命令入口已变化，未改动。")
+            }
+            try FileManager.default.removeItem(at: legacyCommand)
         }
     }
 
@@ -90,7 +116,14 @@ public struct CommandLineToolService: Sendable {
         }
         let owned = "[ -L \(destination) ] && [ \"$(/usr/bin/readlink \(destination))\" = \(Self.quote(existingTarget)) ]"
         let occupied = "[ -e \(destination) ] || [ -L \(destination) ]"
-        let conflict = "/usr/bin/printf '%s\\n' 'sw-cli 已有其他文件或链接，未改动。' >&2; exit 1"
+        let conflict = "/usr/bin/printf '%s\\n' 'swcli 已有其他文件或链接，未改动。' >&2; exit 1"
+        let legacyDestination = Self.quote(legacyCommand.path)
+        let legacyTarget = Self.quote(ownedLegacyTarget() ?? legacyLauncher.path)
+        let removeLegacy = """
+        if [ -L \(legacyDestination) ] && [ "$(/usr/bin/readlink \(legacyDestination))" = \(legacyTarget) ]; then
+            /bin/rm \(legacyDestination)
+        fi
+        """
         switch operation {
         case .install:
             return """
@@ -101,6 +134,7 @@ public struct CommandLineToolService: Sendable {
                 /bin/mkdir -p \(Self.quote(command.deletingLastPathComponent().path))
                 /bin/ln -s \(source) \(destination)
             fi
+            \(removeLegacy)
             """
         case .uninstall:
             return """
@@ -109,6 +143,7 @@ public struct CommandLineToolService: Sendable {
                 \(owned) || { \(conflict); }
                 /bin/rm \(destination)
             fi
+            \(removeLegacy)
             """
         }
     }

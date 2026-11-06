@@ -25,7 +25,7 @@ public enum SWCLIDaemonState: Equatable, Sendable {
 }
 
 /// Status uses the bundled native client, never the Windows lifecycle wrapper.
-/// Only an explicit menu action invokes sw-cli daemon start/restart.
+/// Only an explicit menu action invokes swcli daemon start/restart.
 public struct SWCLIDaemonService: Sendable {
     public let bundleURL: URL
     public let paths: AppPaths
@@ -83,7 +83,7 @@ public struct SWCLIDaemonService: Sendable {
     public func start(arguments: [String]) async throws {
         try validateEndpoint()
         let process = Process()
-        process.executableURL = bundleURL.appendingPathComponent("Contents/MacOS/sw-cli")
+        process.executableURL = bundleURL.appendingPathComponent("Contents/MacOS/swcli")
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["MACSW_WINEPREFIX"] = paths.bottle.path

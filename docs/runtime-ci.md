@@ -94,7 +94,7 @@ artifact 摘要由无秘密签名前置 job 再核，不用单个 job 绿灯代�
 在原生 Windows Python 中持有一个 STA、一个自有新宿主，直接打开私有副本、释放
 返回引用、关闭、确认空目录、同路径再次打开关闭。不经过 daemon、SWCLI 文档目录
 或逐请求 CommandInProgress 范围，不保存、不遍历结构、不重试或中途重启。
-宿主只提供隔离安装、路径和与 sw-cli 一致的 Wine 环境，并复用现有启动租约检查。
+宿主只提供隔离安装、路径和与 swcli 一致的 Wine 环境，并复用现有启动租约检查。
 共享监督进程保留逐调用 600 秒、启动 300 秒预算，超时只终止其已确认自有 PID；
 未知宿主不被采用。证据位于 `hidden/native-control/native-com.json`，明确
 `coverage_scope=direct-native-control`、`full_acceptance_eligible=false`；不证明结构、
@@ -165,7 +165,7 @@ CAD 测试操作与断言只由 `Dependencies/SWCLI/scripts/ci` 的共享测试�
    在隔离活动容器中通过 MacSW 的 `SolidWorksResourceMonitorService` 禁用
    `sldProcMon.exe`（可逆重命名，与 DockerSW 相同），记录 VC++ 模块大小、哈希和
    Wine builtin/placeholder 标记，并将 Mono 的宿主路径按实际映射重新绑定，再
-   启动打包 `sw-cli daemon serve`，等待健康检查确认 COM 主机就绪。
+   启动打包 `swcli daemon serve`，等待健康检查确认 COM 主机就绪。
 6. 默认调用独立 `verify-visible.py`，只需要官方 Part，不要求装配体或 drawing
    样例存在。核对共享成功证据和前后宿主 PID／归属／可见性；停止确认不代替退出证明。
 7. 手动隐藏档改为调用 `verify-runtime-sets.py`，full 17 组，按方面分脚本。

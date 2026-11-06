@@ -118,7 +118,7 @@ def synchronize(contents, prefix, *, in_use=None):
             return False
         check_busy = in_use or (lambda: backend_in_use(contents, prefix))
         if check_busy():
-            raise RuntimeError("SWCLI backend 正在运行，未覆盖文件。请先执行 sw-cli daemon stop，再重试。")
+            raise RuntimeError("SWCLI backend 正在运行，未覆盖文件。请先执行 swcli daemon stop，再重试。")
         staging = Path(tempfile.mkdtemp(prefix=".Python311.install-", dir=parent))
         try:
             shutil.copytree(source, staging, dirs_exist_ok=True)
@@ -126,7 +126,7 @@ def synchronize(contents, prefix, *, in_use=None):
                 raise RuntimeError("SWCLI backend 暂存校验失败，保留原版本。")
             (staging / MARKER).write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
             if check_busy():
-                raise RuntimeError("SWCLI backend 已启动，取消替换；请先执行 sw-cli daemon stop。")
+                raise RuntimeError("SWCLI backend 已启动，取消替换；请先执行 swcli daemon stop。")
             if backup.exists():
                 shutil.rmtree(backup)
             if target.exists():

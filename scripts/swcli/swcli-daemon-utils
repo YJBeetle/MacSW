@@ -8,7 +8,7 @@ LINK_COUNT=0
 while [ -L "${SOURCE}" ]; do
     LINK_COUNT=$((LINK_COUNT + 1))
     if [ "${LINK_COUNT}" -gt 40 ]; then
-        echo "MacSW sw-cli symbolic link chain is too long." >&2
+        echo "MacSW swcli symbolic link chain is too long." >&2
         exit 1
     fi
     SOURCE_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"

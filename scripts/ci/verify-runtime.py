@@ -637,7 +637,7 @@ class RuntimeGate:
         if self.record_path.exists():
             raise RuntimeError("Refusing to overwrite previous evidence")
         self.prefix = self.root / "app-support/bottle"
-        self.cli = app / "Contents/MacOS/sw-cli"
+        self.cli = app / "Contents/MacOS/swcli"
         self.helper = app / "Contents/MacOS/MacSWCI"
         self.runtime_helper = app / "Contents/MacOS/MacSWCIRuntime"
         self.path_helper = app / "Contents/Resources/SWCLI/bin/swcli-path"

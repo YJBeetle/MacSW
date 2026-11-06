@@ -16,7 +16,7 @@ public struct AIConnectionInfo: Sendable {
 
     public init(bundleURL: URL, paths: AppPaths, environment: [String: String] = [:]) {
         app = bundleURL.standardizedFileURL
-        cli = app.appendingPathComponent("Contents/MacOS/sw-cli")
+        cli = app.appendingPathComponent("Contents/MacOS/swcli")
         let resources = app.appendingPathComponent("Contents/Resources/SWCLI", isDirectory: true)
         skillDirectory = resources.appendingPathComponent("skills/macsw", isDirectory: true)
         skillEntry = skillDirectory.appendingPathComponent("SKILL.md")

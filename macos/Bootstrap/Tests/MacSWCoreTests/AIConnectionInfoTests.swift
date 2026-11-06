@@ -9,7 +9,7 @@ final class AIConnectionInfoTests: XCTestCase {
     func testPathsFollowCurrentAppAndActiveContainer() {
         let information = AIConnectionInfo(bundleURL: app, paths: paths)
         XCTAssertEqual(information.app, app)
-        XCTAssertEqual(information.cli.path, app.path + "/Contents/MacOS/sw-cli")
+        XCTAssertEqual(information.cli.path, app.path + "/Contents/MacOS/swcli")
         XCTAssertEqual(
             information.skillDirectory.path,
             app.path + "/Contents/Resources/SWCLI/skills/macsw"
@@ -41,7 +41,7 @@ final class AIConnectionInfoTests: XCTestCase {
         let command = information.text
         XCTAssertTrue(command.contains("MACSW_WINEPREFIX='/tmp/User'\\''s support/bottle'"))
         XCTAssertTrue(command.contains("SWCLI_ENDPOINT='agent'\\''s;$(echo unsafe)'"))
-        XCTAssertTrue(command.contains("'/tmp/Agent'\\''s $(echo unsafe) `app`.app/Contents/MacOS/sw-cli'"))
+        XCTAssertTrue(command.contains("'/tmp/Agent'\\''s $(echo unsafe) `app`.app/Contents/MacOS/swcli'"))
     }
 
     func testEndpointMatchesConfiguredEnvironmentAndEmptyUsesDefault() {

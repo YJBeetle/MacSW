@@ -34,7 +34,7 @@ SEVEN_Z_BIN="${WORKSPACE_ROOT}/dist/7zz"
 SWCLI_ROOT="${WORKSPACE_ROOT}/Dependencies/SWCLI"
 SWCLI_SOURCE="${SWCLI_ROOT}/src/swcli"
 SWCLI_LICENSE="${SWCLI_ROOT}/LICENSE"
-SWCLI_LAUNCHER="${WORKSPACE_ROOT}/scripts/swcli/sw-cli"
+SWCLI_LAUNCHER="${WORKSPACE_ROOT}/scripts/swcli/swcli"
 SWCLI_NATIVE_PATH_HELPER="${WORKSPACE_ROOT}/scripts/swcli/swcli-path"
 SWCLI_NATIVE_PATH_SCRIPT="${WORKSPACE_ROOT}/scripts/swcli/swcli_path.py"
 SWCLI_RUNTIME_SYNC="${WORKSPACE_ROOT}/scripts/swcli/swcli_runtime.py"
@@ -124,12 +124,6 @@ mkdir -p "${RESOURCES_DIR}/managed"
 cp -p "${STDOLE_DLL}" "${RESOURCES_DIR}/managed/stdole.dll"
 cp -p "${SEVEN_Z_BIN}" "${MAC_OS_DIR}/7zz"
 ln -sf 7zz "${MAC_OS_DIR}/7z"
-# Non-Mach-O scripts belong in Resources, not a nested-code directory.
-# Keep the public CLI path; both entry locations are direct Contents children,
-# so the launcher's existing Contents-relative runtime lookup is unchanged.
-cp -p "${SWCLI_LAUNCHER}" "${RESOURCES_DIR}/sw-cli"
-chmod +x "${RESOURCES_DIR}/sw-cli"
-ln -s ../Resources/sw-cli "${MAC_OS_DIR}/sw-cli"
 SWCLI_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/Python311"
 SWCLI_SITE_PACKAGES="${SWCLI_RUNTIME}/Lib/site-packages"
 SWCLI_NATIVE_RUNTIME="${RESOURCES_DIR}/SWCLI/runtime/PythonNative"
@@ -137,6 +131,11 @@ SWCLI_NATIVE_SITE_PACKAGES="${SWCLI_NATIVE_RUNTIME}/lib/python3.11/site-packages
 mkdir -p "${RESOURCES_DIR}/SWCLI/bin" "${SWCLI_SITE_PACKAGES}" \
     "${SWCLI_NATIVE_RUNTIME}" "${SWCLI_NATIVE_SITE_PACKAGES}" \
     "${RESOURCES_DIR}/SWCLI/licenses"
+# Scripts are resources; this location also avoids colliding with SWCLI on
+# case-insensitive filesystems. The public executable is a relative alias.
+cp -p "${SWCLI_LAUNCHER}" "${RESOURCES_DIR}/SWCLI/bin/swcli"
+chmod +x "${RESOURCES_DIR}/SWCLI/bin/swcli"
+ln -s ../Resources/SWCLI/bin/swcli "${MAC_OS_DIR}/swcli"
 unzip -q "${SWCLI_PYTHON_ARCHIVE}" -d "${SWCLI_RUNTIME}"
 unzip -q "${SWCLI_PYWIN32_WHEEL}" -d "${SWCLI_SITE_PACKAGES}"
 tar -xzf "${SWCLI_NATIVE_PYTHON_ARCHIVE}" -C "${SWCLI_NATIVE_RUNTIME}" \

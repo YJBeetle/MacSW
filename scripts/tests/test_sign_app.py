@@ -59,8 +59,8 @@ class SigningInventoryTests(unittest.TestCase):
     def test_actual_headers_not_extensions_and_order(self):
         module = signing.WINE_ROOT + "/lib/wine/x86_64-unix/winemac.so"
         self.file(module, thin(6))
-        self.file("Contents/Resources/sw-cli", b"#!/bin/sh\n")
-        (self.app / "Contents/MacOS/sw-cli").symlink_to("../Resources/sw-cli")
+        self.file("Contents/Resources/SWCLI/bin/swcli", b"#!/bin/sh\n")
+        (self.app / "Contents/MacOS/swcli").symlink_to("../Resources/SWCLI/bin/swcli")
         self.file(signing.WINE_ROOT + "/lib/native-looking.dll", b"MZPE")
         entries = signing.inventory(self.app)
         self.assertEqual(entries[0]["path"], module)
@@ -68,7 +68,7 @@ class SigningInventoryTests(unittest.TestCase):
         self.assertEqual(sum(item["policy"] == "wine" for item in entries), 2)
 
     def test_non_macho_in_macos_directory_is_rejected_before_signing(self):
-        for name, data in (("sw-cli", b"#!/bin/sh\n"), ("data.txt", b"data"), ("helper.exe", b"MZPE")):
+        for name, data in (("swcli", b"#!/bin/sh\n"), ("data.txt", b"data"), ("helper.exe", b"MZPE")):
             with self.subTest(name=name):
                 path = self.file("Contents/MacOS/" + name, data)
                 with self.assertRaisesRegex(RuntimeError, "move it to Resources"), \
@@ -365,17 +365,18 @@ class NativeBundleLayoutTests(unittest.TestCase):
                 "CFBundlePackageType": "APPL", "CFBundleVersion": "1"}))
             subprocess.run(["xcrun", "clang", str(PROJECT / "native/signing_probe.c"),
                             "-o", str(contents / "MacOS/MacSW")], check=True, capture_output=True, timeout=60)
-            launcher = contents / "MacOS/sw-cli"
-            launcher.write_bytes((PROJECT / "scripts/swcli/sw-cli").read_bytes())
+            launcher = contents / "MacOS/swcli"
+            launcher.write_bytes((PROJECT / "scripts/swcli/swcli").read_bytes())
             launcher.chmod(0o755)
             # Reproduce the actual outer-App failure without a private key.
             command = ["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime", str(app)]
             rejected = subprocess.run(command, capture_output=True, timeout=60)
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn(b"code object is not signed at all", rejected.stderr)
-            self.assertIn(b"Contents/MacOS/sw-cli", rejected.stderr)
-            launcher.rename(contents / "Resources/sw-cli")
-            launcher.symlink_to("../Resources/sw-cli")
+            self.assertIn(b"Contents/MacOS/swcli", rejected.stderr)
+            (contents / "Resources/SWCLI/bin").mkdir(parents=True)
+            launcher.rename(contents / "Resources/SWCLI/bin/swcli")
+            launcher.symlink_to("../Resources/SWCLI/bin/swcli")
             subprocess.run(command, check=True, capture_output=True, timeout=60)
             verify = ["/usr/bin/codesign", "--verify", "--strict", "--deep", str(app)]
             subprocess.run(verify, check=True, capture_output=True, timeout=60)
@@ -386,22 +387,22 @@ class NativeBundleLayoutTests(unittest.TestCase):
             subprocess.run(["/usr/bin/ditto", "-x", "-k", str(archive), str(restored)],
                            check=True, capture_output=True, timeout=60)
             restored_app = restored / app.name
-            link = restored_app / "Contents/MacOS/sw-cli"
-            self.assertEqual(os.readlink(link), "../Resources/sw-cli")
+            link = restored_app / "Contents/MacOS/swcli"
+            self.assertEqual(os.readlink(link), "../Resources/SWCLI/bin/swcli")
             self.assertTrue(os.access(link, os.X_OK))
-            self.assertEqual(link.read_bytes(), (PROJECT / "scripts/swcli/sw-cli").read_bytes())
+            self.assertEqual(link.read_bytes(), (PROJECT / "scripts/swcli/swcli").read_bytes())
             subprocess.run([*verify[:-1], str(restored_app)], check=True, capture_output=True, timeout=60)
 
     def test_both_cli_entry_paths_resolve_the_same_runtime_without_starting_wine(self):
         with tempfile.TemporaryDirectory(prefix="macsw CLI layout ") as temporary:
             contents = Path(temporary).resolve() / "Probe.app/Contents"
-            resource = contents / "Resources/sw-cli"
+            resource = contents / "Resources/SWCLI/bin/swcli"
             resource.parent.mkdir(parents=True)
-            shutil.copyfile(PROJECT / "scripts/swcli/sw-cli", resource)
+            shutil.copyfile(PROJECT / "scripts/swcli/swcli", resource)
             resource.chmod(0o755)
-            launcher = contents / "MacOS/sw-cli"
+            launcher = contents / "MacOS/swcli"
             launcher.parent.mkdir()
-            launcher.symlink_to("../Resources/sw-cli")
+            launcher.symlink_to("../Resources/SWCLI/bin/swcli")
             (contents / "Resources/Wine").mkdir()
             (contents / "Frameworks").mkdir()
             (contents / "Frameworks/wine").symlink_to("../Resources/Wine")

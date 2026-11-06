@@ -11,10 +11,10 @@ struct CommandLineToolsSection: View {
     var body: some View {
         Section("命令行工具") {
             HStack {
-                Text("sw-cli").font(.body.monospaced())
+                Text("swcli").font(.body.monospaced())
                 Spacer()
                 if isOperating { ProgressView().controlSize(.small) }
-                Button(state == .installed ? "卸载命令行工具…" : "安装到 PATH…") {
+                Button(state == .installed ? "卸载命令行工具…" : state == .legacyInstalled ? "更新命令行工具…" : "安装到 PATH…") {
                     perform(state == .installed ? .uninstall : .install)
                 }
                 .disabled(isOperating || hasConflict)
@@ -42,9 +42,11 @@ struct CommandLineToolsSection: View {
     private var detail: String {
         switch state {
         case .notInstalled:
-            return "安装后可在终端直接使用 sw-cli。命令安装到 /usr/local/bin；需要时系统会请求授权。"
+            return "安装后可在终端直接使用 swcli。命令安装到 /usr/local/bin；需要时系统会请求授权。"
         case .installed:
-            return "已安装至 /usr/local/bin/sw-cli。App 更新后命令同步更新；卸载仅移除命令入口。"
+            return "已安装至 /usr/local/bin/swcli。App 更新后命令同步更新；卸载仅移除命令入口。"
+        case .legacyInstalled:
+            return "检测到本 App 的旧版本命令入口，请更新命令行工具。"
         case let .conflict(detail):
             return detail
         }

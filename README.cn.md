@@ -58,7 +58,9 @@ MacSW 并点“全部更改”。App 不主动改写系统默认关联。
 
 ## SWCLI 快速开始
 
-App 内置 `sw-cli`，用于文档与零件自动化。**先启动 daemon，再执行文档操作**；
+在“设置 → 维护 → 命令行工具”安装 `/usr/local/bin/swcli`。
+
+App 内置 `swcli`，用于文档与零件自动化。**先启动 daemon，再执行文档操作**；
 `document` 和 `part` 命令不会隐式拉起 SOLIDWORKS。
 
 菜单栏的“复制 AI 接入信息”位于 SOLIDWORKS 操作和“查看日志”之间。将复制的文字发给
@@ -69,7 +71,7 @@ App 内置 `sw-cli`，用于文档与零件自动化。**先启动 daemon，再�
 以下示例假设 App 位于 `/Applications/MacSW.app`；其他位置请修改第一行。
 
 ```bash
-SWCLI="/Applications/MacSW.app/Contents/MacOS/sw-cli"
+SWCLI="/Applications/MacSW.app/Contents/MacOS/swcli"
 
 # SOLIDWORKS 尚未运行：创建可见实例；省略 --visible 则隐藏
 "$SWCLI" daemon start --visible --json

@@ -40,7 +40,7 @@ class PublicationTests(unittest.TestCase):
         publisher.validate_release_changes(['.github/workflows/publish-release.yml',
             'scripts/ci/publish-release.py', 'scripts/tests/test_publish_release.py',
             'docs/direct-distribution.md', 'docs/releases/v0.1.8.md'])
-        for path in ['scripts/swcli/sw-cli', 'macos/Bootstrap/Sources/MacSWApp/Main.swift',
+        for path in ['scripts/swcli/swcli', 'macos/Bootstrap/Sources/MacSWApp/Main.swift',
                      'scripts/package_app.sh', 'config/versions.env', 'Dependencies/SWCLI',
                      'patches/wine-crossover/0018-shell32-disable-host-menu-builder.patch',
                      '.github/workflows/sign-app.yml', '.github/workflows/build-app.yml']:

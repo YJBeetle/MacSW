@@ -76,21 +76,21 @@ state before trying again.
 ## SWCLI quick start
 
 In **Settings → Maintenance → Command-line tools**, choose **Install to PATH**
-to make `sw-cli` available in your terminal via `/usr/local/bin/sw-cli`.
+to make `swcli` available in your terminal via `/usr/local/bin/swcli`.
 This links to the current App; updates at the same location update the command too.
 The same section can uninstall the link without removing the App or bottle.
 Before moving the App, uninstall the command and reinstall it from the new location.
 An existing command from another location is left untouched. Your shell must include
 `/usr/local/bin` in `PATH`; the full App path below remains available.
 
-The bundled `sw-cli` provides document and part automation. **Start the daemon
+The bundled `swcli` provides document and part automation. **Start the daemon
 before document operations**: `document` and `part` commands do not implicitly launch SOLIDWORKS.
 
 After an App upgrade, MacSW checks the managed Windows backend in the existing
 bottle at App startup and before Windows-side CLI commands. Its source commit
 and payload are verified; a matching runtime is not rewritten. An outdated or
 damaged runtime is staged and verified before replacement, with the previous
-copy retained. If a Python backend is running, stop it with `sw-cli daemon stop`
+copy retained. If a Python backend is running, stop it with `swcli daemon stop`
 and retry; `daemon stop/status` remain available without upgrading first.
 This updates only `C:\\MacSW\\Python311`, not SOLIDWORKS or the Wine bottle schema.
 
@@ -103,7 +103,7 @@ not change agent settings. Copying runs no discovery commands, starts no Wine or
 SOLIDWORKS, creates no bottle, and does not establish daemon readiness.
 
 The development SWCLI integration also supports MCP stdio through the App's
-`Contents/MacOS/sw-cli mcp serve`. The App wrapper forwards arguments unchanged and supplies `SWCLI_DAEMON_UTILS`;
+`Contents/MacOS/swcli mcp serve`. The App wrapper forwards arguments unchanged and supplies `SWCLI_DAEMON_UTILS`;
 MCP initialization/status never starts Wine or SW. Explicit MCP lifecycle tools
 can start/reuse or stop the daemon, with the same document and ownership guards
 as the CLI. Startup may take several minutes. Native macOS Python bundles the
@@ -115,7 +115,7 @@ already installed App until a new App is built and installed.
 These examples assume `/Applications/MacSW.app`; change the first line for another location.
 
 ```bash
-SWCLI="/Applications/MacSW.app/Contents/MacOS/sw-cli"
+SWCLI="/Applications/MacSW.app/Contents/MacOS/swcli"
 
 # SOLIDWORKS is not running: create a visible instance; omit --visible for hidden mode
 "$SWCLI" daemon start --visible --json

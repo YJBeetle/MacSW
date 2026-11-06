@@ -53,11 +53,23 @@ class AIConnectionContractTests(unittest.TestCase):
 
     def test_pure_info_does_not_read_bottle_or_start_processes(self):
         info = (SOURCES / "MacSWCore/Models/AIConnectionInfo.swift").read_text()
-        launcher = (PROJECT / "scripts/swcli/sw-cli").read_text()
+        launcher = (PROJECT / "scripts/swcli/swcli").read_text()
         endpoint = re.search(r'defaultEndpoint = "([^"]+)"', info).group(1)
         self.assertIn("${SWCLI_ENDPOINT:-" + endpoint + "}", launcher)
         for forbidden in ("AppKit", "FileManager", "Process(", "CommandRunner", "AppPaths.live"):
             self.assertNotIn(forbidden, info)
+
+    def test_current_cli_resource_layout_has_no_legacy_entry(self):
+        package = (PROJECT / "scripts/package_app.sh").read_text()
+        verify = (PROJECT / "scripts/verify_app.sh").read_text()
+        self.assertTrue((PROJECT / "scripts/swcli/swcli").is_file())
+        self.assertFalse((PROJECT / "scripts/swcli/sw-cli").exists())
+        self.assertIn('"${RESOURCES_DIR}/SWCLI/bin/swcli"', package)
+        self.assertIn('ln -s ../Resources/SWCLI/bin/swcli "${MAC_OS_DIR}/swcli"', package)
+        self.assertNotIn('"${RESOURCES_DIR}/swcli"', package)
+        for path in ("MacOS/sw-cli", "Resources/sw-cli"):
+            self.assertIn('test ! -e "${CONTENTS_DIR}/' + path + '"', verify)
+            self.assertIn('test ! -L "${CONTENTS_DIR}/' + path + '"', verify)
 
     def test_advertised_skill_and_pinned_guide_are_packaged_and_verified(self):
         info = (SOURCES / "MacSWCore/Models/AIConnectionInfo.swift").read_text()
