@@ -42,3 +42,13 @@ MacSW 功能源码 fd9402633b23bba83fe75b23a023e07e8d37cb75；默认 /Applicatio
 | installed-license-fix.json | 20750f948cd46d37e42f84753a856a39739d0d0f8c8ed2ce6e575a068297218c |
 | final-source-proof.json | a68b6bc54b3dd8b469a0819fdc8d573ef29b2348a0569803c99701c49d34bd09 |
 | summary.json | 0ebe200dbf618832119943bbcc5e326775775bb3e3ae5818b9e38263ce75ec10 |
+
+## 日常 push CI 原包核验
+
+[42126959890](https://github.com/YJBeetle/MacSW/actions/runs/42126959890)，push/master，a298998f7d6a0bb1d17f16db5d9df9e1cdba7519，attempt1，整体成功。MacSW Python365、Swift238、SWCLI1618（15skip）通过；真实 SW job 按日常策略跳过，没有把它当完整 SW 接受。
+
+原 App artifact13461867919 ZIP522076349B，SHA77c4011ad12e05cb59d7069514101eb97e22a6d3d4b658986c040e1b341b4ca1，与 GitHub 匹配；内 App ZIP SHA2e98a06c629bb3b01ac2dc37dc99342d26bc4fdb6888f25818b8956dd562cfdc。只读核验0.1.10(12)、SWCLI0.1.0a16/769677a、native Python3.11.16/MCP1.30.0、双 Python72源码资源逐字节一致、856runtime manifest匹配，新显式准备入口和utils均在原包内。
+
+写缓冲ZIP SHA f1a539a95dae23c7c0464d252f3c5ad9b69beae7955ab4d48807ca32c0008043，5cases原始marker通过；原生文件面板ZIP SHA c1788854974de3c661307841837a39da454e2162a1dcaa7986ab6b88bcd22355，x64/x86共24cases原log/request通过。Toolbox primitive11步只取得原build日志passed，未上传逐探针report，不能声称已独立复核该report原件。
+
+该日常 App 是待distribution签名的原包（只有linker ad-hoc，尚无sealed资源），不是Developer ID/公证/正式发布；未用它覆盖或运行本机默认 App。原件/日志/只读审计位于/private/tmp/macsw-mcp-ci-42126959890，summary SHA026629d20ee23c1e77edf2a53bd33f54ead33917eef79b258274324243c88a2c，82原件摘要索引 SHAce73edb313a0eb754b0de0797baf93ee06eb2950bdfcd858ae2913fa17c20844。
