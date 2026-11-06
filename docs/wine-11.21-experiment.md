@@ -83,13 +83,13 @@ Wine 11.21 的 `flush_memory_dc` 仍按 `biSizeImage / 4 / width` 计算高度�
 
 完整本机证据、脚本与日志位于 `/private/tmp/macsw-wine1121/integration/`。显示器物理拔插两轮记录 29 / 21 次通知，用户确认原先小区域拖动限制未再出现；窗口位置和最大化恢复差异另记在 `docs/display-hotplug.md`。随后用户完成了下述实际面板、中文输入和 Finder 交互验收；ABI 检查单独保留，不混作 GUI 证据。
 
-### 0.2.0 定版边界
+### 初次 0.2.0 规划时的边界（历史）
 
 用户随后决定将 Wine 11.21、新 SWCLI 命令名和 MCP/skills 更新一起纳入 0.2.0，并明确要求暂缓发布。源码版本规划改为 0.2.0/build13，本机当前测试 App 仍是上述已验证的临时候选，后续需随最终 SWCLI/skills 重新构建。
 
-当前固定 SWCLI c23792f/a16 已使用 `swcli` 命令，但仍使用旧 MCP 工具名。2026-11-06 只读核对远端主线 36e5799 的短工具名为 `status`、`daemon_start`、`daemon_stop`、`capabilities`、`execute`；对应公开版本与 MacSW 自有技能尚须对齐，不能只修改提示词使其引用当前包不存在的工具。
+当时固定 SWCLI c23792f/a16 已使用 `swcli` 命令，但仍使用旧 MCP 工具名。2026-11-06 只读核对远端主线 36e5799 的短工具名为 `status`、`daemon_start`、`daemon_stop`、`capabilities`、`execute`；对应公开版本与 MacSW 自有技能尚须对齐，不能只修改提示词使其引用当前包不存在的工具。
 
-当前只做本地集成提交与验收，不触发签发、发布或替换公开 Release。正式版本须在最终 CLI/skills 固定后重新跑相应 CI，验收签名、公证与发布产物。
+当时仅做本地集成提交与验收，尚未授权签发、发布或替换公开 Release。正式版本须在最终 CLI/skills 固定后重新跑相应 CI，验收签名、公证与发布产物。
 
 ## 正式容器交互验收完成项（2026-11-06）
 
@@ -106,4 +106,14 @@ Wine 11.21 的 `flush_memory_dc` 仍按 `biSizeImage / 4 / width` 计算高度�
 
 同时使用与正式 App 相同的 `CommandLineToolService.perform(.install)` 迁移全局命令：操作前为 `legacyInstalled`，系统管理员授权路径只执行目录/链接操作，操作后为 `installed`。旧的、确属本 App 的悬空 `/usr/local/bin/sw-cli` 已移除；`/usr/local/bin/swcli` 指向 `/Applications/MacSW.app/Contents/MacOS/swcli`，真实 `swcli version --json` 返回 a16。没有修改其他同名工具或执行 Wine/App/Python 作为 root。此为实际服务与系统授权路径验证，不冒充设置按钮的自动点击验收。
 
-剩余：长期稳定性/软件渲染内存趋势，以及 0.2.0 最终 CLI/MCP/skills 对齐后的重新构建与 CI。发布仍按用户要求暂停。
+该轮结束时剩余长期稳定性/软件渲染内存趋势、最终 CLI/MCP/skills 对齐后的重新构建与 CI；当时发布暂停。后续授权与验证见下节。
+
+## 0.2.0 / SWCLI v0.2.1 定版验证（2026-11-06）
+
+用户随后授权更新到 SWCLI v0.2.1 并发布。固定 tag 对应源码 `60c6f463560b2541a17f91e0d6c5d84fe317b8bd`，版本定为 0.2.0/build14，构建号高于本机旧测试包的13。MacSW 自有技能同步五个短 MCP 工具名及 Wine 默认关闭 Windows 托盘的约定。
+
+- MacSW Python 373 项通过（1 skip）；SWCLI 1757 项通过（25 平台跳过）；启动器与 Bash 语法检查通过。共享测试从 SWCLI 仓库根目录运行，以匹配其 `tests` 辅助模块导入约定。
+- 最终 App 包验证为 Wine11.21、Mono11.3.0、SWCLI0.2.1、MacSW0.2.0/build14；逐项本地 ad-hoc 签名及严格深度验证通过。这不是 Developer ID 或公证证据。
+- 克隆容器 `/private/tmp/macsw-wine1121/bottle` 升级成功。在独立端口18921通过随包原生 Python/MCP SDK 和真实 Windows daemon 交互：发现五个短工具；停止态 status 不启动 SW；显式 daemon_start 启动隐藏且自有 SW33.5.0；查询 document.units 能力和空文档列表；断开再连接后同一 SW PID460 仍存活；显式停止成功，MCP 连接仍接受 ping。停止瞬间一次状态因连接重置明确返回 unknown，随后只读复查确认 stopped。
+
+该轮证据在 `/private/tmp/macsw-0.2.0-integration/`。未替换系统 App、未关闭或改动用户正式 SW 与文档。发布仍需对应最终源码的构建、轻量可见门禁、Developer ID 签名、公证与发布工作流；本机单测和 MCP 会话不替代这些门禁。长期稳定性与热插拔恢复差异仍保留原有边界。
