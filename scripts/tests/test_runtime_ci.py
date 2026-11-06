@@ -51,7 +51,7 @@ class RuntimeWorkflowTests(unittest.TestCase):
             "actions/cache@v6": 1,
             "actions/cache/restore@v6": 1,
             "actions/cache/save@v6": 1,
-            "actions/upload-artifact@v7": 5,
+            "actions/upload-artifact@v7": 8,
             "actions/download-artifact@v8": 2,
         }
         for action, count in actions.items():
@@ -72,7 +72,18 @@ class RuntimeWorkflowTests(unittest.TestCase):
         self.assertIn("group: macsw-build-${{ github.ref }}-${{ inputs.runtime_profile || 'visible-smoke' }}", self.build)
         self.assertIn("group: macsw-solidworks-runtime-${{ matrix.profile }}", self.runtime)
         self.assertIn("cancel-in-progress: false", self.runtime)
-        self.assertNotIn("continue-on-error", self.workflow)
+        summary_ids = {"summarize-" + kind for kind in ("checks", "build", "runtime")}
+        summary_ids.update("upload-" + kind + "-summary" for kind in ("checks", "build", "runtime"))
+        non_gating_ids = set()
+        for step in self.workflow.split("      - name: ")[1:]:
+            if "continue-on-error:" in step:
+                identifier = next(line.removeprefix("        id: ") for line in step.splitlines()
+                                  if line.startswith("        id: "))
+                non_gating_ids.add(identifier)
+                self.assertIn(identifier, summary_ids)
+                self.assertIn("        if: always()", step)
+                self.assertIn("        continue-on-error: true", step)
+        self.assertEqual(non_gating_ids, summary_ids)
         self.assertNotIn("swift build", self.runtime)
         self.assertNotIn("make archive", self.runtime)
 

@@ -99,24 +99,62 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
       - name: Checkout MacSW Repository
+        id: checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
 
       - name: Set up test Python
+        id: test-python
         uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
       - name: Prepare isolated SWCLI test dependencies
+        id: test-dependencies
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install './Dependencies/SWCLI[mcp]'
           echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run unit tests
+        id: unit-tests
         run: make test
+
+      - name: Summarize unit check results
+        id: summarize-checks
+        if: always()
+        continue-on-error: true
+        run: |
+          source scripts/lib/config.sh
+          summary_input="$(mktemp -d "$RUNNER_TEMP/macsw-checks-summary.XXXXXX")"
+          python3 Dependencies/SWCLI/scripts/ci/summarize-tests.py \
+            --evidence-root "$summary_input" \
+            --output-dir "${{ runner.temp }}/MacSW-ci-summary/checks" \
+            --host macos-wine \
+            --scope "MacSW unit checks" \
+            --source-commit "$SWCLI_SOURCE_COMMIT" \
+            --client-version "$SWCLI_VERSION" \
+            --stage "checkout=${{ steps.checkout.outcome || 'skipped' }}" \
+            --stage "python=${{ steps.test-python.outcome || 'skipped' }}" \
+            --stage "test-dependencies=${{ steps.test-dependencies.outcome || 'skipped' }}" \
+            --stage "unit-tests=${{ steps.unit-tests.outcome || 'skipped' }}" \
+            --step-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit check summary
+        id: upload-checks-summary
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-checks-summary
+          archive: true
+          path: |
+            ${{ runner.temp }}/MacSW-ci-summary/checks/summary.json
+            ${{ runner.temp }}/MacSW-ci-summary/checks/summary.md
+          if-no-files-found: ignore
+          retention-days: 14
 
   build:
     name: Build & package
@@ -144,6 +182,7 @@ jobs:
 
     steps:
       - name: Checkout MacSW Repository
+        id: checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
@@ -171,11 +210,13 @@ jobs:
           echo "swcli_native_python_archive_asset=${SWCLI_NATIVE_PYTHON_ARCHIVE_ASSET}" >> "$GITHUB_OUTPUT"
 
       - name: Report build toolchain
+        id: toolchain
         run: |
           xcodebuild -version
           swift --version
 
       - name: Cache pinned Wine runtime and 7zz
+        id: assets-cache
         uses: actions/cache@v6
         with:
           path: |
@@ -195,26 +236,31 @@ jobs:
           key: macsw-runtime-assets-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-config.outputs.runtime_cache_identity }}
 
       - name: Prepare isolated SWCLI test dependencies
+        id: test-dependencies
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install ./Dependencies/SWCLI
           echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install Wine build dependency
+        id: build-dependencies
         run: brew install bison mingw-w64
 
       - name: Ensure Dist Runtime
+        id: dist-runtime
         run: |
           mkdir -p dist
           echo "==> 检查 Wine 运行时状态..."
           ls -lh dist/ || true
 
       - name: Build, verify and archive MacSW.app
+        id: archive-app
         run: |
           make archive
           ls -lh build/archive/*.zip
 
       - name: Verify packaged Toolbox runtime primitives
+        id: toolbox-primitives
         # A fresh prefix; separate from shared real SW/CAD gates below.
         run: |
           sudo softwareupdate --install-rosetta --agree-to-license
@@ -222,6 +268,7 @@ jobs:
             --app build/app/MacSW.app --evidence build/toolbox-native-evidence
 
       - name: Upload MacSW App Artifact
+        id: upload-app
         uses: actions/upload-artifact@v7
         with:
           name: MacSW-macOS-App
@@ -233,6 +280,7 @@ jobs:
           retention-days: 14
 
       - name: Verify concurrent Wine process write-buffer barriers
+        id: write-buffers
         run: |
           python3 scripts/diagnostics/verify_write_buffers.py \
             --app build/app/MacSW.app --evidence build/write-buffers-evidence
@@ -248,6 +296,7 @@ jobs:
           retention-days: 14
 
       - name: Verify packaged native file dialog bridge
+        id: native-file-panels
         run: |
           bash scripts/test_native_file_panel_filters.sh
           python3 scripts/diagnostics/verify_native_file_panels.py \
@@ -264,6 +313,7 @@ jobs:
           retention-days: 14
 
       - name: Build and archive CI-only helpers
+        id: ci-helpers
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         run: |
           swift build --package-path macos/Bootstrap --scratch-path build/swift \
@@ -305,6 +355,56 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Summarize build results
+        id: summarize-build
+        if: always()
+        continue-on-error: true
+        run: |
+          source scripts/lib/config.sh
+          summary_input="$(mktemp -d "$RUNNER_TEMP/macsw-build-summary.XXXXXX")"
+          # Copy only public probe evidence, not the App, caches or source trees.
+          for evidence in build/toolbox-native-evidence build/write-buffers-evidence build/native-file-panel-evidence; do
+            if test -d "$evidence"; then
+              cp -R "$evidence" "$summary_input/"
+            fi
+          done
+          python3 Dependencies/SWCLI/scripts/ci/summarize-tests.py \
+            --evidence-root "$summary_input" \
+            --output-dir "${{ runner.temp }}/MacSW-ci-summary/build" \
+            --host macos-wine \
+            --scope "MacSW App build and packaged Wine probes" \
+            --source-commit "$SWCLI_SOURCE_COMMIT" \
+            --client-version "$SWCLI_VERSION" \
+            --stage "checkout=${{ steps.checkout.outcome || 'skipped' }}" \
+            --stage "configuration=${{ steps.build-config.outcome || 'skipped' }}" \
+            --stage "toolchain=${{ steps.toolchain.outcome || 'skipped' }}" \
+            --stage "assets-cache=${{ steps.assets-cache.outcome || 'skipped' }}" \
+            --stage "test-dependencies=${{ steps.test-dependencies.outcome || 'skipped' }}" \
+            --stage "build-dependencies=${{ steps.build-dependencies.outcome || 'skipped' }}" \
+            --stage "dist-runtime=${{ steps.dist-runtime.outcome || 'skipped' }}" \
+            --stage "archive-app=${{ steps.archive-app.outcome || 'skipped' }}" \
+            --stage "toolbox-primitives=${{ steps.toolbox-primitives.outcome || 'skipped' }}" \
+            --stage "upload-app=${{ steps.upload-app.outcome || 'skipped' }}" \
+            --stage "write-buffers=${{ steps.write-buffers.outcome || 'skipped' }}" \
+            --stage "native-file-panels=${{ steps.native-file-panels.outcome || 'skipped' }}" \
+            --stage "ci-helpers=${{ steps.ci-helpers.outcome || 'skipped' }}" \
+            --stage "artifact-digests=${{ steps.artifact-digests.outcome || 'skipped' }}" \
+            --step-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build summary
+        id: upload-build-summary
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-build-summary
+          archive: true
+          path: |
+            ${{ runner.temp }}/MacSW-ci-summary/build/summary.json
+            ${{ runner.temp }}/MacSW-ci-summary/build/summary.md
+          if-no-files-found: ignore
+          retention-days: 14
+
   runtime-test:
     name: SOLIDWORKS installation & runtime (${{ matrix.profile }})
     needs: [build, tag-policy]
@@ -330,12 +430,14 @@ jobs:
 
     steps:
       - name: Checkout MacSW Repository
+        id: checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
 
       - name: Check runtime prerequisites
+        id: prerequisites
         env:
           RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
           SW_SERIAL_SOLIDWORKS: ${{ secrets.SW_SERIAL_SOLIDWORKS }}
@@ -355,6 +457,7 @@ jobs:
           test "$available_kib" -ge 25165824 || { echo 'Runtime gate requires 24 GiB free disk' >&2; exit 1; }
 
       - name: Prepare isolated SWCLI test dependencies
+        id: test-dependencies
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install ./Dependencies/SWCLI
@@ -362,18 +465,21 @@ jobs:
 
       # With no run-id/token override, downloads are restricted to this run.
       - name: Download this run's MacSW App artifact
+        id: download-app
         uses: actions/download-artifact@v8
         with:
           name: MacSW-macOS-App
           path: ${{ runner.temp }}/MacSW-build-artifacts
 
       - name: Download this run's CI-only helpers
+        id: download-helpers
         uses: actions/download-artifact@v8
         with:
           name: MacSW-CI-Helpers
           path: ${{ runner.temp }}/MacSW-ci-helpers
 
       - name: Prepare private runtime test bundle from verified build artifacts
+        id: prepare-runtime
         env:
           MACSW_APP_ARCHIVE: ${{ needs.build.outputs.app_archive }}
           MACSW_APP_SHA256: ${{ needs.build.outputs.app_sha256 }}
@@ -408,6 +514,7 @@ jobs:
           codesign --verify --verbose=2 "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCIRuntime"
 
       - name: Resolve installed base cache identity
+        id: cache-identity
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         env:
           MACSW_MEDIA_PATH: ${{ inputs.media_path || 'Share/Software/DS.SolidWorks.2025.SP5.0.Premium-SSQ/SolidWorks.2025.SP5.0.Premium.DVD.iso' }}
@@ -433,10 +540,12 @@ jobs:
           key: macsw-installed-base-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Validate cache and copy into isolated test bottle
+        id: restore-base
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit == 'true'
         run: python3 scripts/ci/restore-base.py --context "$MACSW_BASE_CONTEXT"
 
       - name: Download private runtime fixtures
+        id: runtime-inputs
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 60
         env:
@@ -445,6 +554,7 @@ jobs:
         run: bash scripts/ci/fetch-runtime-inputs.sh
 
       - name: Mount media on demand and install using MacSWCore
+        id: install-official
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && steps.installed-base.outputs.cache-hit != 'true'
         timeout-minutes: 120
         env:
@@ -456,10 +566,12 @@ jobs:
           python3 scripts/ci/mount-install.py
 
       - name: Snapshot official installed bottle before private fixtures
+        id: snapshot-base
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
         run: python3 scripts/ci/bottle-cache.py export --context "$MACSW_BASE_CONTEXT"
 
       - name: Save only verified official base (before private fixtures)
+        id: save-base
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && !inputs.force_fresh_install && steps.installed-base.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
@@ -467,6 +579,7 @@ jobs:
           key: macsw-installed-base-v3-${{ runner.os }}-${{ runner.arch }}-${{ env.MACSW_BASE_CONTEXT }}
 
       - name: Prepare temporary licensing and runtime fixtures
+        id: prepare-fixtures
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 15
         run: |
@@ -474,6 +587,7 @@ jobs:
           "$RUNNER_TEMP/MacSW-runtime/MacSW.app/Contents/MacOS/MacSWCI" fixtures
 
       - name: Lightweight visible SOLIDWORKS smoke
+        id: visible-smoke
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && matrix.profile == 'visible-smoke'
         timeout-minutes: 30
         run: |
@@ -485,6 +599,7 @@ jobs:
 
       # Hidden full is manual for development and mandatory for version-tag releases.
       - name: Hidden SOLIDWORKS verification
+        id: hidden-full
         if: env.MACSW_VERIFY_SOLIDWORKS == 'true' && (inputs.runtime_stage || 'full') == 'full' && matrix.profile == 'hidden-full'
         timeout-minutes: 330
         env:
@@ -510,6 +625,7 @@ jobs:
             ${diagnostic_args[@]+"${diagnostic_args[@]}"}
 
       - name: Stop isolated runtime test bottle
+        id: cleanup-runtime
         if: always() && env.MACSW_VERIFY_SOLIDWORKS == 'true'
         timeout-minutes: 4
         run: |
@@ -537,4 +653,60 @@ jobs:
             ${{ runner.temp }}/MacSW-runtime/evidence/**/*.log
             ${{ runner.temp }}/MacSW-runtime/evidence/**/screenshots/*.png
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize runtime results
+        id: summarize-runtime
+        if: always()
+        continue-on-error: true
+        env:
+          MACSW_REDACTION_OUTCOME: ${{ steps.redact-runtime.outcome }}
+          MACSW_SUMMARY_SCOPE: "MacSW runtime: ${{ matrix.profile }}; stage=${{ inputs.runtime_stage || 'full' }}; diagnostic=${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic_test_set || 'all' }}"
+        run: |
+          source scripts/lib/config.sh
+          # The redaction barrier is authoritative. Never inspect raw receipts on failure.
+          summary_input="$(mktemp -d "$RUNNER_TEMP/macsw-runtime-summary-empty.XXXXXX")"
+          if test "$MACSW_REDACTION_OUTCOME" = success; then
+            summary_input="$RUNNER_TEMP/MacSW-runtime/evidence"
+            mkdir -p "$summary_input"
+          fi
+          python3 Dependencies/SWCLI/scripts/ci/summarize-tests.py \
+            --evidence-root "$summary_input" \
+            --output-dir "${{ runner.temp }}/MacSW-ci-summary/runtime/${{ matrix.profile }}" \
+            --host macos-wine \
+            --scope "$MACSW_SUMMARY_SCOPE" \
+            --source-commit "$SWCLI_SOURCE_COMMIT" \
+            --client-version "$SWCLI_VERSION" \
+            --stage "checkout=${{ steps.checkout.outcome || 'skipped' }}" \
+            --stage "prerequisites=${{ steps.prerequisites.outcome || 'skipped' }}" \
+            --stage "test-dependencies=${{ steps.test-dependencies.outcome || 'skipped' }}" \
+            --stage "download-app=${{ steps.download-app.outcome || 'skipped' }}" \
+            --stage "download-helpers=${{ steps.download-helpers.outcome || 'skipped' }}" \
+            --stage "prepare-runtime=${{ steps.prepare-runtime.outcome || 'skipped' }}" \
+            --stage "cache-identity=${{ steps.cache-identity.outcome || 'skipped' }}" \
+            --stage "base-cache-lookup=${{ steps.installed-base.outcome || 'skipped' }}" \
+            --stage "restore-base=${{ steps.restore-base.outcome || 'skipped' }}" \
+            --stage "runtime-inputs=${{ steps.runtime-inputs.outcome || 'skipped' }}" \
+            --stage "install-official=${{ steps.install-official.outcome || 'skipped' }}" \
+            --stage "snapshot-base=${{ steps.snapshot-base.outcome || 'skipped' }}" \
+            --stage "save-base=${{ steps.save-base.outcome || 'skipped' }}" \
+            --stage "prepare-fixtures=${{ steps.prepare-fixtures.outcome || 'skipped' }}" \
+            --stage "visible-smoke=${{ steps.visible-smoke.outcome || 'skipped' }}" \
+            --stage "hidden-full=${{ steps.hidden-full.outcome || 'skipped' }}" \
+            --stage "cleanup=${{ steps.cleanup-runtime.outcome || 'skipped' }}" \
+            --stage "redaction=${{ steps.redact-runtime.outcome || 'skipped' }}" \
+            --step-summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runtime summary
+        id: upload-runtime-summary
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacSW-runtime-summary-${{ matrix.profile }}
+          archive: true
+          path: |
+            ${{ runner.temp }}/MacSW-ci-summary/runtime/${{ matrix.profile }}/summary.json
+            ${{ runner.temp }}/MacSW-ci-summary/runtime/${{ matrix.profile }}/summary.md
+          if-no-files-found: ignore
           retention-days: 14
