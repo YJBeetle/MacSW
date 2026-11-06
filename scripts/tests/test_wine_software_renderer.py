@@ -38,15 +38,16 @@ class SoftwareRendererTests(unittest.TestCase):
         patch = postimage()
         self.assertIn("!allow_software_rendering && !software_renderer", patch)
         self.assertIn("software_renderer = !accelerated", patch)
-        self.assertIn("bitmap_accelerated = accelerated", patch)
-        self.assertIn("bitmap.accelerated = bitmap_accelerated", patch)
+        # Wine 11.21 owns the shared FBO pixel formats; do not force their
+        # acceleration flags in the macOS fallback. The native bitmap gate
+        # below checks actual acceleration together with pixels and depth.
+        self.assertNotIn("bitmap_accelerated", patch)
         self.assertNotIn("bitmap.accelerated = bitmap.bitmap = 1", patch)
         self.assertNotIn("allow_software_rendering =", patch)
         self.assertIn("init_context(kCGLOGLPVersion_GL3_Core, NULL)", patch)
         self.assertIn("init_context(kCGLOGLPVersion_GL4_Core, NULL)", patch)
-        # 0008's storage/capability gates and context sharing are not replaced.
-        self.assertIn("GL_EXT_packed_depth_stencil", patch)
-        self.assertIn("GL_MAX_RENDERBUFFER_SIZE_EXT", patch)
+        self.assertIn("if (force_software_renderer && accelerated) return", patch)
+        self.assertIn("unsigned int accelerated = renderer.accelerated", patch)
 
     def test_native_bitmap_gate_checks_acceleration_without_weakening_pixels(self):
         probe = (PROJECT / "scripts/diagnostics/check_bitmap_opengl.c").read_text()

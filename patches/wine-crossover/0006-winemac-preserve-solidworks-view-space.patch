@@ -1,10 +1,42 @@
-diff --git a/dlls/winemac.drv/keyboard.c b/dlls/winemac.drv/keyboard.c
---- a/dlls/winemac.drv/keyboard.c
-+++ b/dlls/winemac.drv/keyboard.c
-@@ -1105,6 +1105,46 @@ void macdrv_hotkey_press(const macdrv_event *event)
+diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
+index 28bfb8e..96a8488 100644
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -3937,6 +3937,26 @@ uint32_t macdrv_window_background_color(void)
+     return result;
  }
- 
- 
+
++/* If the Cocoa input source has a pending composition, Space belongs to the
++ * candidate UI even while SOLIDWORKS' graphics view has Windows focus. */
++bool macdrv_ime_has_marked_text(void)
++{
++    __block bool marked = true; /* Missing Wine window: keep normal IME handling. */
++
++    OnMainThread(^{
++        WineWindow* window = (WineWindow*)[NSApp keyWindow];
++        if (![window isKindOfClass:[WineWindow class]])
++        {
++            window = (WineWindow*)[NSApp mainWindow];
++            if (![window isKindOfClass:[WineWindow class]])
++                window = [[WineApplicationController sharedController] frontWineWindow];
++        }
++        if (window)
++            marked = [[window contentView] hasMarkedText];
++    });
++    return marked;
++}
++
+ /***********************************************************************
+  *              macdrv_send_keydown_to_input_source
+  *
+diff --git a/dlls/winemac.drv/ime.c b/dlls/winemac.drv/ime.c
+index e22f434..dee5005 100644
+--- a/dlls/winemac.drv/ime.c
++++ b/dlls/winemac.drv/ime.c
+@@ -31,6 +31,46 @@ pthread_mutex_t ime_composition_rect_mutex = PTHREAD_MUTEX_INITIALIZER;
+ CGRect ime_composition_rect;
+
+
 +/* SOLIDWORKS handles Space as a viewport shortcut. macOS Chinese IMEs consume
 + * an idle Space and send only composition/character messages, so the shortcut
 + * never sees VK_SPACE. Identify its graphics child by its MFC class and the
@@ -48,53 +80,24 @@ diff --git a/dlls/winemac.drv/keyboard.c b/dlls/winemac.drv/keyboard.c
  /***********************************************************************
   *              ImeToAsciiEx (MACDRV.@)
   */
-@@ -1137,6 +1177,9 @@ UINT macdrv_ImeToAsciiEx(UINT vkey, UINT vsc, const BYTE *state, HIMC himc)
-             return STATUS_NOT_IMPLEMENTED;
+@@ -56,6 +96,8 @@ UINT macdrv_ImeToAsciiEx( UINT vkey, UINT vsc, const BYTE *state, void *update )
+     case VK_KANJI: TRACE( "Skipping metakey\n" ); return STATUS_NOT_IMPLEMENTED;
      }
- 
-+    if (idle_solidworks_view_space(vkey, state))
-+        return STATUS_NOT_IMPLEMENTED;
+
++    if (idle_solidworks_view_space(vkey, state)) return STATUS_NOT_IMPLEMENTED;
 +
      flags = thread_data->last_modifiers;
-     if (state[VK_SHIFT] & 0x80)
-         flags |= NX_SHIFTMASK;
+     if (state[VK_SHIFT] & 0x80) flags |= NX_SHIFTMASK;
+     else flags &= ~(NX_SHIFTMASK | NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK);
 diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
+index 378c22d..a80005c 100644
 --- a/dlls/winemac.drv/macdrv_cocoa.h
 +++ b/dlls/winemac.drv/macdrv_cocoa.h
-@@ -541,5 +541,6 @@ extern void macdrv_destroy_swapchain(macdrv_metal_swapchain swapchain);
+@@ -515,6 +515,7 @@ extern void macdrv_order_cocoa_window(WineWindow *window, WineWindow *prev,
+ extern bool macdrv_get_view_backing_size(WineContentView *view, int backing_size[2]);
+ extern void macdrv_set_view_backing_size(WineContentView *view, const int backing_size[2]);
  extern uint32_t macdrv_window_background_color(void);
- extern bool macdrv_send_keydown_to_input_source(int keyc, unsigned int flags, int repeat, void *data);
 +extern bool macdrv_ime_has_marked_text(void);
+ extern bool macdrv_send_keydown_to_input_source(int keyc, unsigned int flags, int repeat, void *update);
+ extern void macdrv_clear_ime_text(void);
  extern bool macdrv_is_any_wine_window_visible(void);
- 
- 
-diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
---- a/dlls/winemac.drv/cocoa_window.m
-+++ b/dlls/winemac.drv/cocoa_window.m
-@@ -4276,6 +4276,26 @@ uint32_t macdrv_window_background_color(void)
-     return result;
- }
- 
-+/* If the Cocoa input source has a pending composition, Space belongs to the
-+ * candidate UI even while SOLIDWORKS' graphics view has Windows focus. */
-+bool macdrv_ime_has_marked_text(void)
-+{
-+    __block bool marked = true; /* Missing Wine window: keep normal IME handling. */
-+
-+    OnMainThread(^{
-+        WineWindow* window = (WineWindow*)[NSApp keyWindow];
-+        if (![window isKindOfClass:[WineWindow class]])
-+        {
-+            window = (WineWindow*)[NSApp mainWindow];
-+            if (![window isKindOfClass:[WineWindow class]])
-+                window = [[WineApplicationController sharedController] frontWineWindow];
-+        }
-+        if (window)
-+            marked = [[window contentView] hasMarkedText];
-+    });
-+    return marked;
-+}
-+
- /***********************************************************************
-  *              macdrv_send_keydown_to_input_source
-  *

@@ -20,31 +20,23 @@ class BitmapFramebufferTests(unittest.TestCase):
         for script in (package, verify):
             self.assertIn("WineMacBitmapPatchSHA256", script)
 
-    def test_only_new_bitmap_formats_use_framebuffers(self):
+    def test_upstream_fbo_implementation_is_retained(self):
         patch = (PROJECT / "patches/wine-crossover" / PATCH_NAME).read_text()
-        additions = '\n'.join(line[1:] for line in patch.splitlines()
-                              if line.startswith('+') and not line.startswith('+++'))
-        self.assertIn("pixel_formats[nb_formats++] = bitmap", additions)
-        self.assertIn("bitmap.accelerated = bitmap.bitmap = 1", additions)
-        self.assertIn("bitmap.depth_bits = 24", additions)
-        self.assertIn("bitmap.stencil_bits = 8", additions)
-        self.assertIn("if (pixel_formats[format - 1].bitmap)", additions)
-        self.assertIn("if (largest || texture_format || texture_target || max_level) return FALSE", additions)
-        self.assertIn("delete_bitmap_buffers(gl)", additions)
-        self.assertIn("CGLSetCurrentContext(previous)", additions)
-        self.assertIn("GL_FRAMEBUFFER_COMPLETE_EXT", additions)
-        self.assertIn("GL_EXT_packed_depth_stencil", additions)
-        self.assertIn("CGLRetainPixelFormat(CGLGetPixelFormat(bitmap_context))", additions)
-        self.assertNotIn("CGLCreatePBuffer", additions)
-        self.assertNotIn("PFD_DOUBLEBUFFER", additions)
+        self.assertNotIn("+++ b/dlls/winemac.drv/opengl.c", patch)
+        self.assertIn("if (drawable->draw_fbo || drawable->read_fbo)", patch)
+        self.assertIn("GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME", patch)
+        self.assertIn("p_glTexSubImage2D", patch)
+        self.assertIn("p_glReadPixels", patch)
 
     def test_memory_dc_conversion_is_confined_to_framebuffer_targets(self):
         patch = (PROJECT / "patches/wine-crossover" / PATCH_NAME).read_text()
-        self.assertIn("+            if (context->draw->draw_fbo)", patch)
+        self.assertIn("+            if (drawable->draw_fbo || drawable->read_fbo)", patch)
         self.assertIn("convert_bitmapinfo( info, bits, &src, &buffer_info, buffer )", patch)
         self.assertIn("convert_bitmapinfo( &buffer_info, buffer, &src, info, bits )", patch)
-        self.assertIn("p_glPushClientAttrib( GL_CLIENT_PIXEL_STORE_BIT )", patch)
-        self.assertIn("p_glPopClientAttrib()", patch)
+        for state in ("alignment", "row_length", "skip_rows", "skip_pixels"):
+            self.assertIn(f"p_glGetIntegerv( {state}, &old_{state} )", patch)
+            self.assertIn(f"p_glPixelStorei( {state}, old_{state} )", patch)
+        self.assertIn("p_glBindBuffer( buffer_target, old_buffer )", patch)
         self.assertIn("free( buffer )", patch)
 
 

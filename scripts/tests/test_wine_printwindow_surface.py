@@ -7,31 +7,23 @@ PATCH = "0011-win32u-printwindow-surface.patch"
 
 
 class PrintWindowSurfaceTests(unittest.TestCase):
-    def test_patch_is_cached_packaged_and_verified(self):
+    def test_upstream_capture_is_recorded_without_retired_patch(self):
         build = (PROJECT / "scripts/build_winemac.sh").read_text()
         package = (PROJECT / "scripts/package_app.sh").read_text()
         verify = (PROJECT / "scripts/verify_app.sh").read_text()
+        self.assertFalse((PROJECT / "patches/wine-crossover" / PATCH).exists())
         for script in (build, package, verify):
-            self.assertIn(PATCH, script)
-        self.assertIn('${PRINTWINDOW_PATCH_SHA256}', build.split('BUILD_KEY=', 1)[1].split('\n', 1)[0])
-        self.assertIn('git -C "${SOURCE_DIR}" apply --check "${PRINTWINDOW_PATCH}"', build)
+            self.assertNotIn(PATCH, script)
+            self.assertNotIn('WinePrintWindowPatchSHA256', script)
         for script in (package, verify):
-            self.assertIn('WinePrintWindowPatchSHA256', script)
+            self.assertIn('WinePrintWindowImplementation', script)
+            self.assertIn('upstream-surface-copy', script)
             self.assertIn('WineInputModuleSHA256', script)
 
-    def test_capture_is_opt_in_and_does_not_hide_scrollbars(self):
-        patch = (PROJECT / "patches/wine-crossover" / PATCH).read_text()
-        additions = '\n'.join(line[1:] for line in patch.splitlines()
-                              if line.startswith('+') and not line.startswith('+++'))
-        self.assertIn('if (compat_printwindow_surface)', additions)
-        self.assertIn('WINE_PRINTWINDOW_SURFACE', additions)
-        self.assertIn('flags & PW_CLIENTONLY', additions)
-        self.assertIn('NtGdiBitBlt', additions)
-        self.assertIn('NtUserReleaseDC', additions)
-        for unrelated in ('ShowScrollBar', 'SetScrollInfo', 'SetWindowPos', 'NtUserMessageCall'):
-            self.assertNotIn(unrelated, additions)
+    def test_installation_keeps_capture_resend_flag_without_retired_opt_in(self):
         registry = (PROJECT / 'macos/Bootstrap/Sources/MacSWCore/Services/RegistryService.swift').read_text()
-        self.assertIn('WINE_NOCAPTURERESEND WINE_PRINTWINDOW_SURFACE', registry)
+        self.assertIn('value: "WINE_NOCAPTURERESEND"', registry)
+        self.assertNotIn('WINE_PRINTWINDOW_SURFACE', registry)
 
     def test_diagnostic_is_optional_and_checks_pixels(self):
         self.assertIn('printwindow-probe:', (PROJECT / 'Makefile').read_text())

@@ -116,7 +116,7 @@ final class RegistryServiceTests: XCTestCase {
             RegistryAssignment(
                 key: "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\Layers",
                 name: "sldworks.exe",
-                value: "WINE_NOCAPTURERESEND WINE_PRINTWINDOW_SURFACE"
+                value: "WINE_NOCAPTURERESEND"
             ),
             RegistryAssignment(
                 key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager",

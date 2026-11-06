@@ -1,26 +1,21 @@
 diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+index 31439ac..eea157d 100644
 --- a/dlls/winemac.drv/opengl.c
 +++ b/dlls/winemac.drv/opengl.c
-@@ -103,6 +103,9 @@
- /* Only bitmap formats use this legacy share group. Ordinary window and
-  * pbuffer contexts keep their original CGL activation and sharing paths. */
- static CGLContextObj bitmap_context;
-+static BOOL bitmap_accelerated;
-+static BOOL software_renderer;
-+static BOOL force_software_renderer;
- static pthread_mutex_t bitmap_mutex = PTHREAD_MUTEX_INITIALIZER;
- static GLint bitmap_max_size;
- static PFN_glBindFramebufferEXT pglBindFramebufferEXT;
-@@ -644,12 +647,18 @@
+@@ -30,6 +30,8 @@
+
+ WINE_DEFAULT_DEBUG_CHANNEL(wgl);
+
++static BOOL software_renderer, force_software_renderer;
++
+ struct gl_info {
+     char *glExtensions;
+
+@@ -482,12 +484,13 @@ static void enum_renderer_pixel_formats(renderer_properties renderer, CFMutableA
      unsigned int double_buffer;
      unsigned int accelerated = renderer.accelerated;
 
-+    if (force_software_renderer && accelerated)
-+    {
-+        TRACE("ignoring accelerated renderer for explicit software test selection\n");
-+        return;
-+    }
-+
++    if (force_software_renderer && accelerated) return;
      if (accelerated)
      {
          attribs[n++] = kCGLPFAAccelerated;
@@ -31,17 +26,7 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
      {
          TRACE("ignoring software renderer because AllowSoftwareRendering is off\n");
          return;
-@@ -1185,7 +1194,8 @@
-             if (bitmap_context)
-             {
-                 pixel_format bitmap = {0};
--                bitmap.accelerated = bitmap.bitmap = 1;
-+                bitmap.bitmap = 1;
-+                bitmap.accelerated = bitmap_accelerated;
-                 bitmap.depth_bits = 24;
-                 bitmap.stencil_bits = 8;
-                 bitmap.color_mode = 8; /* kCGLRGB888Bit */
-@@ -1236,37 +1246,96 @@
+@@ -1042,37 +1045,93 @@ static const pixel_format *get_pixel_format(int format, BOOL allow_nondisplayabl
      return NULL;
  }
 
@@ -73,7 +58,7 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 +    CGLContextObj context = NULL, old_context = CGLGetCurrentContext();
 +    GLint screens, screen, value;
      CGLError err;
-
+-
 -    if ((err = CGLChoosePixelFormat(attribs, &pix, &screens)) || !pix)
 +    if (force_software_renderer)
 +    {
@@ -114,7 +99,8 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 +        CGLReleasePixelFormat(pix);
 +        return NULL;
      }
-+
+-    CGLReleasePixelFormat(pix);
+
 +    if ((err = CGLGetVirtualScreen(context, &screen)) ||
 +        (err = CGLDescribePixelFormat(pix, screen, kCGLPFAAccelerated, &value)))
 +    {
@@ -123,14 +109,13 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 +        CGLReleasePixelFormat(pix);
 +        return NULL;
 +    }
-     CGLReleasePixelFormat(pix);
++    CGLReleasePixelFormat(pix);
 +    if (force_software_renderer && value)
 +    {
 +        WARN("Explicit software selection returned an accelerated context\n");
 +        CGLReleaseContext(context);
 +        return NULL;
 +    }
-
      if ((err = CGLSetCurrentContext(context)))
      {
          WARN("CGLSetCurrentContext() failed with error %d %s\n", err, CGLErrorString(err));
@@ -138,42 +123,25 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
          CGLReleaseContext(context);
          return NULL;
      }
-
+-
 +    if (accelerated) *accelerated = !!value;
 +    TRACE("Initialized profile %#x, accelerated %u\n", profile, !!value);
      return context;
  }
 
-@@ -1277,10 +1346,15 @@
-
-     CGLContextObj context;
-     CGLContextObj old_context = CGLGetCurrentContext();
-+    BOOL accelerated;
+@@ -1086,7 +1145,10 @@ static BOOL init_gl_info(void)
      const char *str;
      size_t length;
 
 -    if (!(context = init_context(kCGLOGLPVersion_Legacy))) return FALSE;
 +    if (!select_renderer(getenv("MACSW_OPENGL_RENDERER"))) return FALSE;
++    BOOL accelerated;
 +    if (!(context = init_context(kCGLOGLPVersion_Legacy, &accelerated))) return FALSE;
-+    /* Allow enumeration for this fallback only; do not change the registry
-+     * policy or expose software formats when hardware initialization worked. */
 +    software_renderer = !accelerated;
      str = (const char*)pglGetString(GL_EXTENSIONS);
      length = strlen(str) + sizeof(legacy_extensions);
      if (allow_vsync)
-@@ -1307,14 +1381,18 @@
-         gluCheckExtension((GLubyte*)"GL_EXT_packed_depth_stencil", (GLubyte*)gl_info.glExtensions))
-     {
-         pglGetIntegerv(GL_MAX_RENDERBUFFER_SIZE_EXT, &bitmap_max_size);
--        if (bitmap_max_size > 0) bitmap_context = CGLRetainContext(context);
-+        if (bitmap_max_size > 0)
-+        {
-+            bitmap_context = CGLRetainContext(context);
-+            bitmap_accelerated = accelerated;
-+        }
-     }
-
-     CGLSetCurrentContext(old_context);
+@@ -1108,7 +1170,7 @@ static BOOL init_gl_info(void)
      CGLReleaseContext(context);
      core_profile = kCGLOGLPVersion_Legacy;
 
@@ -181,8 +149,8 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 +    if (!(context = init_context(kCGLOGLPVersion_GL3_Core, NULL))) return TRUE;
      str = (const char*)pglGetString(GL_VERSION);
      TRACE("GL3_Core context version: %s\n", str);
-     sscanf(str, "%u.%u", &gl_info.max_major, &gl_info.max_minor);
-@@ -1322,7 +1400,7 @@
+     sscanf(str, "%d.%d", &gl_info.max_major, &gl_info.max_minor);
+@@ -1116,7 +1178,7 @@ static BOOL init_gl_info(void)
      CGLReleaseContext(context);
      core_profile = kCGLOGLPVersion_GL3_Core;
 
@@ -190,4 +158,4 @@ diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
 +    if (!(context = init_context(kCGLOGLPVersion_GL4_Core, NULL))) return TRUE;
      str = (const char*)pglGetString(GL_VERSION);
      TRACE("GL4_Core context version: %s\n", str);
-     sscanf(str, "%u.%u", &gl_info.max_major, &gl_info.max_minor);
+     sscanf(str, "%d.%d", &gl_info.max_major, &gl_info.max_minor);

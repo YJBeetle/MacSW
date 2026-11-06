@@ -1,5 +1,12 @@
 # 底部假滚动条与窗口捕获
 
+> Wine 11.21 升级：上游提交 `c4e6fd93765e652e7b3f4cecbc13198f9582fd6e`
+> 已用窗口表面复制替换打印消息重入。MacSW 移除本地 0011 补丁及安装期
+> `WINE_PRINTWINDOW_SURFACE` 标志，构建清单改记 `WinePrintWindowImplementation=upstream-surface-copy`，
+> 并继续校验 `WineInputModuleSHA256`。aware / unaware 原有各 110 项探针均通过。
+> 下文保留 Wine 11.16 的根因、修复与历史验收记录；其中 opt-in / legacy 路径不适用于 11.21。
+> 已有容器遗留该标志不会恢复旧实现，升级无需仅为清理它重写其他兼容设置。
+
 `0011-win32u-printwindow-surface.patch` 为 SOLIDWORKS 单独启用窗口表面捕获，
 修复模型／运动算例标签行右端出现上下箭头的问题。它与 0010 的 TreeView
 间距修复是两个独立补丁，不修改 SOLIDWORKS DLL，也不强制隐藏滚动条。
