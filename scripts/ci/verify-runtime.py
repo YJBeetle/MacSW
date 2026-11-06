@@ -628,7 +628,13 @@ class RuntimeGate:
             raise ValueError("Unknown renderer selection")
         self.renderer = renderer
         self.root = ci_root()
-        if app.resolve() != self.root / "MacSW.app" or evidence.resolve() != self.root / "evidence":
+        # Matrix jobs keep each profile's receipt under a distinct evidence path.
+        # Preserve the legacy library entry point without permitting arbitrary
+        # descendants, another profile, or a symlink outside the isolated root.
+        allowed_evidence = {self.root / "evidence"}
+        if profile is not None:
+            allowed_evidence.add(self.root / "evidence" / profile)
+        if app.resolve() != self.root / "MacSW.app" or evidence.resolve() not in allowed_evidence:
             raise RuntimeError("Only the isolated CI App and evidence paths are allowed")
         self.app = app
         self.evidence = evidence

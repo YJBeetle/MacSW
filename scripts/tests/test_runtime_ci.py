@@ -819,6 +819,38 @@ class RuntimeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "isolated CI"):
             ci.RuntimeGate(Path("/Applications/MacSW.app"), self.root / "evidence")
 
+    def test_workflow_profile_paths_are_accepted_and_keep_separate_receipts(self):
+        for profile in ("visible-smoke", "hidden-full"):
+            with self.subTest(profile=profile):
+                evidence = self.root / "evidence" / profile
+                gate = ci.RuntimeGate(self.app, evidence, profile=profile)
+                self.assertEqual(gate.evidence, evidence)
+                self.assertEqual(gate.record_path, evidence / "runtime.json")
+                self.assertEqual(gate.record["profile"], profile)
+                gate.record_path.write_text("previous evidence")
+                with self.assertRaisesRegex(RuntimeError, "overwrite previous evidence"):
+                    ci.RuntimeGate(self.app, evidence, profile=profile)
+                # Each workflow matrix job owns a separate bottle. Reset only
+                # this fixture's mapping before checking the second profile.
+                (self.root / "app-support/bottle/dosdevices/m:").unlink()
+
+    def test_profile_evidence_rejects_unselected_paths_and_symlink_escape(self):
+        for relative in ("evidence/hidden-full", "evidence/other", "evidence/visible-smoke/nested",
+                         "evidence/../private", "outside"):
+            with self.subTest(relative=relative):
+                evidence = self.root / relative
+                with self.assertRaisesRegex(RuntimeError, "isolated CI"):
+                    ci.RuntimeGate(self.app, evidence, profile="visible-smoke")
+                self.assertFalse(evidence.exists())
+        outside = self.directory / "outside-evidence"
+        outside.mkdir()
+        evidence = self.root / "evidence" / "visible-smoke"
+        evidence.parent.mkdir()
+        evidence.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, "isolated CI"):
+            ci.RuntimeGate(self.app, evidence, profile="visible-smoke")
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_acquisition_evidence_does_not_claim_host_readiness(self):
         gate = self.gate()
         event = {"action": "daemon.startup", "ok": True, "phase": "host-acquired",
